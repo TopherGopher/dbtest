@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ master ]
 
+# The token every job gets can read the repository and nothing more.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build
@@ -63,13 +67,13 @@ jobs:
       run: go test -v -race ./...
 
     - name: Convert code coverage for package
-      uses: jandelgado/gcov2lcov-action@v1.0.5
+      uses: jandelgado/gcov2lcov-action@4b58d89f12597f97e8c509dfbcbb6a71a3dde8fa # v1.0.5
       with:
         infile: coverage.out
         outfile: coverage.lcov
 
     - name: Upload code coverage to Coveralls for package
-      uses: coverallsapp/github-action@v1.1.2
+      uses: coverallsapp/github-action@8cbef1dea373ebce56de0a14c68d6267baa10b44 # v1.1.2
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         path-to-lcov: coverage.lcov
