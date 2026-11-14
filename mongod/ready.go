@@ -35,14 +35,14 @@ type readyProbe struct {
 	requireAuth bool
 	// hasHealthCheck says the image declares a health check to wait for.
 	hasHealthCheck bool
+	// callerEnded reports whether the context passed to Start has ended,
+	// which tells a wait the caller cut short from one that timed out.
+	callerEnded func() bool
 }
 
-// wait polls until the container is ready, the timeout passes, or the
-// container can no longer become ready.
+// wait polls until the container is ready, ctx ends, or the container can no
+// longer become ready. ctx carries the start timeout.
 func (p readyProbe) wait(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
-
 	interval := firstPollInterval
 	timer := time.NewTimer(interval)
 	defer timer.Stop()
@@ -53,8 +53,9 @@ func (p readyProbe) wait(ctx context.Context) error {
 		if ready || isFinal(err) {
 			return err
 		}
-		// A check cut short by the timeout says nothing new.
-		if err != nil && ctx.Err() == nil {
+		// A check cut short by the timeout says nothing new. Any other
+		// replaces what the one before it found.
+		if ctx.Err() == nil {
 			lastErr = err
 		}
 
@@ -138,7 +139,7 @@ func isFinal(err error) bool {
 func (p readyProbe) notReady(cause, lastErr error) error {
 	return &NotReadyError{
 		Name: p.name, ID: p.id, Host: p.host, Port: p.port, HostSource: p.hostSource,
-		Timeout: p.timeout, Cause: cause, LastErr: lastErr,
+		Timeout: p.timeout, ContextEnded: p.callerEnded(), Cause: cause, LastErr: lastErr,
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,17 +53,18 @@ func TestAStartWithoutAReplicaSetRunsNothingInTheContainer(t *testing.T) {
 	assert.Empty(t, *commands, "a standalone mongod has nothing to initiate")
 }
 
-func TestTheSetIsInitiatedAsTheRootUser(t *testing.T) {
+// A command line is visible to every user of the daemon's host, so the
+// password must reach the shell another way.
+func TestThePasswordIsNotOnTheCommandLineThatInitiatesTheSet(t *testing.T) {
 	m, _ := authMock(t)
 	commands := shell(m, dockerclient.ExecResult{}, nil)
 
-	mustStart(t, m, mongod.WithReplicaSet("rs0"), mongod.WithAuth("admin", "s3cret"))
+	mustStart(t, m, mongod.WithReplicaSet("rs0"), mongod.WithAuth("admin", "s3cret-marker"))
 
 	require.Len(t, *commands, 1, "the set is initiated")
-	username, _ := flagValue((*commands)[0], "--username")
-	password, _ := flagValue((*commands)[0], "--password")
-	assert.Equal(t, "admin", username, "a mongod that enforces authentication refuses an anonymous initiate")
-	assert.Equal(t, "s3cret", password, "so the command carries the credentials")
+	for _, argument := range (*commands)[0] {
+		assert.NotContains(t, argument, "s3cret-marker", "no argument carries the password")
+	}
 }
 
 func TestAStartFailsWhenTheSetCannotBeInitiated(t *testing.T) {
@@ -72,7 +74,8 @@ func TestAStartFailsWhenTheSetCannotBeInitiated(t *testing.T) {
 		err    error
 	}{
 		{name: "the shell reports a failure", result: dockerclient.ExecResult{ExitCode: 1, Stderr: "MongoServerError: not authorized"}},
-		{name: "the image has no shell to run", err: errors.New("exec: mongosh: executable file not found")},
+		{name: "the image has no shell to run", result: dockerclient.ExecResult{ExitCode: 127, Stdout: "exec: mongosh: executable file not found"}},
+		{name: "the daemon cannot run anything", err: errors.New("the daemon refused the exec")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -88,4 +91,30 @@ func TestAStartFailsWhenTheSetCannotBeInitiated(t *testing.T) {
 			assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the container is removed")
 		})
 	}
+}
+
+func TestAnInitiationThatOutlastsTheStartTimeoutIsNotReady(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ExecFunc = func(ctx context.Context, _ string, _ ...string) (dockerclient.ExecResult, error) {
+		<-ctx.Done() // a primary that is never elected
+		return dockerclient.ExecResult{}, ctx.Err()
+	}
+
+	started := time.Now()
+	_, err := start(t, m, mongod.WithReplicaSet("rs0"), mongod.WithStartTimeout(150*time.Millisecond))
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "a set that never accepts writes is a start that ran out of time")
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "which the error says")
+	assert.NotErrorIs(t, err, mongod.ErrNotInitiated, "it is not evidence that the image lacks a shell")
+	assert.Less(t, time.Since(started), 5*time.Second, "and the wait and the initiation share the one timeout")
+}
+
+func TestAnEmptyReplicaSetNameIsRefused(t *testing.T) {
+	m, _ := readyMock(t)
+
+	_, err := start(t, m, mongod.WithReplicaSet(""))
+
+	require.ErrorIs(t, err, mongod.ErrEmptyReplicaSet, "a caller who asked for a replica set must not get a standalone mongod")
+	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "it is an option mistake like the others")
+	assert.Empty(t, m.CallsTo("ContainerCreate"), "and nothing is created")
 }

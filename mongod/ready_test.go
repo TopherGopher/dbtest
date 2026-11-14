@@ -230,3 +230,15 @@ func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {
 
 	assert.ErrorIs(t, err, mongod.ErrNotReady, "the image never said its mongod was usable")
 }
+
+func TestAMongodThatWentAwayIsNotReportedAsStuckOnLoopback(t *testing.T) {
+	err := startWith(t, 150*time.Millisecond, func(poll int) []string {
+		if poll == 1 {
+			return []string{"mongod --bind_ip 127.0.0.1 --fork"}
+		}
+		return []string{"bash docker-entrypoint.sh mongod"}
+	})
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "it never became reachable")
+	assert.NotErrorIs(t, err, mongod.ErrLoopbackOnly, "when the wait ended no mongod was running, so advice about its bind address would mislead")
+}

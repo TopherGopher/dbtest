@@ -342,3 +342,47 @@ func TestURIAsksForADirectConnection(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("127.0.0.1:%d", port), uri.Host, "to the published address")
 	assert.Equal(t, "true", uri.Query().Get("directConnection"), "so a driver does not follow a member's own address, which only works inside the container")
 }
+
+// t.Context() has already ended by the time a t.Cleanup runs, and a Stop
+// that gave up there would leave the container running behind a green test.
+func TestStopStillRemovesTheContainerWhenItsContextHasAlreadyEnded(t *testing.T) {
+	m, _ := readyMock(t)
+	c := mustStart(t, m)
+	removed, live := false, false
+	m.ContainerRemoveFunc = func(ctx context.Context, _ string, _ dockerclient.RemoveOptions) error {
+		removed, live = true, ctx.Err() == nil
+		return nil
+	}
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.NoError(t, c.Stop(ended), "the container is removed all the same")
+	require.True(t, removed, "the daemon was asked")
+	assert.True(t, live, "on a context that can still carry the request")
+}
+
+func TestAWaitEndedByTheCallersDeadlineSaysSo(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := mongod.Start(ctx, mongod.WithDocker(m), mongod.WithHostIP("127.0.0.1"))
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "mongod was not ready")
+	require.ErrorIs(t, err, context.DeadlineExceeded, "because a deadline passed")
+	var notReady *mongod.NotReadyError
+	require.ErrorAs(t, err, &notReady, "with the details")
+	assert.True(t, notReady.ContextEnded, "and it was the caller's, so a longer start timeout would not have helped")
+}
+
+func TestAWaitEndedByTheStartTimeoutSaysSo(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
+
+	_, err := start(t, m, mongod.WithStartTimeout(50*time.Millisecond))
+
+	var notReady *mongod.NotReadyError
+	require.ErrorAs(t, err, &notReady, "mongod was not ready")
+	assert.False(t, notReady.ContextEnded, "the caller's context is still live, so the start timeout is what to change")
+}

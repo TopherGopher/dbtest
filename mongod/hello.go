@@ -24,12 +24,19 @@ const (
 	helloTimeout = 2 * time.Second
 )
 
-// helloDocument is {hello: 1, $db: "admin"} in BSON: its length, an int32
-// element, a string element, and a closing zero.
-const helloDocument = "\x1e\x00\x00\x00" +
-	"\x10hello\x00\x01\x00\x00\x00" +
-	"\x02$db\x00\x06\x00\x00\x00admin\x00" +
-	"\x00"
+// helloElements are the two fields of {hello: 1, $db: "admin"} in BSON: an
+// int32, then a string.
+const helloElements = "\x10hello\x00\x01\x00\x00\x00" +
+	"\x02$db\x00\x06\x00\x00\x00admin\x00"
+
+// helloDocument wraps the fields as BSON does: the document's own length
+// first, counted here so it cannot disagree with them, and a zero last.
+func helloDocument() []byte {
+	const lengthAndTerminator = 5
+	doc := binary.LittleEndian.AppendUint32(nil, uint32(len(helloElements)+lengthAndTerminator))
+	doc = append(doc, helloElements...)
+	return append(doc, 0)
+}
 
 // errNoReply is why a hello failed, inside the NotReadyError a caller sees.
 var errNoReply = errors.New("the port accepts connections but no mongod answered a command there")
@@ -38,13 +45,14 @@ var errNoReply = errors.New("the port accepts connections but no mongod answered
 func helloMessage() []byte {
 	le := binary.LittleEndian
 	const flagsAndKindLen = 5
-	msg := le.AppendUint32(nil, uint32(messageHeaderLen+flagsAndKindLen+len(helloDocument)))
+	document := helloDocument()
+	msg := le.AppendUint32(nil, uint32(messageHeaderLen+flagsAndKindLen+len(document)))
 	msg = le.AppendUint32(msg, helloID)
 	msg = le.AppendUint32(msg, 0) // answers nothing
 	msg = le.AppendUint32(msg, opMsg)
 	msg = le.AppendUint32(msg, 0) // no flags
 	msg = append(msg, 0)          // one document follows
-	return append(msg, helloDocument...)
+	return append(msg, document...)
 }
 
 // answersHello reports whether a message header is mongod's reply to the

@@ -155,12 +155,33 @@ func escapeUserinfo(s string) string {
 
 // Stop removes the container and its anonymous volumes. It is safe to call
 // twice and on a nil Container, and a container that is already gone counts
-// as stopped. If ctx ends or the daemon refuses, Stop returns the error and
-// can be called again.
+// as stopped. If the daemon refuses, or ctx ends while Stop is waiting, Stop
+// returns the error and can be called again.
+//
+// A context that has already ended still removes the container, so
+// t.Cleanup(func() { c.Stop(t.Context()) }) works.
 func (c *Container) Stop(ctx context.Context) error {
 	if c == nil {
 		return nil
 	}
+	ctx, cancel := removalContext(ctx)
+	defer cancel()
+	return c.stop(ctx)
+}
+
+// removalContext returns ctx, or one with a deadline of its own if ctx has
+// already ended. A test's context ends before its cleanups run, and a Stop
+// that gave up there would leave the container running behind a green test.
+func removalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+}
+
+// stop is Stop for a caller whose context is the limit, which is what the
+// reaper needs: a process dying of a signal must not wait past its deadline.
+func (c *Container) stop(ctx context.Context) error {
 	if err := lockContext(ctx, &c.mu); err != nil {
 		return err
 	}

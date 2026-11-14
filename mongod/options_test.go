@@ -146,6 +146,10 @@ func TestOptionsThatCannotWorkAreRefused(t *testing.T) {
 			env: map[string]string{mongod.EnvImage: "Bad Ref!!"}, want: dockerclient.ErrInvalidArgument},
 		{name: "a timeout in the environment that is not a duration",
 			env: map[string]string{mongod.EnvStartTimeout: "soon"}, want: dockerclient.ErrInvalidArgument},
+		{name: "a timeout of zero in the environment",
+			env: map[string]string{mongod.EnvStartTimeout: "0s"}, want: dockerclient.ErrInvalidArgument},
+		{name: "a negative timeout in the environment",
+			env: map[string]string{mongod.EnvStartTimeout: "-5s"}, want: dockerclient.ErrInvalidArgument},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -191,4 +195,35 @@ func TestAKnownImageIsRecognisedBehindAProxyPath(t *testing.T) {
 	lookalike := mongod.WithImage("registry.corp.example/team/not-mongodb-atlas-local:8.0")
 	_, err = start(t, m, lookalike, mongod.WithReplicaSet("rs0"))
 	assert.NoError(t, err, "a repository that only ends in the same letters is a different image")
+}
+
+func TestANilLoggerIsIgnored(t *testing.T) {
+	m, _ := readyMock(t)
+
+	c, err := start(t, m, mongod.WithLogger(nil))
+
+	require.NoError(t, err, "a logger that was never set must not break a start")
+	assert.NoError(t, c.Stop(context.Background()), "or a stop")
+}
+
+// An option mistake is mongod's to report: "docker: invalid credentials"
+// reads like a failed registry login.
+func TestOptionMistakesAreReportedAsMongodsOwn(t *testing.T) {
+	mistakes := map[string]mongod.Option{
+		"half-set credentials": mongod.WithAuth("admin", ""),
+		"a port out of range":  mongod.WithPort(70000),
+		"an empty image":       mongod.WithImage(""),
+		"a negative timeout":   mongod.WithStartTimeout(-time.Second),
+	}
+	for name, mistake := range mistakes {
+		t.Run(name, func(t *testing.T) {
+			m, _ := readyMock(t)
+
+			_, err := start(t, m, mistake)
+
+			require.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "it is still an invalid argument")
+			var fromDocker *dockerclient.InvalidArgumentError
+			assert.NotErrorAs(t, err, &fromDocker, "but not one the Docker client reports")
+		})
+	}
 }

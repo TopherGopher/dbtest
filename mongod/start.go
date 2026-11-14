@@ -35,6 +35,7 @@ func Start(ctx context.Context, opts ...Option) (*Container, error) {
 	// whether the container needs credentials.
 	host := dialHost(address.Host)
 	cfg = cfg.withCredentialsIfExposed(host)
+	cfg.announceExposure(host)
 
 	id, err := createContainer(ctx, docker, cfg, host)
 	if err != nil {
@@ -51,8 +52,8 @@ func Start(ctx context.Context, opts ...Option) (*Container, error) {
 	return c, nil
 }
 
-// ReapRunningContainers removes every container Start created that has not
-// been stopped. Call it after m.Run in TestMain so a run leaves nothing
+// ReapRunningContainers removes every container Start created in this
+// process that has not been stopped. Call it after m.Run in TestMain so a run leaves nothing
 // behind:
 //
 //	func TestMain(m *testing.M) {
@@ -123,12 +124,15 @@ func newContainer(id, host string, cfg config, docker dockerclient.Client) *Cont
 	// moment Register returns.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.reaperHandle = reaper.Register(c.name, c.Stop)
+	c.reaperHandle = reaper.Register(c.name, c.stop)
 	return c
 }
 
 // start runs the created container and returns once it is usable. hostSource
 // says where the dial address came from, for the error a failed wait returns.
+//
+// The start timeout covers everything after the container is running: the
+// wait for mongod and the replica set's initiation share it.
 func (c *Container) start(ctx context.Context, cfg config, hostSource string) error {
 	if cfg.tls {
 		c.logger.Warn("TLS mode is requested but no certificate material is copied yet, so mongod is still speaking plain TCP",
@@ -144,14 +148,23 @@ func (c *Container) start(ctx context.Context, cfg config, hostSource string) er
 		hostSource: hostSource, timeout: cfg.startTimeout,
 		requireAuth:    cfg.username != "",
 		hasHealthCheck: declaresHealthCheck(info.State.Health.Status),
+		callerEnded:    func() bool { return ctx.Err() != nil },
 	}
-	if err := probe.wait(ctx); err != nil {
+	bounded, cancel := context.WithTimeout(ctx, cfg.startTimeout)
+	defer cancel()
+	if err := probe.wait(bounded); err != nil {
 		return err
 	}
 	if cfg.replicaSet == "" {
 		return nil
 	}
-	return c.initiateReplicaSet(ctx, cfg.startTimeout)
+	err = c.initiateReplicaSet(bounded)
+	if bounded.Err() != nil {
+		// Out of time, which says nothing about whether the image can
+		// initiate a set at all.
+		return probe.notReady(bounded.Err(), errNoPrimary)
+	}
+	return err
 }
 
 // run starts the created container and records the port it is published

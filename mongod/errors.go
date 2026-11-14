@@ -1,7 +1,6 @@
 package mongod
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -17,8 +16,8 @@ import (
 var (
 	// ErrNoPublishedPort: the container port has no host port to connect to.
 	ErrNoPublishedPort = errors.New("container port is not published on the host")
-	// ErrNotReady: mongod was not reachable before the start timeout passed
-	// or the context was cancelled. The error also matches the context's error.
+	// ErrNotReady: mongod was not ready before the start timeout passed or
+	// the context ended. The error also matches the context's error.
 	ErrNotReady = errors.New("mongod did not become ready in time")
 	// ErrLoopbackOnly: when the wait ended, the only mongod running was
 	// listening on the container's own loopback, where no published port
@@ -50,23 +49,40 @@ var (
 // matches dockerclient.ErrInvalidArgument.
 var (
 	// ErrEmptyImage: WithImage or ParseMongoImage was given an empty reference.
-	ErrEmptyImage = dockerclient.InvalidArgument("image", "", "the value is empty",
-		`pass a reference such as WithImage("mongo:8"), or leave the option out to get the default`)
+	ErrEmptyImage error = &optionError{option: "WithImage", problem: "the reference is empty",
+		fix: `Pass one such as WithImage("mongo:8"), or leave the option out to get the default`}
 	// ErrIncompleteCredentials: only one of username and password was set.
-	ErrIncompleteCredentials = dockerclient.InvalidArgument("credentials", "", "only one of the username and the password is set",
-		`pass both, as in WithAuth("admin", "secret"), or neither`)
+	ErrIncompleteCredentials error = &optionError{option: "WithAuth", problem: "only one of the username and the password is set",
+		fix: `Pass both, as in WithAuth("admin", "secret"), or neither`}
 	// ErrUnusableCredentials: a username or password holds a backslash, a
 	// backtick or "${". MongoDB's community image pastes the credentials
 	// into a script, where those change the password or create no user.
-	ErrUnusableCredentials = dockerclient.InvalidArgument("credentials", "", "a username or password contains a backslash, a backtick or ${",
-		"choose credentials without them: MongoDB's own images cannot create that user")
+	ErrUnusableCredentials error = &optionError{option: "WithAuth", problem: "a username or password contains a backslash, a backtick or ${",
+		fix: "Choose credentials without them: MongoDB's own images cannot create that user"}
+	// ErrEmptyReplicaSet: WithReplicaSet was given an empty name.
+	ErrEmptyReplicaSet error = &optionError{option: "WithReplicaSet", problem: "the name is empty",
+		fix: `Pass one such as WithReplicaSet("rs0"), or leave the option out for a standalone mongod`}
 	// ErrEmptyHostIP: WithHostIP was given an empty address.
-	ErrEmptyHostIP = dockerclient.InvalidArgument("host ip", "", "the value is empty",
-		`pass an address such as WithHostIP("172.17.0.1"), or leave the option out to have it worked out`)
+	ErrEmptyHostIP error = &optionError{option: "WithHostIP", problem: "the address is empty",
+		fix: `Pass one such as WithHostIP("172.17.0.1"), or leave the option out to have it worked out`}
 )
 
+// optionError reports an option or environment variable Start cannot use.
+// It matches dockerclient.ErrInvalidArgument.
+type optionError struct {
+	option  string // the option or variable at fault, such as "WithAuth"
+	problem string
+	fix     string
+}
+
+func (e *optionError) Error() string {
+	return "mongod: " + e.option + ": " + e.problem + ". " + e.fix
+}
+
+func (e *optionError) Is(target error) bool { return target == dockerclient.ErrInvalidArgument }
+
 // errNotADuration is why a MONGOTEST_START_TIMEOUT value is refused.
-var errNotADuration = errors.New(`it is not a duration such as "90s" or "2m"`)
+var errNotADuration = errors.New(`it is not a positive duration such as "90s" or "2m"`)
 
 // Why an image cannot honour an option, and what to do instead.
 const (
@@ -76,26 +92,35 @@ const (
 )
 
 func invalidPort(port int) error {
-	return dockerclient.InvalidArgument("host port", strconv.Itoa(port), "the value is outside the range 0 to 65535",
-		"pass a port from 1 to 65535, or 0 to let the daemon choose")
+	return &optionError{option: "WithPort", problem: strconv.Itoa(port) + " is outside the range 0 to 65535",
+		fix: "Pass a port from 1 to 65535, or leave the option out to let the daemon choose"}
 }
 
 func invalidStartTimeout(d time.Duration) error {
-	return dockerclient.InvalidArgument("start timeout", d.String(), "the value is negative",
-		"pass a positive duration such as WithStartTimeout(90*time.Second), or leave the option out")
+	return &optionError{option: "WithStartTimeout", problem: d.String() + " is negative",
+		fix: "Pass a positive duration such as WithStartTimeout(90*time.Second), or leave the option out"}
 }
 
 // environmentError reports an unusable value in an environment variable. A
 // cause that is itself an invalid argument gives only its problem, so the
-// value and the advice are not said twice.
+// advice is not said twice.
 func environmentError(name, value string, cause error) error {
-	problem := cause.Error()
-	var invalid *dockerclient.InvalidArgumentError
-	if errors.As(cause, &invalid) {
-		problem = invalid.Problem
+	return &optionError{option: name, problem: fmt.Sprintf("%q cannot be used: %s", value, problemOf(cause)),
+		fix: "Correct the variable, or unset it to use the default"}
+}
+
+// problemOf returns what is wrong with a value, without the advice an
+// invalid-argument error carries for the option it was written for.
+func problemOf(cause error) string {
+	var fromDocker *dockerclient.InvalidArgumentError
+	var own *optionError
+	switch {
+	case errors.As(cause, &fromDocker):
+		return fromDocker.Problem
+	case errors.As(cause, &own):
+		return own.problem
 	}
-	return dockerclient.InvalidArgument(name, value, problem,
-		"correct the value of the "+name+" environment variable, or unset it to use the default")
+	return cause.Error()
 }
 
 // The steps of a start, as StartError.Op names them.
@@ -137,7 +162,7 @@ func (e *UnpublishedPortError) Error() string {
 
 func (e *UnpublishedPortError) Is(target error) bool { return target == ErrNoPublishedPort }
 
-// NotReadyError reports that mongod was not reachable in time. It matches
+// NotReadyError reports that mongod was not ready in time. It matches
 // ErrNotReady, the context error that ended the wait, and the last failure
 // the wait saw.
 type NotReadyError struct {
@@ -149,6 +174,9 @@ type NotReadyError struct {
 	Port       int
 	HostSource string
 	Timeout    time.Duration
+	// ContextEnded says the context passed to Start ended the wait, not the
+	// start timeout, so a longer timeout would not have helped.
+	ContextEnded bool
 	// Cause is the context's error. LastErr is the last failed attempt, or nil.
 	Cause   error
 	LastErr error
@@ -156,17 +184,23 @@ type NotReadyError struct {
 
 func (e *NotReadyError) Error() string {
 	where := fmt.Sprintf("container %s (%s) at %s", e.Name, shortID(e.ID), addr(e.Host, e.Port))
-	if errors.Is(e.Cause, context.Canceled) {
-		return fmt.Sprintf("mongod: the wait for %s was cancelled: %v", where, e.Cause)
+	if e.ContextEnded {
+		return fmt.Sprintf("mongod: the context passed to Start ended before %s was ready: %v%s. If it has a deadline, make it later",
+			where, e.Cause, e.lastFailure())
 	}
-	msg := fmt.Sprintf("mongod: %s was not reachable within %s", where, e.Timeout)
-	if e.LastErr != nil {
-		msg += fmt.Sprintf(": %v", e.LastErr)
-	}
+	msg := fmt.Sprintf("mongod: %s was not ready within %s%s", where, e.Timeout, e.lastFailure())
 	if e.HostSource != "" {
 		msg += ". The address came from " + e.HostSource
 	}
 	return msg + ". Allow longer with WithStartTimeout, or correct the address with WithHostIP or " + EnvHostIP
+}
+
+// lastFailure is what the last attempt found, ready to follow a message.
+func (e *NotReadyError) lastFailure() string {
+	if e.LastErr == nil {
+		return ""
+	}
+	return fmt.Sprintf(": %v", e.LastErr)
 }
 
 func (e *NotReadyError) Unwrap() []error {

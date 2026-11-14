@@ -29,7 +29,7 @@ const (
 	// RequiredLabelKey and RequiredLabelValue mark every container this
 	// package starts, so a stray one can be found and removed:
 	//
-	//	docker rm -f $(docker ps -aq --filter label=mongotest=regression)
+	//	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 	RequiredLabelKey   = "mongotest"
 	RequiredLabelValue = "regression"
 
@@ -75,6 +75,7 @@ type config struct {
 //
 //	"8.0"                                    the version
 //	"mongodb/mongodb-atlas-local"            the image, at its default version
+//	"mirror.corp.example/mongo"              the same image from a mirror
 //	"public.ecr.aws/docker/library/mongo:8"  everything
 func WithImage(ref string) Option {
 	return func(c *config) {
@@ -92,10 +93,10 @@ func WithImage(ref string) Option {
 	}
 }
 
-// WithMongoImage sets the whole image, usually one of the known ones:
+// WithMongoImage sets the whole image, usually one of the known ones. It
+// replaces every part, including a version an earlier option set:
 //
 //	mongod.WithMongoImage(mongod.ImageAtlasLocal)
-//	mongod.WithMongoImage(mongod.ImageDockerHub.WithRegistry("mirror.corp.example"))
 func WithMongoImage(img MongoImage) Option {
 	return func(c *config) { c.image = img }
 }
@@ -134,7 +135,12 @@ func WithHostIP(host string) Option {
 // the set and returns once it accepts writes. That uses the image's own
 // mongosh, so an image without it fails with [ErrNotInitiated].
 func WithReplicaSet(name string) Option {
-	return func(c *config) { c.replicaSet = name }
+	return func(c *config) {
+		if name == "" {
+			c.errs = append(c.errs, ErrEmptyReplicaSet)
+		}
+		c.replicaSet = name
+	}
 }
 
 // WithAuth creates a root user and makes mongod require authentication.
@@ -175,9 +181,14 @@ func WithLabel(key, value string) Option {
 	return func(c *config) { c.labels[key] = value }
 }
 
-// WithLogger sends what a start does to a logger. *slog.Logger works.
+// WithLogger sends what a start does to a logger. *slog.Logger works, and
+// nil leaves the logger as it was.
 func WithLogger(l dockerclient.Logger) Option {
-	return func(c *config) { c.logger = l }
+	return func(c *config) {
+		if l != nil {
+			c.logger = l
+		}
+	}
 }
 
 // WithDocker uses a specific Docker client, such as a double from dockermock.
@@ -265,7 +276,7 @@ func resolveStartTimeout(fromOption time.Duration) (time.Duration, error) {
 		return DefaultStartTimeout, nil
 	}
 	d, err := time.ParseDuration(raw)
-	if err != nil {
+	if err != nil || d <= 0 {
 		return 0, environmentError(EnvStartTimeout, raw, errNotADuration)
 	}
 	return d, nil

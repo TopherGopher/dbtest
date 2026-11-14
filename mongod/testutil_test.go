@@ -62,7 +62,8 @@ func acceptAll(ln net.Listener, handle func(net.Conn)) {
 }
 
 // answerCommand replies to one MongoDB command the way mongod does: with a
-// message of the same kind, addressed to the request, holding {ok: 1}.
+// message of the same kind, addressed to the request, holding {ok: 1}. It
+// hangs up on a command whose document is malformed.
 func answerCommand(conn net.Conn) {
 	defer conn.Close()
 	const headerLen, opMsg = 16, 2013
@@ -73,8 +74,17 @@ func answerCommand(conn net.Conn) {
 		return
 	}
 	le := binary.LittleEndian
-	rest := int64(le.Uint32(header[0:4])) - headerLen
-	if _, err := io.CopyN(io.Discard, conn, rest); err != nil {
+	body := make([]byte, int(le.Uint32(header[0:4]))-headerLen)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return
+	}
+	// mongod refuses a document whose declared length is not its real one.
+	const flagsAndKindLen = 5
+	if len(body) < flagsAndKindLen+4 {
+		return
+	}
+	document := body[flagsAndKindLen:]
+	if int(le.Uint32(document[0:4])) != len(document) {
 		return
 	}
 

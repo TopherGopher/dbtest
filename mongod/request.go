@@ -80,9 +80,22 @@ func (c config) withCredentialsIfExposed(host string) config {
 		return c
 	}
 	c.username, c.password = DefaultUsername, randomHex(secretRandomBytes)
-	c.logger.Info("the port is published on every interface, so mongod is created with generated credentials; the container's URI carries them",
-		"container", c.name, "username", c.username)
 	return c
+}
+
+// announceExposure logs that other machines will be able to reach mongod.
+// The same call is loopback-only on a laptop, so the change is worth saying.
+func (c config) announceExposure(host string) {
+	if bindIP(host) != allInterfaces {
+		return
+	}
+	if c.noAuth {
+		c.logger.Warn("mongod is published on every interface without authentication, so anyone who can reach this host can use it",
+			"container", c.name)
+		return
+	}
+	c.logger.Info("mongod is published on every interface, where other machines can reach it; the container's URI carries its credentials",
+		"container", c.name, "username", c.username)
 }
 
 // needsGeneratedCredentials reports whether the caller chose neither
