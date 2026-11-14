@@ -15,13 +15,14 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
-      with:
-        go-version: ^1.15
-
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # After the checkout: it reads the Go version from go.mod.
+    - name: Set up Go 1.x
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
 
     - name: Get dependencies
       run: |
@@ -47,12 +48,12 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
-      with:
-        go-version: ^1.15
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Set up Go 1.x
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
     - name: Get dependencies
       run: |
         go get -v -t -d ./...
@@ -67,13 +68,17 @@ jobs:
       run: go test -v -race ./...
 
     - name: Convert code coverage for package
-      uses: jandelgado/gcov2lcov-action@4b58d89f12597f97e8c509dfbcbb6a71a3dde8fa # v1.0.5
+      uses: jandelgado/gcov2lcov-action@e4612787670fc5b5f49026b8c29c5569921de1db # v1.2.0
       with:
         infile: coverage.out
         outfile: coverage.lcov
+        # The converter this action downloads; without it, the newest one.
+        version: v1.1.1
 
     - name: Upload code coverage to Coveralls for package
-      uses: coverallsapp/github-action@8cbef1dea373ebce56de0a14c68d6267baa10b44 # v1.1.2
+      uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        path-to-lcov: coverage.lcov
+        file: coverage.lcov
+        # The reporter this action downloads; without it, the newest one.
+        coverage-reporter-version: v0.6.22
