@@ -73,10 +73,10 @@
 // # Cleaning up
 //
 // Stop removes the container. A container that is never stopped is still
-// removed if the process gets SIGINT or SIGTERM; see the reaper package.
-// [ReapRunningContainers] does the same on demand: call it after m.Run in
+// removed if the process gets SIGINT or SIGTERM. [ReapRunningContainers]
+// removes this process's containers on demand: call it after m.Run in
 // TestMain. SIGKILL cannot be handled, so containers outlive it. Each is
-// labelled so it can be found:
+// labelled so it can be found, and removed with its volumes:
 //
-//	docker rm -f $(docker ps -aq --filter label=mongotest=regression)
+//	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 package mongod

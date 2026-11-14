@@ -40,7 +40,6 @@ const (
 // copy; do not assign to their fields.
 //
 //	mongod.ImageCommunity.WithVersion("8.0-ubi8")
-//	mongod.ImageDockerHub.WithRegistry("mirror.corp.example")
 var (
 	// ImageDockerHub is the Docker official image, and the default.
 	ImageDockerHub = MongoImage{Registry: registryDockerHub, Repository: repositoryOfficial, Version: defaultVersion}
@@ -59,7 +58,7 @@ var (
 )
 
 // MongoImage is an image in three parts, so one can change without restating
-// the others. Any part may be empty; Resolve fills it in.
+// the others. Any part may be empty; Start fills it in.
 //
 //	mongod.ImageCommunity.WithVersion("8.0-ubi8")                        // from a known image
 //	mongod.MustParseMongoImage("public.ecr.aws/docker/library/mongo:8")  // from a constant
@@ -160,7 +159,7 @@ func (m MongoImage) is(repository string) bool {
 }
 
 // ParseMongoImage splits a reference into its parts. Anything missing stays
-// empty, for Resolve to fill in.
+// empty, for Start to fill in.
 //
 //	"8.0-ubi9"                               version
 //	"mongo"                                  repository

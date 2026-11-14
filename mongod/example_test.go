@@ -64,15 +64,15 @@ func ExampleStart() {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}
-	defer c.Stop(ctx)
+	defer c.Stop(context.Background())
 
 	// Hand c.URI() to a MongoDB driver.
 	fmt.Println(c.Image())
 	// Output: mongo:8.0
 }
 
-// A version on its own keeps the default image; a whole image can be one of
-// the known ones, pointed at a mirror.
+// A version on its own keeps the default image, and a repository on its own
+// keeps the default version, which is how to pull through a mirror.
 func ExampleWithImage() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
@@ -83,15 +83,14 @@ func ExampleWithImage() {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}
-	defer older.Stop(ctx)
+	defer older.Stop(context.Background())
 
-	mirror := mongod.ImageDockerHub.WithRegistry("mirror.corp.example")
-	mirrored, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithMongoImage(mirror))
+	mirrored, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithImage("mirror.corp.example/mongo"))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}
-	defer mirrored.Stop(ctx)
+	defer mirrored.Stop(context.Background())
 
 	fmt.Println(older.Image())
 	fmt.Println(mirrored.Image())
@@ -114,7 +113,7 @@ func ExampleStart_environment() {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}
-	defer c.Stop(ctx)
+	defer c.Stop(context.Background())
 
 	fmt.Println(c.Image())
 	// Output: mongo:7.0
@@ -130,7 +129,7 @@ func ExampleWithAuth() {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}
-	defer c.Stop(ctx)
+	defer c.Stop(context.Background())
 
 	// c.URI() carries the credentials, encoded, so it is all a driver needs.
 	// Printing the container itself hides the password.
