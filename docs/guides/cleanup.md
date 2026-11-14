@@ -65,11 +65,12 @@ Every container is created with the label `mongotest=regression`. Whatever
 else fails, this lets you find and remove stray containers with one command:
 
 ```sh
-docker rm --force $(docker ps -aq --filter label=mongotest=regression)
+docker rm --force --volumes $(docker ps -aq --filter label=mongotest=regression)
 ```
 
-With nothing to remove, `docker rm` reports a missing argument, which is
-harmless. To look before removing:
+`--volumes` also removes each container's anonymous volumes, which otherwise
+stay on disk. With nothing to remove, `docker rm` reports a missing argument,
+which is harmless. To look before removing:
 
 ```sh
 docker ps -a --filter label=mongotest=regression \
@@ -82,7 +83,7 @@ a crashed run do not hold ports and memory the next run needs:
 ```yaml
 - name: Remove stray mongotest containers
   if: always()
-  run: docker ps -aq --filter label=mongotest=regression | xargs -r docker rm --force
+  run: docker ps -aq --filter label=mongotest=regression | xargs -r docker rm --force --volumes
 ```
 
 ## What cannot be cleaned up

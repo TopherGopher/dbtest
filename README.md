@@ -36,7 +36,7 @@ _* I was wondering if a compiler flag might be the way to go to always ensure cl
 Containers are created with a label of `mongotest=regression`. If you run `docker ps` and see stray mongo containers, try running:
 
 ```shell
-    docker rm --force $(docker ps -a -q --filter=label=mongotest=regression)
+    docker rm --force --volumes $(docker ps -a -q --filter=label=mongotest=regression)
 ```
 
 This will thwack any containers that were created via mongotest. 

@@ -48,7 +48,7 @@ They apply in the order given, so a later one overrides an earlier one.
 | `WithAuth(user, password)`, `WithoutAuth()` | See [Who can connect](#who-can-connect). |
 | `WithPort(port)` | A fixed host port. Prefer the default: a port found free can be taken before the container binds it. |
 | `WithHostIP(host)` | The address containers are reachable at; see [Remote and nested daemons](remote-daemons.md). |
-| `WithStartTimeout(d)` | How long `Start` waits. The default is one minute. |
+| `WithStartTimeout(d)` | How long `Start` waits, replica set initiation included. The default is one minute. |
 | `WithMongodArgs(args...)` | Extra flags for `mongod`. |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
 | `WithLogger(l)` | Where a start is logged. `*slog.Logger` works; the default discards. |
@@ -141,16 +141,18 @@ encrypted.
 `WithReplicaSet("rs0")` starts `mongod` as the only member of a replica set,
 which is what transactions and change streams need. `Start` initiates the set
 and returns once it accepts writes. With credentials it also supplies the key
-file `mongod` then requires.
+file `mongod` then requires. An empty name is refused with
+`ErrEmptyReplicaSet`.
 
 Initiating uses the image's own `mongosh`. An image without it fails with
 `ErrNotInitiated`.
 
 ## Cleaning up
 
-`Stop` removes the container. A container that is never stopped is removed
-when the process gets `SIGINT` or `SIGTERM`, and the process then dies of
-that signal. `SIGKILL` cannot be handled.
+`Stop` removes the container, even when the context it is given has already
+ended, so `t.Cleanup(func() { c.Stop(t.Context()) })` works. A container that
+is never stopped is removed when the process gets `SIGINT` or `SIGTERM`, and
+the process then dies of that signal. `SIGKILL` cannot be handled.
 
 To remove whatever is left when a run ends normally, call
 `ReapRunningContainers` after `m.Run`:
@@ -165,10 +167,11 @@ func TestMain(m *testing.M) {
 }
 ```
 
-Anything that still escapes carries the label, so one command finds it:
+Anything that still escapes carries the label, so one command removes it,
+with its volumes:
 
 ```sh
-docker rm -f $(docker ps -aq --filter label=mongotest=regression)
+docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ```
 
 ## Not here yet

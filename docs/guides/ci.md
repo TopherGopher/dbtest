@@ -43,7 +43,7 @@ jobs:
 
       - name: Remove stray mongotest containers
         if: always()
-        run: docker ps -aq --filter label=mongotest=regression | xargs -r docker rm --force
+        run: docker ps -aq --filter label=mongotest=regression | xargs -r docker rm --force --volumes
 ```
 
 ### Using a service container instead
