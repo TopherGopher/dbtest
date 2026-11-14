@@ -185,7 +185,7 @@ func (c *Container) stop(ctx context.Context) error {
 		return nil
 	}
 
-	err := c.docker.ContainerRemove(ctx, c.id, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
+	err := c.docker.ContainerRemove(ctx, c.ref(), dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
 	if err != nil && !dockerclient.IsNotFound(err) {
 		return err
 	}
@@ -193,6 +193,15 @@ func (c *Container) stop(ctx context.Context) error {
 	reaper.Unregister(c.reaperHandle)
 	c.logger.Debug("container removed", "container", c.name, "id", shortID(c.id))
 	return nil
+}
+
+// ref is what the daemon knows the container by: its id, or its name while
+// the daemon is still creating it and has not said what the id is.
+func (c *Container) ref() string {
+	if c.id != "" {
+		return c.id
+	}
+	return c.name
 }
 
 // lockPoll is how often lockContext tries again.

@@ -37,18 +37,17 @@ func Start(ctx context.Context, opts ...Option) (*Container, error) {
 	cfg = cfg.withCredentialsIfExposed(host)
 	cfg.announceExposure(host)
 
-	id, err := createContainer(ctx, docker, cfg, host)
-	if err != nil {
+	c := newContainer(host, cfg, docker)
+	if err := c.create(ctx, cfg, host); err != nil {
 		return nil, err
 	}
-	c := newContainer(id, host, cfg, docker)
 	if err := c.start(ctx, cfg, address.Source); err != nil {
 		c.removeAfterFailedStart(ctx)
 		return nil, err
 	}
 	// The logged URI hides the password: logs are shared more widely than
 	// access to the daemon.
-	c.logger.Info("mongod is running", "container", c.name, "id", shortID(id), "uri", c.uri(redactedPassword))
+	c.logger.Info("mongod is running", "container", c.name, "id", shortID(c.id), "uri", c.uri(redactedPassword))
 	return c, nil
 }
 
@@ -109,14 +108,15 @@ func createContainer(ctx context.Context, docker dockerclient.Client, cfg config
 	return id, nil
 }
 
-// newContainer describes a container that has just been created, and
+// newContainer describes a container that is about to be created, and
 // registers it for removal should the process be signalled.
 //
-// It registers now rather than once mongod is ready, because a signal during
-// the readiness wait would otherwise leave the container running.
-func newContainer(id, host string, cfg config, docker dockerclient.Client) *Container {
+// It registers before the daemon is asked, because a signal between the
+// daemon creating the container and this process hearing of it would
+// otherwise leave the container behind.
+func newContainer(host string, cfg config, docker dockerclient.Client) *Container {
 	c := &Container{
-		id: id, name: cfg.name, image: cfg.image, replicaSet: cfg.replicaSet,
+		name: cfg.name, image: cfg.image, replicaSet: cfg.replicaSet,
 		username: cfg.username, password: cfg.password,
 		host: host, docker: docker, logger: cfg.logger,
 	}
@@ -126,6 +126,41 @@ func newContainer(id, host string, cfg config, docker dockerclient.Client) *Cont
 	defer c.mu.Unlock()
 	c.reaperHandle = reaper.Register(c.name, c.stop)
 	return c
+}
+
+// create asks the daemon for the container and records its id.
+func (c *Container) create(ctx context.Context, cfg config, host string) error {
+	id, err := createContainer(ctx, c.docker, cfg, host)
+	if err != nil {
+		c.forget()
+		return err
+	}
+	if reaped := c.adopt(id); reaped {
+		c.removeAfterFailedStart(ctx)
+		return &ContainerExitedError{Name: c.name, ID: id, Status: "removed"}
+	}
+	return nil
+}
+
+// forget drops a container the daemon never created, so that nothing tries
+// to remove it.
+func (c *Container) forget() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stopped = true
+	reaper.Unregister(c.reaperHandle)
+}
+
+// adopt records the id the daemon gave the container, and reports whether a
+// reap ran while it was being created. Such a reap could only ask for the
+// container by name, perhaps before the daemon knew the name, so the caller
+// removes the container again by its id.
+func (c *Container) adopt(id string) (reaped bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	reaped = c.stopped
+	c.id, c.stopped = id, false
+	return reaped
 }
 
 // start runs the created container and returns once it is usable. hostSource

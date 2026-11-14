@@ -422,3 +422,45 @@ func TestThePortIsPublishedWhereItWillBeDialled(t *testing.T) {
 		}
 	})
 }
+
+// removedContainers returns what each removal a mocked daemon was asked for
+// named: a container's id, or its name.
+func removedContainers(m *dockermock.Mock) []string {
+	var removed []string
+	for _, call := range m.CallsTo("ContainerRemove") {
+		removed = append(removed, call.Args[0].(string))
+	}
+	return removed
+}
+
+// A signal can arrive while the daemon is still creating the container,
+// before this process has an id to remove it by.
+func TestAReapDuringCreationLeavesNoContainer(t *testing.T) {
+	m, _ := readyMock(t)
+	var name string
+	m.ContainerCreateFunc = func(ctx context.Context, created string, _ dockerclient.ContainerConfig) (string, []string, error) {
+		name = created
+		require.NoError(t, mongod.ReapRunningContainers(ctx), "the reap finds the container already registered")
+		return containerID, nil, nil
+	}
+
+	_, err := start(t, m)
+
+	require.ErrorIs(t, err, mongod.ErrContainerExited, "a container reaped while it was being created is not returned as running")
+	removed := removedContainers(m)
+	assert.Contains(t, removed, name, "the reap asks for it by name, the only handle there is before the daemon answers")
+	assert.Contains(t, removed, containerID, "and the container the daemon then reports is removed by its id")
+}
+
+func TestAFailedCreationLeavesNothingToReap(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+		return "", nil, errors.New("the daemon refused")
+	}
+
+	_, err := start(t, m)
+	require.Error(t, err, "the start fails")
+
+	require.NoError(t, mongod.ReapRunningContainers(context.Background()), "a later reap has nothing to do")
+	assert.Empty(t, m.CallsTo("ContainerRemove"), "no container exists, so none is asked for")
+}
