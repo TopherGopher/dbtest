@@ -386,3 +386,41 @@ func TestAWaitEndedByTheStartTimeoutSaysSo(t *testing.T) {
 	require.ErrorAs(t, err, &notReady, "mongod was not ready")
 	assert.False(t, notReady.ContextEnded, "the caller's context is still live, so the start timeout is what to change")
 }
+
+// Docker publishes on exactly the address it is given, so the interface the
+// port is bound to has to follow the address the caller will dial.
+func TestThePortIsPublishedWhereItWillBeDialled(t *testing.T) {
+	t.Run("loopback stays off the network", func(t *testing.T) {
+		for host, dialled := range map[string]string{
+			"127.0.0.1": "127.0.0.1",
+			"localhost": "localhost",
+			"::1":       "127.0.0.1",
+			"127.0.1.1": "127.0.0.1",
+		} {
+			m, _ := readyMock(t)
+
+			c := mustStart(t, m, mongod.WithHostIP(host))
+
+			binding := created(t, m).HostConfig.PortBindings["27017/tcp"][0]
+			assert.Equal(t, "127.0.0.1", binding.HostIP, "%s is this machine, so nothing else needs to reach the port", host)
+			assert.Equal(t, dialled, c.Host(), "and a loopback publish only answers at 127.0.0.1, so %s is dialled there", host)
+		}
+	})
+	t.Run("any other address needs every interface", func(t *testing.T) {
+		for _, host := range []string{siblingGateway, "build-host"} {
+			m := &dockermock.Mock{
+				ContainerInspectFunc: func(context.Context, string) (dockerclient.ContainerInspect, error) {
+					return running(1), nil
+				},
+			}
+
+			_, err := start(t, m, mongod.WithHostIP(host), mongod.WithStartTimeout(20*time.Millisecond))
+
+			var notReady *mongod.NotReadyError
+			require.ErrorAs(t, err, &notReady, "this daemon never reports a mongod")
+			binding := created(t, m).HostConfig.PortBindings["27017/tcp"][0]
+			assert.Equal(t, "0.0.0.0", binding.HostIP, "the daemon's host may not be able to bind %s itself", host)
+			assert.Equal(t, host, notReady.Host, "and the address is dialled as given")
+		}
+	})
+}

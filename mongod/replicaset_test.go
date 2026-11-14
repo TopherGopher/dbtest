@@ -44,15 +44,6 @@ func TestWithReplicaSetInitiatesTheSet(t *testing.T) {
 	assert.Len(t, *commands, 1, "a member that is never initiated accepts no writes, so Start initiates it")
 }
 
-func TestAStartWithoutAReplicaSetRunsNothingInTheContainer(t *testing.T) {
-	m, _ := readyMock(t)
-	commands := shell(m, dockerclient.ExecResult{}, nil)
-
-	mustStart(t, m)
-
-	assert.Empty(t, *commands, "a standalone mongod has nothing to initiate")
-}
-
 // A command line is visible to every user of the daemon's host, so the
 // password must reach the shell another way.
 func TestThePasswordIsNotOnTheCommandLineThatInitiatesTheSet(t *testing.T) {

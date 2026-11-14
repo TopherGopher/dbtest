@@ -70,11 +70,13 @@ func TestAnImageRendersAsDockerSpellsIt(t *testing.T) {
 	}
 }
 
-func TestDerivingFromAKnownImageLeavesItAlone(t *testing.T) {
-	mirrored := mongod.ImageDockerHub.WithRegistry("mirror.corp.example").WithVersion("7.0")
-
-	assert.Equal(t, "mirror.corp.example/mongo:7.0", mirrored.Reference(), "each With method returns a changed copy")
-	assert.Equal(t, "mongo:8.0", mongod.ImageDockerHub.Reference(), "and the known image is unchanged for every other test")
+func TestAnImageCanBeDerivedFromAKnownOne(t *testing.T) {
+	assert.Equal(t, "mirror.corp.example/mongo:8.0", mongod.ImageDockerHub.WithRegistry("mirror.corp.example").Reference(),
+		"WithRegistry changes where the image is pulled from")
+	assert.Equal(t, "team/mongo:8.0", mongod.ImageDockerHub.WithRepository("team/mongo").Reference(),
+		"WithRepository changes which image it is")
+	assert.Equal(t, "mongo:7.0", mongod.ImageDockerHub.WithVersion("7.0").Reference(),
+		"WithVersion changes the tag")
 }
 
 // Whatever ParseMongoImage accepts must render as a reference that parses

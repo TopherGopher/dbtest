@@ -61,13 +61,10 @@ func TestTheImageAStartRuns(t *testing.T) {
 }
 
 func TestWithPortPublishesThere(t *testing.T) {
-	m, port := readyMock(t)
+	request := requestFor(t, mongod.WithPort(27018))
 
-	c := mustStart(t, m, mongod.WithPort(port))
-
-	assert.Equal(t, port, c.Port(), "the container is on the port that was asked for")
-	binding := created(t, m).HostConfig.PortBindings["27017/tcp"][0]
-	assert.Equal(t, c.Port(), mustAtoi(t, binding.HostPort), "because the daemon was told to publish there")
+	binding := request.HostConfig.PortBindings["27017/tcp"][0]
+	assert.Equal(t, 27018, mustAtoi(t, binding.HostPort), "the daemon is told to publish on the port that was asked for")
 }
 
 func TestWithNameNamesTheContainer(t *testing.T) {
@@ -89,7 +86,8 @@ func TestWithLabelAddsToTheRequiredLabel(t *testing.T) {
 func TestWithMongodArgsReachMongod(t *testing.T) {
 	request := requestFor(t, mongod.WithMongodArgs("--quiet"), mongod.WithMongodArgs("--setParameter", "enableTestCommands=1"))
 
-	assert.Subset(t, request.Cmd, []string{"--quiet", "--setParameter", "enableTestCommands=1"}, "every flag is passed on")
+	assert.Equal(t, []string{"--quiet", "--setParameter", "enableTestCommands=1"}, request.Cmd,
+		"every flag is passed on in the order given, because a flag's value is the argument after it")
 }
 
 func TestTheStartTimeout(t *testing.T) {
@@ -129,19 +127,19 @@ func TestOptionsThatCannotWorkAreRefused(t *testing.T) {
 	cases := []struct {
 		name string
 		env  map[string]string
-		opt  mongod.Option
+		opts []mongod.Option
 		want error
 	}{
-		{name: "a port out of range", opt: mongod.WithPort(70000), want: dockerclient.ErrInvalidArgument},
-		{name: "a negative port", opt: mongod.WithPort(-1), want: dockerclient.ErrInvalidArgument},
-		{name: "a negative timeout", opt: mongod.WithStartTimeout(-time.Second), want: dockerclient.ErrInvalidArgument},
-		{name: "an empty image", opt: mongod.WithImage(""), want: mongod.ErrEmptyImage},
-		{name: "an image docker would refuse", opt: mongod.WithImage("Mongo:8"), want: dockerclient.ErrInvalidArgument},
-		{name: "an empty host", opt: mongod.WithHostIP(""), want: mongod.ErrEmptyHostIP},
+		{name: "a port out of range", opts: []mongod.Option{mongod.WithPort(70000)}, want: dockerclient.ErrInvalidArgument},
+		{name: "a negative port", opts: []mongod.Option{mongod.WithPort(-1)}, want: dockerclient.ErrInvalidArgument},
+		{name: "a negative timeout", opts: []mongod.Option{mongod.WithStartTimeout(-time.Second)}, want: dockerclient.ErrInvalidArgument},
+		{name: "an empty image", opts: []mongod.Option{mongod.WithImage("")}, want: mongod.ErrEmptyImage},
+		{name: "an image docker would refuse", opts: []mongod.Option{mongod.WithImage("Mongo:8")}, want: dockerclient.ErrInvalidArgument},
+		{name: "an empty host", opts: []mongod.Option{mongod.WithHostIP("")}, want: mongod.ErrEmptyHostIP},
 		{name: "a bare version for the community image",
-			opt: mongod.WithMongoImage(mongod.ImageCommunity.WithVersion("8")), want: mongod.ErrNoSuchVersion},
+			opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageCommunity.WithVersion("8"))}, want: mongod.ErrNoSuchVersion},
 		{name: "a replica set for Atlas Local, which runs its own",
-			opt: mongod.WithMongoImage(mongod.ImageAtlasLocal), want: mongod.ErrUnsupportedForImage},
+			opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageAtlasLocal), mongod.WithReplicaSet("rs0")}, want: mongod.ErrUnsupportedForImage},
 		{name: "an image in the environment that docker would refuse",
 			env: map[string]string{mongod.EnvImage: "Bad Ref!!"}, want: dockerclient.ErrInvalidArgument},
 		{name: "a timeout in the environment that is not a duration",
@@ -158,21 +156,12 @@ func TestOptionsThatCannotWorkAreRefused(t *testing.T) {
 			}
 			m, _ := readyMock(t)
 
-			_, err := start(t, m, tc.opt, replicaSetForAtlas(tc.want))
+			_, err := start(t, m, tc.opts...)
 
 			require.ErrorIs(t, err, tc.want, "the mistake is reported")
 			assert.Empty(t, m.CallsTo("ContainerCreate"), "before anything is created")
 		})
 	}
-}
-
-// replicaSetForAtlas adds the option that Atlas Local cannot honour, for the
-// one case that is about it.
-func replicaSetForAtlas(want error) mongod.Option {
-	if want == mongod.ErrUnsupportedForImage {
-		return mongod.WithReplicaSet("rs0")
-	}
-	return nil
 }
 
 func TestAtlasLocalTakesNoMongodFlags(t *testing.T) {

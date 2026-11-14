@@ -24,8 +24,8 @@ import (
 // reachable: mongotest exists to start MongoDB containers, and a suite that
 // quietly skipped would hide the package being completely broken.
 //
-// They need the mongo:8 image; pull it once with `docker pull mongo:8`, or
-// let the first test pull it.
+// They need the images they name, such as mongod.ImageDockerHub. Start pulls
+// one the daemon does not have.
 
 // integrationTimeout is generous on purpose. On a slow storage driver a
 // container can take ten to fifteen seconds to start when several start at
@@ -107,12 +107,8 @@ func TestIntegrationMongodIsReallyServing(t *testing.T) {
 	require.NoError(t, err, "mongod integration: cannot start a container; is a Docker daemon reachable and the mongo:8 image available?")
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
-	// The point of waiting for a mongod process before dialling is that the
-	// server is up, not merely that a socket answers. Asking mongod itself is
-	// the only thing that actually proves it, and it goes through exec rather
-	// than the network, so it stays true even where the address resolution is
-	// wrong.
-	requirePingEventually(t, ctx, docker, c.ID(), 60*time.Second)
+	assert.Equal(t, "1", evalIn(t, ctx, docker, c, "db.runCommand({ping:1}).ok"),
+		"mongod answers the first command it is sent, with no retry: Start does not return a server that is still coming up")
 }
 
 func TestIntegrationWithPortPublishesExactlyThere(t *testing.T) {
@@ -140,10 +136,7 @@ func TestIntegrationAReplicaSetAcceptsWritesWhenStartReturns(t *testing.T) {
 	require.NoError(t, err, "mongod integration: cannot start a replica set container")
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
-	result, err := docker.Exec(ctx, c.ID(), "mongosh", "--quiet", "--norc", "--eval",
-		`const h = db.hello(); h.setName + " " + h.isWritablePrimary`)
-	require.NoError(t, err, "running mongosh inside the container must succeed")
-	assert.Equal(t, "rs0 true", strings.TrimSpace(result.Stdout),
+	assert.Equal(t, "rs0 true", evalIn(t, ctx, docker, c, `const h = db.hello(); h.setName + " " + h.isWritablePrimary`),
 		"the set is initiated and its one member is primary on the first ask, with no retry: that is what transactions and change streams need")
 }
 
@@ -157,7 +150,7 @@ func TestIntegrationParallelContainersDoNotCollide(t *testing.T) {
 	// pulling an image that is already local is a registry round trip for
 	// nothing, and a rate-limited registry would fail a run that needed
 	// nothing from it.
-	requireImage(t, ctx, docker, "mongo:8")
+	requireImage(t, ctx, docker, mongod.ImageDockerHub.Reference())
 
 	var mu sync.Mutex
 	ports := map[int]string{}
@@ -203,8 +196,10 @@ func TestIntegrationStartFailsWhenTheImageDoesNotExist(t *testing.T) {
 		mongod.WithStartTimeout(30*time.Second),
 	)
 
-	require.Error(t, err, "an image that cannot be pulled cannot be run, and saying so at once beats waiting out the start timeout")
-	assert.Contains(t, err.Error(), "mongo:this-tag-does-not-exist", "the message names the image at fault, which is what the reader has to correct")
+	var failed *mongod.StartError
+	require.ErrorAs(t, err, &failed, "an image that cannot be pulled cannot be run, and saying so at once beats waiting out the start timeout")
+	assert.Equal(t, mongod.OpPullImage, failed.Op, "the error says the pull is what failed")
+	assert.Equal(t, "mongo:this-tag-does-not-exist", failed.Image, "and names the image at fault, which is what the reader has to correct")
 	assert.False(t, errors.Is(err, context.DeadlineExceeded), "the failure is a missing image, not a slow one; reporting a timeout would send the reader looking in the wrong place")
 }
 
@@ -237,10 +232,8 @@ func TestIntegrationWellKnownImagesStart(t *testing.T) {
 
 			assert.Equal(t, tc.image.Reference(), c.Image(), "the container runs the image the constant names")
 
-			// Exec is the control: it reaches mongod even where the network
-			// path would not, so this proves the server is really serving
-			// rather than that a port happens to be bound.
-			requirePingEventually(t, ctx, docker, c.ID(), 90*time.Second)
+			assert.Equal(t, "1", evalIn(t, ctx, docker, c, "db.runCommand({ping:1}).ok"),
+				"the server answers the first command it is sent, with no retry")
 
 			require.NoError(t, c.Stop(ctx), "each case removes the container it started")
 			if ids, checked := containersLabelled(t, key, value); checked {
@@ -262,10 +255,7 @@ func TestIntegrationAtlasLocalAlreadyRunsAReplicaSet(t *testing.T) {
 	require.NoError(t, err, "mongod integration: Atlas Local must start with no flags at all")
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
-	// Polled rather than asked once, because Atlas Local restarts mongod part
-	// way through its startup; see requireEvalEventually.
-	setName := requireEvalEventually(t, ctx, docker, c.ID(), "rs.status().set",
-		func(got string) bool { return got != "" && !strings.Contains(got, "Error") }, 120*time.Second)
+	setName := evalIn(t, ctx, docker, c, "rs.status().set")
 
 	assert.NotEmpty(t, setName,
 		"Atlas Local initiates a single-node set while starting, so rs.status() answers with a name instead of throwing NotYetInitialized")
@@ -304,70 +294,33 @@ func TestIntegrationAtlasLocalWouldDieIfGivenMongodFlags(t *testing.T) {
 		"the daemon's complaint is that the flag is not an executable, which says nothing about the option that caused it; that is why validation catches it first")
 }
 
-// requireEvalEventually runs a mongosh expression inside the container until
-// its output satisfies want, or fails the test.
+// evalIn runs one mongosh expression inside the container, as its root user
+// when it has one, and returns what it printed.
 //
-// Polling here is the contract, not a workaround for flakiness, and there are
-// two separate reasons for it. Start proves that mongod's process exists, that
-// the container is alive and that the published address answers, and
-// deliberately not that mongod is accepting MongoDB connections: docker-proxy
-// accepts on its behalf and no amount of dialling can see past it. That gap is
-// easy to see with a slower image, where mongodb-community-server answered
-// ECONNREFUSED on the first attempt while the official image was already
-// serving.
-//
-// The second reason is Atlas Local, which restarts mongod during its own
-// startup. Measured on mongodb/mongodb-atlas-local:8.0.28: mongod came up and
-// served from roughly six seconds, disappeared at eighteen, and a different
-// process was serving by twenty. A test that pinged once and then asserted
-// would pass or fail depending on which side of that it landed, so the
-// assertion itself is what gets polled.
-func requireEvalEventually(t testing.TB, ctx context.Context, docker dockerclient.Client, id, script string, want func(string) bool, timeout time.Duration) string {
+// It asks once. Start returns a mongod that already answers commands, so a
+// retry here would pass a Start that returned too early.
+func evalIn(t testing.TB, ctx context.Context, docker dockerclient.Client, c *mongod.Container, script string) string {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	var last string
-	for attempt := 1; ; attempt++ {
-		result, err := docker.Exec(ctx, id, "mongosh", "--quiet", "--norc", "--eval", script)
-		require.NoError(t, err, "running mongosh inside the container must succeed; this is the exec path, not the network one")
-		got := strings.TrimSpace(result.Stdout)
-		if want(got) {
-			return got
-		}
-		last = strings.TrimSpace(got + " " + result.Stderr)
-		if time.Now().After(deadline) {
-			require.Failf(t, "mongod never gave the expected answer",
-				"after %d attempts over %s, %q still answered %q. Exec itself works, so this is mongod rather than a network path",
-				attempt, timeout, script, last)
-		}
-		time.Sleep(250 * time.Millisecond)
+	cmd := []string{"mongosh", "--quiet", "--norc"}
+	if c.Username() != "" {
+		cmd = append(cmd, "--username", c.Username(), "--password", c.Password(), "--authenticationDatabase", "admin")
 	}
+	return runIn(t, ctx, docker, c, append(cmd, "--eval", script)...)
 }
 
-// requirePingEventually waits until mongod answers a ping.
-func requirePingEventually(t testing.TB, ctx context.Context, docker dockerclient.Client, id string, timeout time.Duration) {
+// evalAnonymously is evalIn without the container's credentials.
+func evalAnonymously(t testing.TB, ctx context.Context, docker dockerclient.Client, c *mongod.Container, script string) string {
 	t.Helper()
-	requireEvalEventually(t, ctx, docker, id, "db.runCommand({ping:1}).ok", func(got string) bool { return got == "1" }, timeout)
+	return runIn(t, ctx, docker, c, "mongosh", "--quiet", "--norc", "--eval", script)
 }
 
-// requireEvalAs is requireEvalEventually for a mongod that authenticates: the
-// script runs as the container's root user.
-func requireEvalAs(t testing.TB, ctx context.Context, docker dockerclient.Client, c *mongod.Container, script string, want func(string) bool, timeout time.Duration) string {
+// runIn runs one command inside the container and returns its output.
+func runIn(t testing.TB, ctx context.Context, docker dockerclient.Client, c *mongod.Container, cmd ...string) string {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for attempt := 1; ; attempt++ {
-		result, err := docker.Exec(ctx, c.ID(), "mongosh", "--quiet", "--norc",
-			"--username", c.Username(), "--password", c.Password(), "--authenticationDatabase", "admin", "--eval", script)
-		require.NoError(t, err, "running mongosh inside the container must succeed; this is the exec path, not the network one")
-		got := strings.TrimSpace(result.Stdout)
-		if want(got) {
-			return got
-		}
-		if time.Now().After(deadline) {
-			require.Failf(t, "mongod never gave the expected answer to its root user",
-				"after %d attempts over %s, %q still answered %q", attempt, timeout, script, strings.TrimSpace(got+" "+result.Stderr))
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
+	result, err := docker.Exec(ctx, c.ID(), cmd...)
+	require.NoError(t, err, "running a command inside the container must succeed")
+	require.Zero(t, result.ExitCode, "mongosh must run the expression: %s", strings.TrimSpace(result.Stdout+" "+result.Stderr))
+	return strings.TrimSpace(result.Stdout)
 }
 
 // anonymousListDatabases asks mongod, without credentials, for something only
@@ -415,9 +368,9 @@ func TestIntegrationWithAuthIsEnforced(t *testing.T) {
 
 			assert.NotEmpty(t, servingCommand(t, ctx, docker, c.ID()),
 				"Start returned, so the mongod listening on every interface is the one running; the one that creates the user listens on the container's loopback only and is gone seconds later")
-			requireEvalAs(t, ctx, docker, c, "db.runCommand({ping:1}).ok", func(got string) bool { return got == "1" }, 60*time.Second)
-			got := requireEvalEventually(t, ctx, docker, c.ID(), anonymousListDatabases, func(got string) bool { return got != "" }, 30*time.Second)
-			assert.Equal(t, "Unauthorized", got, "a connection without the credentials is refused what the root user is allowed")
+			assert.Equal(t, "1", evalIn(t, ctx, docker, c, "db.runCommand({ping:1}).ok"), "the root user is let in on the first ask")
+			assert.Equal(t, "Unauthorized", evalAnonymously(t, ctx, docker, c, anonymousListDatabases),
+				"a connection without the credentials is refused what the root user is allowed")
 			assert.Contains(t, c.URI(), "admin:p%40ss%2Fword@", "the URI carries the credentials, encoded")
 		})
 	}
@@ -445,7 +398,8 @@ func TestIntegrationAReplicaSetWithAuthAcceptsWritesWhenStartReturns(t *testing.
 			require.NoError(t, err, "mongod integration: %s must start as an authenticated replica set member; if it exited, the key file's owner is the first thing to check", tc.image)
 			t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
-			requireEvalAs(t, ctx, docker, c, "db.hello().isWritablePrimary", func(got string) bool { return got == "true" }, 0)
+			assert.Equal(t, "true", evalIn(t, ctx, docker, c, "db.hello().isWritablePrimary"),
+				"the member accepts writes on the first ask, with no retry")
 		})
 	}
 }
@@ -481,8 +435,8 @@ func TestIntegrationAWidePublishIsNeverLeftOpen(t *testing.T) {
 	require.Equal(t, "0.0.0.0", info.NetworkSettings.Ports["27017/tcp"][0].HostIP, "this start is the wide publish the test is about")
 
 	assert.Equal(t, mongod.DefaultUsername, c.Username(), "nobody chose credentials, so they were generated")
-	assert.Len(t, c.Password(), 32, "with a random password")
-	requireEvalAs(t, ctx, docker, c, "db.runCommand({ping:1}).ok", func(got string) bool { return got == "1" }, 60*time.Second)
-	got := requireEvalEventually(t, ctx, docker, c.ID(), anonymousListDatabases, func(got string) bool { return got != "" }, 30*time.Second)
-	assert.Equal(t, "Unauthorized", got, "whatever can reach the port without the password gets nothing from it")
+	assert.NotEmpty(t, c.Password(), "with a password")
+	assert.Equal(t, "1", evalIn(t, ctx, docker, c, "db.runCommand({ping:1}).ok"), "which lets its holder in")
+	assert.Equal(t, "Unauthorized", evalAnonymously(t, ctx, docker, c, anonymousListDatabases),
+		"whatever can reach the port without the password gets nothing from it")
 }

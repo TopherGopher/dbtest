@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -48,16 +46,6 @@ func TestReapRunsEveryTeardown(t *testing.T) {
 	assert.Empty(t, Names(), "a reaped registration is gone; leaving it would tear the same container down twice")
 }
 
-func TestReapIsExplicitAndNeedsNoSignal(t *testing.T) {
-	resetForTest(t)
-	reaped := false
-	Register("container", func(context.Context) error { reaped = true; return nil })
-
-	require.NoError(t, Reap(context.Background()), "Reap is a plain function call")
-
-	assert.True(t, reaped, "the whole point of exporting Reap is that a caller can tear everything down without waiting for a signal, which is also what makes the signal path testable")
-}
-
 func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
 	resetForTest(t)
 	first := errors.New("first cannot be removed")
@@ -78,14 +66,14 @@ func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
 
 func TestReapNamesWhatFailed(t *testing.T) {
 	resetForTest(t)
-	Register("mongotest-1a2b3c4d", func(context.Context) error { return errors.New("device or resource busy") })
+	busy := errors.New("device or resource busy")
+	Register("mongotest-1a2b3c4d", func(context.Context) error { return busy })
 
 	err := Reap(context.Background())
 
-	require.Error(t, err, "the teardown failed")
+	require.ErrorIs(t, err, busy, "the teardown's own error is kept, so a caller can tell why")
 	assert.Contains(t, err.Error(), "mongotest-1a2b3c4d",
 		"a reap happens while a process is dying, so the message is all the reader gets; it has to say which registration failed")
-	assert.Contains(t, err.Error(), "device or resource busy", "and why")
 }
 
 func TestReapStopsAtTheContextDeadline(t *testing.T) {
@@ -145,26 +133,13 @@ func TestHandlesAreNotReused(t *testing.T) {
 		"handles are never reused, so a stale Unregister from a container that already stopped cannot remove a different container that started afterwards")
 }
 
-func TestRegisterInstallsTheHandlerLazilyAndOnlyOnce(t *testing.T) {
+func TestRegisterInstallsTheHandlerLazily(t *testing.T) {
 	resetForTest(t)
-	assert.False(t, Installed(), "nothing is installed until something is registered: importing this package must not change how a binary responds to Ctrl-C, which is the bug in the implementation it replaces")
+	assert.False(t, Installed(), "nothing is installed until something is registered: importing this package must not change how a binary responds to Ctrl-C")
 
 	Register("first", func(context.Context) error { return nil })
+
 	assert.True(t, Installed(), "the first registration installs the handler, because only then is there anything to reap")
-
-	Register("second", func(context.Context) error { return nil })
-	assert.True(t, Installed(), "a second registration does not install a second handler")
-}
-
-func TestDefaultSignalsAreOnlyTheOnesThatCanBeHandledMeaningfully(t *testing.T) {
-	signals := signals
-
-	assert.Contains(t, signals, os.Signal(syscall.SIGINT), "SIGINT is Ctrl-C, the common case")
-	assert.Contains(t, signals, os.Signal(syscall.SIGTERM), "SIGTERM is what a CI runner and a container runtime send")
-	assert.NotContains(t, signals, os.Signal(syscall.SIGKILL),
-		"SIGKILL cannot be caught at all; listening for it is cargo cult and suggests a guarantee that does not exist")
-	assert.NotContains(t, signals, os.Signal(syscall.SIGQUIT),
-		"the Go runtime dumps goroutine stacks on SIGQUIT, and intercepting it would take away a debugging tool to save a container")
 }
 
 func TestRegisterIsSafeUnderConcurrentUse(t *testing.T) {

@@ -84,27 +84,6 @@ func TestAContainerWithNoGatewayCannotWorkOutTheAddress(t *testing.T) {
 	assert.Equal(t, "/.dockerenv exists", unresolved.Evidence, "including why this process was taken to be in a container")
 }
 
-func TestThePortIsPublishedWhereItWillBeDialled(t *testing.T) {
-	cases := []struct {
-		resolved string
-		bind     string
-		dial     string
-	}{
-		{"127.0.0.1", "127.0.0.1", "127.0.0.1"},
-		{"localhost", "127.0.0.1", "localhost"},
-		{"::1", "127.0.0.1", "127.0.0.1"},
-		{"127.0.1.1", "127.0.0.1", "127.0.0.1"},
-		{"172.17.0.1", "0.0.0.0", "172.17.0.1"},
-		{"build-host", "0.0.0.0", "build-host"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.resolved, func(t *testing.T) {
-			assert.Equal(t, tc.bind, bindIP(tc.resolved), "loopback stays off the network; anything else needs every interface")
-			assert.Equal(t, tc.dial, dialHost(tc.resolved), "and a loopback publish only answers at 127.0.0.1")
-		})
-	}
-}
-
 func TestContainerisationIsReadFromTheMarkerFiles(t *testing.T) {
 	only := func(path string) func(string) bool {
 		return func(candidate string) bool { return candidate == path }

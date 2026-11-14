@@ -25,12 +25,3 @@ func BenchmarkStart(b *testing.B) {
 		m.Reset()
 	}
 }
-
-func BenchmarkParseMongoImage(b *testing.B) {
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := mongod.ParseMongoImage("public.ecr.aws/docker/library/mongo:8.0"); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

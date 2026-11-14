@@ -9,6 +9,9 @@ import (
 
 // A client holds connections open, and nothing closes one that Start built
 // for itself, so starts must not each build their own.
+//
+// This is the one test that calls an unexported function: the shared client
+// is not visible through anything Start returns.
 func TestStartsWithoutADockerClientShareOne(t *testing.T) {
 	first, err := config{}.client()
 	require.NoError(t, err, "a client can be built from the environment")
