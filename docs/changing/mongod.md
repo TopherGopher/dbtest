@@ -176,9 +176,9 @@ docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 
 ## Not here yet
 
-- **TLS.** `WithTLS()` only adds `tls=true` to the URI. Certificates are issue
-  [#34](https://github.com/TopherGopher/mongotest/issues/34), so a driver
-  cannot yet connect to a container started with it.
+- **TLS.** There is no option for it until a container can be given a
+  certificate, which is issue
+  [#34](https://github.com/TopherGopher/mongotest/issues/34).
 - **Exec and scripts.** `Container` has no exec method; pass a client with
   `WithDocker` and exec through it. Issue
   [#35](https://github.com/TopherGopher/mongotest/issues/35) adds `Exec` and
