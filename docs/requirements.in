@@ -7,4 +7,4 @@
 #   pip install pip-tools
 #   pip-compile --allow-unsafe --generate-hashes --strip-extras \
 #     --output-file=docs/requirements.txt docs/requirements.in
-mkdocs-material==9.8.0
+mkdocs-material==9.8.1
