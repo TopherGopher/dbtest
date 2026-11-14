@@ -118,7 +118,7 @@ func newContainer(id, host string, cfg config, docker dockerclient.Client) *Cont
 	c := &Container{
 		id: id, name: cfg.name, image: cfg.image, replicaSet: cfg.replicaSet,
 		username: cfg.username, password: cfg.password,
-		tls: cfg.tls, host: host, docker: docker, logger: cfg.logger,
+		host: host, docker: docker, logger: cfg.logger,
 	}
 	// Locked because the reaper may call Stop, which reads the handle, the
 	// moment Register returns.
@@ -134,10 +134,6 @@ func newContainer(id, host string, cfg config, docker dockerclient.Client) *Cont
 // The start timeout covers everything after the container is running: the
 // wait for mongod and the replica set's initiation share it.
 func (c *Container) start(ctx context.Context, cfg config, hostSource string) error {
-	if cfg.tls {
-		c.logger.Warn("TLS mode is requested but no certificate material is copied yet, so mongod is still speaking plain TCP",
-			"container", c.name)
-	}
 	info, err := c.run(ctx, cfg)
 	if err != nil {
 		return err

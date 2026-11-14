@@ -330,14 +330,6 @@ func TestStopGivesUpAtItsDeadlineWhileAnotherStopIsStuck(t *testing.T) {
 	}
 }
 
-func TestURIWithTLS(t *testing.T) {
-	m, _ := readyMock(t)
-
-	c := mustStart(t, m, mongod.WithTLS())
-
-	assert.Equal(t, "true", parseURI(t, c).Query().Get("tls"), "a driver has to be told to use TLS")
-}
-
 func TestURIAsksForADirectConnection(t *testing.T) {
 	m, port := readyMock(t)
 

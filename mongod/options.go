@@ -60,7 +60,6 @@ type config struct {
 	username     string
 	password     string
 	noAuth       bool
-	tls          bool
 	mongodArgs   []string
 	startTimeout time.Duration
 	labels       map[string]string
@@ -158,12 +157,6 @@ func WithAuth(username, password string) Option {
 // can reach it. Use it only on a network you trust.
 func WithoutAuth() Option {
 	return func(c *config) { c.username, c.password, c.noAuth = "", "", true }
-}
-
-// WithTLS adds tls=true to the URI. Certificates are not set up yet, so a
-// driver cannot connect to a container started with it.
-func WithTLS() Option {
-	return func(c *config) { c.tls = true }
 }
 
 // WithMongodArgs passes extra flags to mongod.

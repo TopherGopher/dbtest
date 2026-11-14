@@ -22,7 +22,6 @@ type Container struct {
 	replicaSet string
 	username   string
 	password   string
-	tls        bool
 	host       string
 	port       int
 	docker     dockerclient.Client
@@ -105,7 +104,6 @@ func (c *Container) Host() string { return c.host }
 //
 //	mongodb://127.0.0.1:32768/?directConnection=true
 //	mongodb://admin:secret@127.0.0.1:32768/?directConnection=true   // WithAuth
-//	mongodb://127.0.0.1:32768/?directConnection=true&tls=true       // WithTLS
 //
 // directConnection makes a driver use this address. Without it a driver
 // switches to the address a replica set member advertises, which only works
@@ -125,9 +123,6 @@ func (c *Container) uri(password string) string {
 	}
 	b.WriteString(addr(c.host, c.Port()))
 	b.WriteString("/?directConnection=true")
-	if c.tls {
-		b.WriteString("&tls=true")
-	}
 	return b.String()
 }
 
