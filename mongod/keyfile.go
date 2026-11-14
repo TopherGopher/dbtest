@@ -75,7 +75,7 @@ func keyFileOwner(imageUser string) int {
 	if user == "" {
 		return officialMongodUID
 	}
-	if uid, err := strconv.Atoi(user); err == nil {
+	if uid, err := strconv.Atoi(user); err == nil && uid >= 0 {
 		return uid
 	}
 	return mongodbIncUID

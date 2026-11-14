@@ -172,6 +172,7 @@ func TestStartStopsWaitingWhenTheCallerCancels(t *testing.T) {
 	_, err := mongod.Start(ctx, mongod.WithDocker(m), mongod.WithHostIP("127.0.0.1"))
 
 	require.ErrorIs(t, err, context.Canceled, "the caller's context ends the wait")
+	assert.ErrorIs(t, err, mongod.ErrNotReady, "and the error is still the one a caller checks for a mongod that was not ready")
 	assert.Less(t, time.Since(started), 10*time.Second, "long before the start timeout")
 }
 
@@ -189,14 +190,18 @@ func TestAnAddressFromTheEnvironmentIsReportedAsComingFromIt(t *testing.T) {
 
 func TestStartFailsAtOnceWhenTheContainerHasExited(t *testing.T) {
 	cases := []struct {
-		status   string
-		exitCode int
-		inspect  func() (dockerclient.ContainerInspect, error)
+		status      string
+		exitCode    int
+		hasExitCode bool
+		inspect     func() (dockerclient.ContainerInspect, error)
 	}{
-		{"exited", 14, func() (dockerclient.ContainerInspect, error) {
+		{"exited", 14, true, func() (dockerclient.ContainerInspect, error) {
 			return dockerclient.ContainerInspect{State: dockerclient.ContainerState{Status: "exited", ExitCode: 14}}, nil
 		}},
-		{"removed", 0, func() (dockerclient.ContainerInspect, error) {
+		{"dead", 137, true, func() (dockerclient.ContainerInspect, error) {
+			return dockerclient.ContainerInspect{State: dockerclient.ContainerState{Status: "dead", ExitCode: 137}}, nil
+		}},
+		{"removed", 0, false, func() (dockerclient.ContainerInspect, error) {
 			return dockerclient.ContainerInspect{}, dockerclient.ErrNotFound
 		}},
 	}
@@ -223,6 +228,7 @@ func TestStartFailsAtOnceWhenTheContainerHasExited(t *testing.T) {
 			require.ErrorAs(t, err, &exited, "with the details")
 			assert.Equal(t, tc.status, exited.Status, "what happened to it")
 			assert.Equal(t, tc.exitCode, exited.ExitCode, "and its exit code")
+			assert.Equal(t, tc.hasExitCode, exited.HasExitCode, "which only a container that still exists has")
 			assert.Less(t, time.Since(started), 10*time.Second, "without waiting out the start timeout")
 		})
 	}

@@ -1,8 +1,10 @@
 package mongod_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"net/url"
@@ -96,6 +98,47 @@ func answerCommand(conn net.Conn) {
 	reply = append(reply, 0)              // one document follows
 	reply = le.AppendUint32(reply, uint32(4+len(okDocument)))
 	_, _ = conn.Write(append(reply, okDocument...))
+}
+
+// askHello sends one hello command to an address and reports whether a
+// mongod answered it with ok. It is written apart from the package's own
+// hello so that a mistake in one is not repeated in the other.
+func askHello(address string) error {
+	const headerLen, opMsg, requestID = 16, 2013, 7
+	const document = "\x10hello\x00\x01\x00\x00\x00" + "\x02$db\x00\x06\x00\x00\x00admin\x00" + "\x00"
+	const okElement = "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+
+	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+
+	le := binary.LittleEndian
+	message := le.AppendUint32(nil, uint32(headerLen+4+1+4+len(document)))
+	message = le.AppendUint32(message, requestID)
+	message = le.AppendUint32(message, 0)     // answers nothing
+	message = le.AppendUint32(message, opMsg) // the message kind
+	message = le.AppendUint32(message, 0)     // no flags
+	message = append(message, 0)              // one document follows
+	message = le.AppendUint32(message, uint32(4+len(document)))
+	if _, err := conn.Write(append(message, document...)); err != nil {
+		return err
+	}
+
+	var header [headerLen]byte
+	if _, err := io.ReadFull(conn, header[:]); err != nil {
+		return err
+	}
+	body := make([]byte, int(le.Uint32(header[0:4]))-headerLen)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return err
+	}
+	if le.Uint32(header[8:12]) != requestID || !bytes.Contains(body, []byte(okElement)) {
+		return errors.New("the reply is not mongod saying ok to the hello")
+	}
+	return nil
 }
 
 // closedPort returns a loopback port nothing is listening on.

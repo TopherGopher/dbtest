@@ -28,6 +28,8 @@ func TestTheImageAStartRuns(t *testing.T) {
 			want: "localhost:5000/team/mongo:7"},
 		{name: "a known image", opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageAtlasLocal)},
 			want: "mongodb/mongodb-atlas-local:8.0"},
+		{name: "the enterprise image", opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageEnterprise)},
+			want: "mongodb/mongodb-enterprise-server:8.0-ubi9"},
 		{name: "a known image from a mirror",
 			opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageDockerHub.WithRegistry("mirror.corp.example"))},
 			want: "mirror.corp.example/mongo:8.0"},
@@ -138,6 +140,8 @@ func TestOptionsThatCannotWorkAreRefused(t *testing.T) {
 		{name: "an empty host", opts: []mongod.Option{mongod.WithHostIP("")}, want: mongod.ErrEmptyHostIP},
 		{name: "a bare version for the community image",
 			opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageCommunity.WithVersion("8"))}, want: mongod.ErrNoSuchVersion},
+		{name: "a bare version for the enterprise image",
+			opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageEnterprise.WithVersion("8.0"))}, want: mongod.ErrNoSuchVersion},
 		{name: "a replica set for Atlas Local, which runs its own",
 			opts: []mongod.Option{mongod.WithMongoImage(mongod.ImageAtlasLocal), mongod.WithReplicaSet("rs0")}, want: mongod.ErrUnsupportedForImage},
 		{name: "an image in the environment that docker would refuse",
@@ -159,6 +163,7 @@ func TestOptionsThatCannotWorkAreRefused(t *testing.T) {
 			_, err := start(t, m, tc.opts...)
 
 			require.ErrorIs(t, err, tc.want, "the mistake is reported")
+			assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "as an invalid argument, whichever option it was")
 			assert.Empty(t, m.CallsTo("ContainerCreate"), "before anything is created")
 		})
 	}

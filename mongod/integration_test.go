@@ -265,6 +265,27 @@ func TestIntegrationAtlasLocalAlreadyRunsAReplicaSet(t *testing.T) {
 		"and the image says so in advance, which is what lets Start refuse WithReplicaSet with an explanation instead of producing a container that cannot exec")
 }
 
+// Atlas Local answers commands from a mongod it then replaces, so a Start
+// that returned on the first answer would hand back a server about to go
+// away. The first command through the published port has to work, and so
+// does every one after it.
+func TestIntegrationAtlasLocalKeepsAnsweringOnceStartReturns(t *testing.T) {
+	docker, ctx := liveDocker(t)
+	key, value := runLabel(t)
+	requireImage(t, ctx, docker, mongod.ImageAtlasLocal.Reference())
+
+	c, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithMongoImage(mongod.ImageAtlasLocal), mongod.WithLabel(key, value))
+	require.NoError(t, err, "mongod integration: Atlas Local must start")
+	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+	address := net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))
+
+	require.NoError(t, askHello(address), "the first command through the published port is answered, with no retry")
+	for range 5 {
+		time.Sleep(2 * time.Second)
+		assert.NoError(t, askHello(address), "and mongod is still answering there: the one Start waited for is the one that stays")
+	}
+}
+
 // Atlas Local's command is its entrypoint, so mongod flags replace the program
 // rather than configuring it. Validation refuses that combination; this proves
 // the refusal is warranted by showing what the container would otherwise do.

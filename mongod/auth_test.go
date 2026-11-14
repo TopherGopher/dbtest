@@ -256,3 +256,16 @@ func TestThePasswordIsNeverLoggedOrPrinted(t *testing.T) {
 	assert.NotContains(t, printed, password, "and printing a container, as a failing test does, hides it too")
 	assert.Contains(t, printed, c.Name(), "while still saying which container it is")
 }
+
+// The generated password is the only thing between a widely published mongod
+// and the network, and the log line that announces it must not carry it.
+func TestAGeneratedPasswordIsNeverLogged(t *testing.T) {
+	logger := &everythingLogger{}
+
+	request := requestFor(t, mongod.WithHostIP(siblingGateway), mongod.WithLogger(logger))
+
+	_, password := rootUser(t, request)
+	require.NotEmpty(t, password, "a password was generated")
+	assert.NotEmpty(t, logger.String(), "the start says the port is reachable from other machines")
+	assert.NotContains(t, logger.String(), password, "without the password")
+}

@@ -2,11 +2,13 @@ package mongod
 
 import (
 	"errors"
+	"net"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tophergopher/mongotest/dockerclient"
 )
 
 // These tests are inside the package because where a container is reachable
@@ -49,6 +51,10 @@ func TestWhereAContainerIsReached(t *testing.T) {
 			hostResolver{dockerHost: "ssh://deploy@build-host", getenv: noEnv}, "build-host"},
 		{"an http daemon, without the path",
 			hostResolver{dockerHost: "http://build-host:2375/v1", getenv: noEnv}, "build-host"},
+		{"an https daemon",
+			hostResolver{dockerHost: "https://build-host:2376", getenv: noEnv}, "build-host"},
+		{"a scheme in upper case",
+			hostResolver{dockerHost: "TCP://build-host:2376", getenv: noEnv}, "build-host"},
 		{"an IPv6 daemon, without the brackets",
 			hostResolver{dockerHost: "tcp://[fd00::1]:2376", getenv: noEnv}, "fd00::1"},
 		{"a daemon bound to every interface is this machine",
@@ -79,6 +85,7 @@ func TestAContainerWithNoGatewayCannotWorkOutTheAddress(t *testing.T) {
 	_, err := resolver.resolve()
 
 	require.ErrorIs(t, err, ErrUnresolvedHost, "there is nothing to guess from")
+	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "and the fix is an option or a variable, so it is an invalid argument too")
 	var unresolved *UnresolvedHostError
 	require.ErrorAs(t, err, &unresolved, "with the details")
 	assert.Equal(t, "/.dockerenv exists", unresolved.Evidence, "including why this process was taken to be in a container")
@@ -124,6 +131,13 @@ func TestARuntimeBridgeMeansTheHostsNetwork(t *testing.T) {
 
 	_, fromSys := runtimeBridge(unreadable, interfaces("lo", "br-3f1a9c4b7e2d"))
 	assert.True(t, fromSys, "without a routing table, /sys is the fallback")
+
+	for _, bridge := range []string{"podman0", "cni-podman0"} {
+		_, found := runtimeBridge(unreadable, interfaces("lo", bridge))
+		assert.True(t, found, "%s is a bridge Podman creates on its host", bridge)
+	}
+	_, found := runtimeBridge(unreadable, interfaces("lo", "eth0"))
+	assert.False(t, found, "an ordinary interface is not a runtime's bridge")
 }
 
 func TestTheDefaultGatewayIsReadFromTheRoutingTable(t *testing.T) {
@@ -133,6 +147,9 @@ func TestTheDefaultGatewayIsReadFromTheRoutingTable(t *testing.T) {
 
 	_, err = parseDefaultGateway([]byte("Iface\tDestination\tGateway\neth0\t000011AC\t00000000\n"))
 	assert.ErrorIs(t, err, errNoDefaultRoute, "a table with no default route has no gateway")
+
+	_, err = parseDefaultGateway([]byte("ppp0\t00000000\t00000000\t0001\n"))
+	assert.ErrorIs(t, err, errNoDefaultRoute, "a point-to-point default route has no gateway to dial")
 }
 
 // The routing table comes from the kernel, but a parser must not panic on
@@ -143,8 +160,11 @@ func FuzzParseDefaultGateway(f *testing.F) {
 	f.Add([]byte("eth0\t00000000\tZZZZZZZZ\n"))
 	f.Fuzz(func(t *testing.T, routes []byte) {
 		gateway, err := parseDefaultGateway(routes)
-		if err == nil {
-			assert.NotEmpty(t, gateway, "a gateway that is found is an address")
+		if err != nil {
+			return
 		}
+		ip := net.ParseIP(gateway)
+		require.NotNil(t, ip, "a gateway that is found is an address: %q", gateway)
+		assert.False(t, ip.IsUnspecified(), "and one that can be dialled")
 	})
 }

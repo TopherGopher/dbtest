@@ -2,8 +2,10 @@ package mongod_test
 
 import (
 	"context"
+	"io"
 	"math"
 	"net"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -79,18 +81,32 @@ func TestStartCountsOnlyAMongodThePortCanReach(t *testing.T) {
 	}
 }
 
-func TestStartFindsTheCommandColumnByItsTitle(t *testing.T) {
-	m, _ := readyMock(t)
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-		return dockerclient.Top{
-			Titles:    []string{"COMMAND", "PID", "USER"},
-			Processes: [][]string{{"mongod --bind_ip_all", "1", "mongodb"}},
-		}, nil
+func TestStartFindsTheCommandColumnInAnyListing(t *testing.T) {
+	const serving = "mongod --bind_ip_all"
+	cases := []struct {
+		name string
+		top  dockerclient.Top
+	}{
+		{"the command first", dockerclient.Top{
+			Titles: []string{"COMMAND", "PID", "USER"}, Processes: [][]string{{serving, "1", "mongodb"}}}},
+		{"a title in lower case", dockerclient.Top{
+			Titles: []string{"pid", "command", "user"}, Processes: [][]string{{"1", serving, "mongodb"}}}},
+		{"the ARGS title", dockerclient.Top{
+			Titles: []string{"PID", "ARGS", "USER"}, Processes: [][]string{{"1", serving, "mongodb"}}}},
+		{"no title it knows, so the last column", dockerclient.Top{
+			Titles: []string{"PID", "WHAT"}, Processes: [][]string{{"1", serving}}}},
+		{"no titles at all", dockerclient.Top{Processes: [][]string{{serving}}}},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := readyMock(t)
+			m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return tc.top, nil }
 
-	_, err := start(t, m)
+			_, err := start(t, m, mongod.WithStartTimeout(5*time.Second))
 
-	assert.NoError(t, err, "a daemon may list the columns in any order")
+			assert.NoError(t, err, "a daemon may title and order the columns its own way")
+		})
+	}
 }
 
 func TestStartWaitsPastTheTemporaryMongod(t *testing.T) {
@@ -241,4 +257,54 @@ func TestAMongodThatWentAwayIsNotReportedAsStuckOnLoopback(t *testing.T) {
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "it never became reachable")
 	assert.NotErrorIs(t, err, mongod.ErrLoopbackOnly, "when the wait ended no mongod was running, so advice about its bind address would mislead")
+}
+
+func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
+	m, _ := readyMock(t)
+	port := serve(t, func(conn net.Conn) {
+		defer conn.Close()
+		_, _ = io.CopyN(io.Discard, conn, 16)
+		_, _ = conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+	})
+	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+		return running(port), nil
+	}
+
+	_, err := start(t, m, mongod.WithStartTimeout(80*time.Millisecond))
+
+	assert.ErrorIs(t, err, mongod.ErrNotReady, "a reply that is not mongod's does not make the address a mongod")
+}
+
+func TestAPortThatNeverAnswersDoesNotHoldTheStartPastItsTimeout(t *testing.T) {
+	m, _ := readyMock(t)
+	port := serve(t, func(conn net.Conn) {
+		defer conn.Close()
+		_, _ = io.Copy(io.Discard, conn) // reads the command and says nothing
+	})
+	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+		return running(port), nil
+	}
+
+	started := time.Now()
+	_, err := start(t, m, mongod.WithStartTimeout(100*time.Millisecond))
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "nothing answered")
+	assert.Less(t, time.Since(started), time.Second, "and the wait for a reply ends with the start timeout, not after it")
+}
+
+func TestAnImageWithNoHealthCheckIsNotWaitedOn(t *testing.T) {
+	for _, status := range []string{"", "none"} {
+		t.Run("status "+strconv.Quote(status), func(t *testing.T) {
+			m, port := readyMock(t)
+			m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+				info := running(port)
+				info.State.Health.Status = status
+				return info, nil
+			}
+
+			_, err := start(t, m, mongod.WithStartTimeout(5*time.Second))
+
+			assert.NoError(t, err, "this is what the daemon reports for an image that declares no check, so there is nothing to wait for")
+		})
+	}
 }

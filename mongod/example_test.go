@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -138,6 +139,66 @@ func ExampleWithAuth() {
 	// Output:
 	// admin
 	// password printed: false
+}
+
+// Transactions and change streams need a replica set. Start initiates it
+// and returns once it accepts writes.
+func ExampleWithReplicaSet() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+
+	c, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithReplicaSet("rs0"))
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer c.Stop(context.Background())
+
+	fmt.Println(c.ReplicaSet())
+	// Output: rs0
+}
+
+// The URI is all a driver needs. It asks for a direct connection, because a
+// replica set member advertises an address only its container can resolve.
+func ExampleContainer_URI() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+
+	c, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithAuth("admin", "p@ssword"))
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer c.Stop(context.Background())
+
+	uri, err := url.Parse(c.URI())
+	if err != nil {
+		fmt.Println("the URI does not parse:", err)
+		return
+	}
+	password, _ := uri.User.Password()
+	fmt.Println(uri.Scheme, uri.User.Username(), password, uri.Query().Get("directConnection"))
+	// Output: mongodb admin p@ssword true
+}
+
+// A lone word is a version if it starts with a digit or is "latest", and a
+// repository otherwise. Parts a reference does not name stay empty.
+func ExampleParseMongoImage() {
+	for _, ref := range []string{"8.0", "latest", "mongo", "localhost:5000/team/mongo:8"} {
+		image, err := mongod.ParseMongoImage(ref)
+		if err != nil {
+			fmt.Println("cannot parse:", err)
+			return
+		}
+		fmt.Printf("registry=%q repository=%q version=%q\n", image.Registry, image.Repository, image.Version)
+	}
+	// Output:
+	// registry="" repository="" version="8.0"
+	// registry="" repository="" version="latest"
+	// registry="" repository="mongo" version=""
+	// registry="localhost:5000" repository="team/mongo" version="8"
 }
 
 // Every error matches a sentinel, so a caller never reads a message.
