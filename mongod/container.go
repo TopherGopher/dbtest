@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
@@ -27,12 +28,15 @@ type Container struct {
 	docker     dockerclient.Client
 	logger     dockerclient.Logger
 
-	// mu guards stopped and reaperHandle. Stop can be called from a defer, a
-	// test cleanup and the reaper at once, and holds mu while it waits for
-	// the daemon; see lockContext.
+	// mu guards id, stopped and reaperHandle. Stop can be called from a
+	// defer, a test cleanup and the reaper at once, and holds mu while it
+	// waits for the daemon; see lockContext.
 	mu           sync.Mutex
 	stopped      bool
 	reaperHandle reaper.Handle
+	// stopWanted says a teardown has asked for the container. A creation
+	// reads it to learn that one arrived while the daemon was at work.
+	stopWanted atomic.Bool
 }
 
 // Format prints the container as its name and URI with the password hidden,
@@ -86,13 +90,17 @@ func (c *Container) Username() string { return c.username }
 // already includes it.
 func (c *Container) Password() string { return c.password }
 
-// Port returns the host port mongod is published on.
+// Port returns the host port mongod is published on. A connection string
+// built from Host and Port by hand carries no credentials, so use URI when
+// the container has them.
 //
 //	32768
 func (c *Container) Port() int { return c.port }
 
 // Host returns the address mongod is reachable at from this process. It is
-// not always loopback; see [WithHostIP].
+// not always loopback; see [WithHostIP]. A connection string built from Host
+// and Port by hand carries no credentials, so use URI when the container has
+// them.
 //
 //	127.0.0.1    // local daemon
 //	172.17.0.1   // this process is in a sibling container
@@ -177,6 +185,7 @@ func removalContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // stop is Stop for a caller whose context is the limit, which is what the
 // reaper needs: a process dying of a signal must not wait past its deadline.
 func (c *Container) stop(ctx context.Context) error {
+	c.stopWanted.Store(true)
 	if err := lockContext(ctx, &c.mu); err != nil {
 		return err
 	}
@@ -184,9 +193,7 @@ func (c *Container) stop(ctx context.Context) error {
 	if c.stopped {
 		return nil
 	}
-
-	err := c.docker.ContainerRemove(ctx, c.ref(), dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
-	if err != nil && !dockerclient.IsNotFound(err) {
+	if err := c.remove(ctx); err != nil {
 		return err
 	}
 	c.stopped = true
@@ -195,13 +202,18 @@ func (c *Container) stop(ctx context.Context) error {
 	return nil
 }
 
-// ref is what the daemon knows the container by: its id, or its name while
-// the daemon is still creating it and has not said what the id is.
-func (c *Container) ref() string {
-	if c.id != "" {
-		return c.id
+// remove has the daemon remove the container and its anonymous volumes. A
+// container the daemon was never asked for, or no longer has, is removed
+// already.
+func (c *Container) remove(ctx context.Context) error {
+	if c.id == "" {
+		return nil
 	}
-	return c.name
+	err := c.docker.ContainerRemove(ctx, c.id, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
+	if dockerclient.IsNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 // lockPoll is how often lockContext tries again.

@@ -85,35 +85,12 @@ func (c config) client() (dockerclient.Client, error) {
 	return fromEnv, nil
 }
 
-// createContainer creates the container, pulling the image only if the
-// daemon does not have it, which keeps the usual case to one call.
-func createContainer(ctx context.Context, docker dockerclient.Client, cfg config, host string) (string, error) {
-	image := cfg.image.Reference()
-	request := cfg.containerConfig(host)
-
-	id, warnings, err := docker.ContainerCreate(ctx, cfg.name, request)
-	if dockerclient.IsNotFound(err) {
-		cfg.logger.Debug("image is not present locally, pulling it", "image", image)
-		if err := docker.ImagePull(ctx, image); err != nil {
-			return "", &StartError{Op: OpPullImage, Name: cfg.name, Image: image, Err: err}
-		}
-		id, warnings, err = docker.ContainerCreate(ctx, cfg.name, request)
-	}
-	if err != nil {
-		return "", &StartError{Op: OpCreate, Name: cfg.name, Image: image, Err: err}
-	}
-	for _, warning := range warnings {
-		cfg.logger.Warn("the daemon warned about the container it created", "container", cfg.name, "warning", warning)
-	}
-	return id, nil
-}
-
 // newContainer describes a container that is about to be created, and
 // registers it for removal should the process be signalled.
 //
 // It registers before the daemon is asked, because a signal between the
 // daemon creating the container and this process hearing of it would
-// otherwise leave the container behind.
+// otherwise leave the container behind. See createOnce.
 func newContainer(host string, cfg config, docker dockerclient.Client) *Container {
 	c := &Container{
 		name: cfg.name, image: cfg.image, replicaSet: cfg.replicaSet,
@@ -128,18 +105,64 @@ func newContainer(host string, cfg config, docker dockerclient.Client) *Containe
 	return c
 }
 
-// create asks the daemon for the container and records its id.
+// create has the daemon create the container, and reports a teardown that
+// asked for the container while the daemon was at work.
 func (c *Container) create(ctx context.Context, cfg config, host string) error {
-	id, err := createContainer(ctx, c.docker, cfg, host)
-	if err != nil {
+	if err := c.createOrPull(ctx, cfg, host); err != nil {
 		c.forget()
 		return err
 	}
-	if reaped := c.adopt(id); reaped {
-		c.removeAfterFailedStart(ctx)
-		return &ContainerExitedError{Name: c.name, ID: id, Status: "removed"}
+	if !c.stopWanted.Load() {
+		return nil
+	}
+	// That teardown waited for the id and removes the container. This
+	// removes it only if the teardown ran out of time first.
+	c.removeAfterFailedStart(ctx)
+	return &ContainerExitedError{Name: c.name, ID: c.id, Status: "removed"}
+}
+
+// createOrPull creates the container, pulling the image only if the daemon
+// does not have it, which keeps the usual case to one call.
+func (c *Container) createOrPull(ctx context.Context, cfg config, host string) error {
+	image := cfg.image.Reference()
+	request := cfg.containerConfig(host)
+
+	warnings, err := c.createOnce(ctx, request)
+	if dockerclient.IsNotFound(err) {
+		c.logger.Debug("image is not present locally, pulling it", "image", image)
+		if err := c.docker.ImagePull(ctx, image); err != nil {
+			return &StartError{Op: OpPullImage, Name: c.name, Image: image, Err: err}
+		}
+		warnings, err = c.createOnce(ctx, request)
+	}
+	if err != nil {
+		return &StartError{Op: OpCreate, Name: c.name, Image: image, Err: err}
+	}
+	for _, warning := range warnings {
+		c.logger.Warn("the daemon warned about the container it created", "container", c.name, "warning", warning)
 	}
 	return nil
+}
+
+// createOnce asks the daemon for the container and records its id, holding
+// the container's lock until the daemon has answered. A teardown that
+// arrives meanwhile waits for the id: asked sooner, the daemon might not
+// know the container yet, and the teardown would leave it behind.
+//
+// The lock is not held across a pull, so a container torn down in between
+// is not created.
+func (c *Container) createOnce(ctx context.Context, request dockerclient.ContainerConfig) ([]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stopped {
+		return nil, &ContainerExitedError{Name: c.name, Status: "removed"}
+	}
+	id, warnings, err := c.docker.ContainerCreate(ctx, c.name, request)
+	if err != nil {
+		return nil, err
+	}
+	c.id = id
+	return warnings, nil
 }
 
 // forget drops a container the daemon never created, so that nothing tries
@@ -149,18 +172,6 @@ func (c *Container) forget() {
 	defer c.mu.Unlock()
 	c.stopped = true
 	reaper.Unregister(c.reaperHandle)
-}
-
-// adopt records the id the daemon gave the container, and reports whether a
-// reap ran while it was being created. Such a reap could only ask for the
-// container by name, perhaps before the daemon knew the name, so the caller
-// removes the container again by its id.
-func (c *Container) adopt(id string) (reaped bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	reaped = c.stopped
-	c.id, c.stopped = id, false
-	return reaped
 }
 
 // start runs the created container and returns once it is usable. hostSource

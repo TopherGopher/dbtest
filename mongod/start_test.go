@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -435,21 +436,45 @@ func removedContainers(m *dockermock.Mock) []string {
 
 // A signal can arrive while the daemon is still creating the container,
 // before this process has an id to remove it by.
-func TestAReapDuringCreationLeavesNoContainer(t *testing.T) {
+func TestAReapDuringCreationWaitsForTheContainerAndRemovesIt(t *testing.T) {
 	m, _ := readyMock(t)
-	var name string
-	m.ContainerCreateFunc = func(ctx context.Context, created string, _ dockerclient.ContainerConfig) (string, []string, error) {
-		name = created
-		require.NoError(t, mongod.ReapRunningContainers(ctx), "the reap finds the container already registered")
+	var created atomic.Bool
+	waited := make(chan bool, 1)
+	m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+		go func() {
+			err := mongod.ReapRunningContainers(context.Background())
+			waited <- err == nil && created.Load()
+		}()
+		time.Sleep(50 * time.Millisecond) // long enough for the reap to reach this container
+		created.Store(true)
 		return containerID, nil, nil
+	}
+
+	c, err := start(t, m)
+
+	require.ErrorIs(t, err, mongod.ErrContainerExited, "a container reaped while it was being created is not returned as running")
+	assert.Nil(t, c, "so the caller is handed nothing to use")
+	assert.True(t, <-waited, "the reap waits for the daemon's answer: asked sooner, the daemon may not know the container yet")
+	assert.Contains(t, removedContainers(m), containerID, "and then removes the container by the id the daemon gave it")
+}
+
+// The image is pulled between two attempts to create the container, which
+// can take minutes. A reap must not wait for it, and nothing may be created
+// once the reap has been and gone.
+func TestAReapDuringThePullCreatesNothing(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+		return "", nil, dockerclient.ErrNotFound
+	}
+	m.ImagePullFunc = func(ctx context.Context, _ string) error {
+		return mongod.ReapRunningContainers(ctx)
 	}
 
 	_, err := start(t, m)
 
-	require.ErrorIs(t, err, mongod.ErrContainerExited, "a container reaped while it was being created is not returned as running")
-	removed := removedContainers(m)
-	assert.Contains(t, removed, name, "the reap asks for it by name, the only handle there is before the daemon answers")
-	assert.Contains(t, removed, containerID, "and the container the daemon then reports is removed by its id")
+	require.ErrorIs(t, err, mongod.ErrContainerExited, "a start that was reaped does not carry on")
+	assert.Len(t, m.CallsTo("ContainerCreate"), 1, "the daemon is not asked again for a container nothing would remove")
+	assert.Empty(t, m.CallsTo("ContainerRemove"), "and there is nothing to remove")
 }
 
 func TestAFailedCreationLeavesNothingToReap(t *testing.T) {
