@@ -1,8 +1,8 @@
 ---
 title: The mongod package
-description: "Start a MongoDB container and get its URI, with no MongoDB driver imported. In PR #53."
-status: landing
-tracks: ["PR #53", "#32", "#33"]
+description: "Start a MongoDB container and get its URI, with no MongoDB driver imported."
+status: current
+tracks: ["#32", "#33"]
 ---
 
 # The mongod package
@@ -12,9 +12,9 @@ until it answers, tells you where to connect, and removes it if the process
 is interrupted. It imports no MongoDB driver, so any driver version works
 with it.
 
-Tests use [`NewTestConnection`](../guides/test-connection.md) today. Reach
-for `mongod` once PR #53 merges, when you want the container without a
-driver.
+Reach for `mongod` when you want the container without a driver. For a
+connection with the driver already set up, use
+[`NewTestConnection`](../guides/test-connection.md).
 
 ```go
 c, err := mongod.Start(ctx)
@@ -50,7 +50,7 @@ tests. `Start(ctx)` is `StartWithOptions(ctx, mongod.DefaultOptions())`.
 | `WithReplicaSet(name)` | A single-member [replica set](#replica-sets), ready for writes. |
 | `WithAuth(user, password)`, `WithoutAuth()` | See [Who can connect](#who-can-connect). |
 | `WithPort(port)` | A fixed host port. Prefer the default: a port found free can be taken before the container binds it. |
-| `WithHostIP(host)` | The address containers are reachable at; see [Remote and nested daemons](remote-daemons.md). |
+| `WithHostIP(host)` | The address containers are reachable at; see [Remote and nested daemons](../guides/remote-daemons.md). |
 | `WithStartTimeout(d)` | How long a start waits, replica set initiation included. The default is one minute. |
 | `WithMongodArgs(args...)` | Extra flags for `mongod`. |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
@@ -127,7 +127,7 @@ func TestMain(m *testing.M) {
 | Method | Returns |
 | --- | --- |
 | `URI()` | `mongodb://<host>:<port>/?directConnection=true`, with `<user>:<password>@` when the container has credentials. |
-| `Host()`, `Port()` | The address to dial. The host is not always loopback; see [Remote and nested daemons](remote-daemons.md). |
+| `Host()`, `Port()` | The address to dial. The host is not always loopback; see [Remote and nested daemons](../guides/remote-daemons.md). |
 | `ID()`, `Name()`, `Image()` | What was started. |
 | `Username()`, `Password()` | The root user, or empty for a `mongod` that does not authenticate. `URI()` already includes them. |
 | `ReplicaSet()` | The name given to `WithReplicaSet`, or empty. |

@@ -82,7 +82,7 @@ require.NoError(t, err)
 require.True(t, stream.Next(ctx), "the insert must appear on the change stream")
 ```
 
-## Where this is going
+## With the `mongod` package
 
-The [`mongod` package](../changing/mongod.md#replica-sets) in PR #53 initiates
-the set under the name you ask for, with `mongosh`.
+The [`mongod` package](../reference/mongod.md#replica-sets) initiates the set
+under the name you ask for, with `mongosh`.

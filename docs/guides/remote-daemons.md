@@ -1,15 +1,16 @@
 ---
 title: Remote and nested daemons
 description: How the address to dial is worked out when the Docker daemon is not on loopback, and what is still open.
-status: landing
-tracks: ["PR #53", "#52"]
+status: current
+tracks: ["#52"]
 ---
 
 # Remote and nested daemons
 
-Today mongotest dials `127.0.0.1:<port>`, which only works when the test
-process and the daemon share a network. In the setups below the container
-starts but the connection fails.
+`NewTestConnection` dials `127.0.0.1:<port>`, which only works when the test
+process and the daemon share a network. In the setups below its container
+starts but the connection fails. `mongod.Start` works out an address that
+reaches the container instead.
 
 ## The four setups
 
@@ -44,7 +45,7 @@ configuration that cannot pass an option.
 When the address is loopback, the port is published on `127.0.0.1` only.
 Otherwise it is published on every interface, and the container gets a root
 user and a random password, which `URI()` includes; see
-[Who can connect](mongod.md#who-can-connect).
+[Who can connect](../reference/mongod.md#who-can-connect).
 
 ## Using it
 
@@ -63,9 +64,9 @@ The rest of [#52](https://github.com/TopherGopher/mongotest/issues/52) is
 open: a CI matrix for the four setups, and clearer errors behind a socket
 proxy ([#72](https://github.com/TopherGopher/mongotest/issues/72)).
 
-## Until it lands
+## With `NewTestConnection`
 
-The [CI guide](../guides/ci.md#the-shape-that-does-not-work-a-remote-daemon)
-describes the setups to avoid with the current release: run the tests on the
-same host as the daemon, or use a service container and
-`NewTestConnection(false)`.
+`NewTestConnection` does not work the address out. Run the tests on the same
+host as the daemon, or use a service container and `NewTestConnection(false)`.
+The [CI guide](ci.md#the-shape-that-does-not-work-a-remote-daemon) explains
+why.

@@ -2,7 +2,7 @@
 title: Cleanup and reaping
 description: Everything that removes a mongotest container, in the order it is tried, and how to remove stray ones.
 status: changing
-tracks: ["PR #53", "#33"]
+tracks: ["#33"]
 ---
 
 # Cleanup and reaping
@@ -33,15 +33,11 @@ The last row is why the others exist.
 
 ## 2. The signal handler
 
-Importing mongotest installs a handler for `SIGINT`, `SIGTERM`, `SIGQUIT` and
-`SIGABRT`. When one arrives, every container started in this process and not
-yet removed is force-removed. This covers ++ctrl+c++ during a run.
-
-!!! warning "Known issue: the process keeps running"
-    The handler reaps the containers but does not re-raise the signal, so
-    after ++ctrl+c++ the containers are gone yet the test binary is still
-    alive. Press ++ctrl+c++ a second time, or let `go test` time out.
-    [PR #53](https://github.com/TopherGopher/mongotest/pull/53) fixes this.
+The first container mongotest starts installs a handler for `SIGINT` and
+`SIGTERM`. When one arrives, every container started in this process and not
+yet removed is force-removed, and the signal is raised again so the process
+still exits. This covers ++ctrl+c++ during a run. A second ++ctrl+c++ while
+the containers are being removed stops the process at once.
 
 You can remove the same containers yourself, for instance from a `TestMain`:
 

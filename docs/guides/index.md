@@ -63,6 +63,13 @@ them in any order.
 
     Running the suite under GitHub Actions and other hosted runners.
 
+-   :material-lan:{ .lg .middle } **[Remote and nested daemons](remote-daemons.md)**
+
+    ---
+
+    Connecting when the daemon is on another host, or the tests run in a
+    container.
+
 -   :simple-podman:{ .lg .middle } **[Podman](podman.md)**
 
     ---

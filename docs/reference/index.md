@@ -86,6 +86,8 @@ ones mongotest adds.
 
 ## Also in this section
 
+- [The mongod package](mongod.md), which starts a container and returns its
+  URI without importing a MongoDB driver.
 - [Environment variables](environment.md) that mongotest and its Docker
   clients read.
 - [Writing a new page](writing-docs.md) for this site.

@@ -152,11 +152,10 @@ nav:
       - Exporting data: guides/exporting-data.md
       - Cleanup and reaping: guides/cleanup.md
       - Continuous integration: guides/ci.md
+      - Remote and nested daemons: guides/remote-daemons.md
       - Podman: guides/podman.md
   - What's changing:
       - changing/index.md
-      - The mongod package: changing/mongod.md
-      - Remote and nested daemons: changing/remote-daemons.md
   - Docker clients:
       - docker-clients/index.md
       - dockerapi: docker-clients/dockerapi.md
@@ -166,6 +165,7 @@ nav:
       - Errors: docker-clients/errors.md
   - Reference:
       - reference/index.md
+      - The mongod package: reference/mongod.md
       - Environment variables: reference/environment.md
       - Writing a new page: reference/writing-docs.md
   - Project:

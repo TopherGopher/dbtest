@@ -127,13 +127,12 @@ machine when:
 - `DOCKER_HOST` points at `tcp://some-other-box:2376`;
 - a docker-in-docker service runs the daemon in a sibling container.
 
-In those cases the connection fails. Resolving a reachable address rather
-than assuming loopback is in
-[PR #53](https://github.com/TopherGopher/mongotest/pull/53), with the rest of
-the work under [#52](https://github.com/TopherGopher/mongotest/issues/52);
-[Remote and nested daemons](../changing/remote-daemons.md) explains how the
-address is chosen. Until the root package is on it, run the tests on the
-same host as the daemon.
+In those cases the connection fails. The `mongod` package works out a
+reachable address instead of assuming loopback;
+[Remote and nested daemons](remote-daemons.md) explains how it is chosen,
+and [#52](https://github.com/TopherGopher/mongotest/issues/52) tracks the
+rest of the work. With `NewTestConnection`, run the tests on the same host
+as the daemon.
 
 ## Tips for stable CI runs
 

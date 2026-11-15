@@ -7,13 +7,12 @@ tracks: ["#48"]
 
 # What's changing
 
-mongotest is being reworked. Today, use `NewTestConnection`. Once PR #53
-merges, you can also start a container with the `mongod` package directly.
+mongotest is being reworked. Use `NewTestConnection` for a connected client,
+or start a container directly with the [`mongod` package](../reference/mongod.md).
 [What stays and what goes](#what-stays-and-what-goes) says which of today's
 calls survive the rework.
 
-This section describes the parts of the new API that are implemented. Each page
-on the site says how far along it is:
+Each page on the site says how far along it is:
 
 <div class="mt-legend" markdown>
 <div><span class="mt-status__badge current">Current</span><span>Describes what is on <code>master</code> today.</span></div>
@@ -28,8 +27,8 @@ The same badge appears as an icon next to the page in the navigation.
 | Piece | Status | Read |
 | --- | --- | --- |
 | The Docker client interface, its implementations and test doubles | Current | [Docker clients](../docker-clients/index.md) |
-| `mongod`: start a container and get its URI | Landing in [PR #53](https://github.com/TopherGopher/mongotest/pull/53) | [The mongod package](mongod.md) |
-| Connecting when the daemon is on another host, or the tests run in a container | Landing in [PR #53](https://github.com/TopherGopher/mongotest/pull/53) | [Remote and nested daemons](remote-daemons.md) |
+| `mongod`: start a container and get its URI | Current | [The mongod package](../reference/mongod.md) |
+| Connecting when the daemon is on another host, or the tests run in a container | Current | [Remote and nested daemons](../guides/remote-daemons.md) |
 
 Everything not yet written is planned in GitHub issues. Issue
 [#48](https://github.com/TopherGopher/mongotest/issues/48) lists them in

@@ -44,9 +44,9 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
 
 ## The standard
 
-A change is reviewed against `AGENTS.md` at the repository root, which
-arrives with [PR #53](https://github.com/TopherGopher/mongotest/pull/53). In
-short:
+A change is reviewed against
+[`AGENTS.md`](https://github.com/TopherGopher/mongotest/blob/master/AGENTS.md)
+at the repository root. In short:
 
 - Every pull request starts from an issue that says what the problem is and
   what done looks like.
@@ -71,7 +71,6 @@ has the conventions and the local preview command.
   pull requests.
 - The description says what changed and why, and names the issue it closes.
 - A change a user would notice adds a line to `CHANGELOG.md`, under
-  "Unreleased". The file arrives with
-  [PR #53](https://github.com/TopherGopher/mongotest/pull/53).
+  "Unreleased".
 - CI must be green: `gofmt`, `go vet`, the root module's tests, the
   `mobyclient` module's tests, and the documentation build.

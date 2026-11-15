@@ -1,13 +1,12 @@
 ---
 title: Environment variables
 description: Every environment variable mongotest and its Docker clients read.
-status: changing
-tracks: ["PR #53"]
+status: current
 ---
 
 # Environment variables
 
-mongotest itself reads no environment variables today. Its Docker clients
+The `mongod` package reads three variables of its own. The Docker clients
 read the same ones the `docker` CLI does, so a machine where `docker version`
 works is a machine where mongotest works.
 
@@ -24,17 +23,17 @@ works is a machine where mongotest works.
 | `XDG_RUNTIME_DIR` | `dockerapi` | Where rootless Docker and Podman put their sockets. `/run/user/$UID` is used when unset. |
 | `TEMP` | `dockerapi` on Windows | Where `podman machine` exposes its AF_UNIX socket. |
 
-## Landing with `mongod`
+## Read by `mongod`
 
-[PR #53](https://github.com/TopherGopher/mongotest/pull/53) adds three
-variables of mongotest's own. An option beats the variable, and the variable
-beats the default. See [The mongod package](../changing/mongod.md#options).
+An option beats the variable, and the variable beats the default. See
+[The mongod package](../reference/mongod.md#options). `NewTestConnection`
+reads none of them.
 
 | Variable | Sets | Default |
 | --- | --- | --- |
 | `MONGOTEST_IMAGE` | The image: a version, a repository, or a full reference such as `localhost:5000/team/mongo:8` | `docker.io/library/mongo:8.0` |
 | `MONGOTEST_START_TIMEOUT` | The start timeout, as a Go duration | `60s` |
-| `MONGOTEST_HOST_IP` | The address containers are reachable at, when the detection is wrong | see [Remote and nested daemons](../changing/remote-daemons.md) |
+| `MONGOTEST_HOST_IP` | The address containers are reachable at, when the detection is wrong | see [Remote and nested daemons](../guides/remote-daemons.md) |
 
 ## Not read
 
