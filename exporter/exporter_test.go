@@ -6,7 +6,11 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
+	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,8 +23,10 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// unreachable is a server nothing listens on, given up on quickly.
-const unreachable = "mongodb://127.0.0.1:1/?directConnection=true&serverSelectionTimeoutMS=300&connectTimeoutMS=300"
+// unreachable is a server nothing listens on, given up on after a second.
+// mongoexport rounds its timeouts down to whole seconds, and reads zero as
+// the driver's default of thirty.
+const unreachable = "mongodb://127.0.0.1:1/?directConnection=true&serverSelectionTimeoutMS=1000&connectTimeoutMS=1000"
 
 func TestAServerThatCannotBeReachedIsAnExportError(t *testing.T) {
 	var out bytes.Buffer
@@ -30,29 +36,69 @@ func TestAServerThatCannotBeReachedIsAnExportError(t *testing.T) {
 	assert.ErrorIs(t, err, exporter.ErrExport, "a failed export matches the sentinel")
 }
 
-// seeded starts mongod with five documents in app.people, n from 1 to 5,
-// and returns its URI. The integration tests need a Docker daemon, and fail
-// rather than skip without one.
+func TestAPasswordNeverReachesTheError(t *testing.T) {
+	uri := strings.Replace(unreachable, "mongodb://", "mongodb://admin:s3cret-marker@", 1)
+
+	_, err := exporter.New(uri, "app", "people").WriteJSON(&bytes.Buffer{}, exporter.JSONOptions{})
+
+	require.ErrorIs(t, err, exporter.ErrExport, "the export fails")
+	assert.NotContains(t, err.Error(), "s3cret-marker", "errors are logged and shared, so they carry no password")
+}
+
+var (
+	seedOnce sync.Once
+	seedURI  string
+	seedErr  error
+)
+
+// seeded returns the URI of a server holding five documents in app.people,
+// n from 1 to 5. The tests only read, so they share one server. They need a
+// Docker daemon, and fail rather than skip without one.
 func seeded(t *testing.T) string {
 	t.Helper()
+	seedOnce.Do(func() { seedURI, seedErr = seed() })
+	require.NoError(t, seedErr, "exporter integration: cannot start and seed mongod; is a Docker daemon reachable?")
+	return seedURI
+}
+
+// seed starts mongod and inserts the documents. The container is left for
+// the reaper, which removes it when the test binary exits.
+func seed() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	t.Cleanup(cancel)
+	defer cancel()
 	c, err := mongod.Start(ctx)
-	require.NoError(t, err, "exporter integration: cannot start mongod; is a Docker daemon reachable?")
-	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+	if err != nil {
+		return "", err
+	}
 	client, err := mongo.Connect(options.Client().ApplyURI(c.URI()))
-	require.NoError(t, err, "a client connects")
-	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+	if err != nil {
+		return "", err
+	}
+	defer client.Disconnect(ctx)
 	var people []any
 	for n := 1; n <= 5; n++ {
 		people = append(people, bson.D{{Key: "n", Value: n}, {Key: "name", Value: "person " + strconv.Itoa(n)}})
 	}
 	_, err = client.Database("app").Collection("people").InsertMany(ctx, people)
-	require.NoError(t, err, "the documents to export are inserted")
-	return c.URI()
+	return c.URI(), err
 }
 
-func TestIntegrationWriteJSONWritesOneDocumentPerLine(t *testing.T) {
+func TestMain(m *testing.M) {
+	code := m.Run()
+	_ = mongod.ReapRunningContainers(context.Background())
+	os.Exit(code)
+}
+
+// firstDocument decodes the first line of JSON output.
+func firstDocument(t *testing.T, out *bytes.Buffer) map[string]any {
+	t.Helper()
+	line, _, _ := strings.Cut(out.String(), "\n")
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(line), &doc), "the first line is a JSON document")
+	return doc
+}
+
+func TestIntegrationWriteJSONWritesOneRelaxedDocumentPerLine(t *testing.T) {
 	uri := seeded(t)
 	var out bytes.Buffer
 
@@ -60,6 +106,7 @@ func TestIntegrationWriteJSONWritesOneDocumentPerLine(t *testing.T) {
 
 	require.NoError(t, err, "the export succeeds")
 	assert.EqualValues(t, 5, n, "it reports how many documents it wrote")
+	assert.IsType(t, float64(0), firstDocument(t, bytes.NewBuffer(out.Bytes()))["n"], "a number is written as a plain JSON number")
 	lines := 0
 	for scanner := bufio.NewScanner(&out); scanner.Scan(); lines++ {
 		assert.True(t, json.Valid(scanner.Bytes()), "each line is a JSON document")
@@ -67,11 +114,21 @@ func TestIntegrationWriteJSONWritesOneDocumentPerLine(t *testing.T) {
 	assert.Equal(t, 5, lines, "one line for each document")
 }
 
+func TestIntegrationCanonicalJSONKeepsTheBSONType(t *testing.T) {
+	uri := seeded(t)
+	var out bytes.Buffer
+
+	_, err := exporter.New(uri, "app", "people").WriteJSON(&out, exporter.JSONOptions{Canonical: true})
+
+	require.NoError(t, err, "the export succeeds")
+	assert.IsType(t, map[string]any{}, firstDocument(t, &out)["n"], `a number is written with its type, as {"$numberInt": "1"}`)
+}
+
 func TestIntegrationWriteJSONCanWriteAnArray(t *testing.T) {
 	uri := seeded(t)
 	var out bytes.Buffer
 
-	_, err := exporter.New(uri, "app", "people").WriteJSON(&out, exporter.JSONOptions{Array: true, Pretty: true})
+	_, err := exporter.New(uri, "app", "people").WriteJSON(&out, exporter.JSONOptions{Array: true})
 
 	require.NoError(t, err, "the export succeeds")
 	var people []map[string]any
@@ -83,13 +140,15 @@ func TestIntegrationWriteCSVWritesAHeaderAndARowEach(t *testing.T) {
 	uri := seeded(t)
 	var out bytes.Buffer
 
-	_, err := exporter.New(uri, "app", "people").WriteCSV(&out, []string{"n", "name"})
+	n, err := exporter.New(uri, "app", "people").Sort(`{"n": 1}`).WriteCSV(&out, []string{"n", "name"})
 
 	require.NoError(t, err, "the export succeeds")
+	assert.EqualValues(t, 5, n, "it reports how many documents it wrote")
 	rows, err := csv.NewReader(&out).ReadAll()
 	require.NoError(t, err, "the output is CSV")
 	require.Len(t, rows, 6, "a header and a row for each document")
 	assert.Equal(t, []string{"n", "name"}, rows[0], "the header names the fields asked for")
+	assert.Equal(t, []string{"1", "person 1"}, rows[1], "and each row holds a document's values")
 }
 
 func TestIntegrationQuerySortSkipAndLimitChooseWhatIsExported(t *testing.T) {
@@ -97,12 +156,12 @@ func TestIntegrationQuerySortSkipAndLimitChooseWhatIsExported(t *testing.T) {
 	base := exporter.New(uri, "app", "people")
 	var out bytes.Buffer
 
-	_, err := base.Query(`{"n": {"$gt": 2}}`).Sort(`{"n": -1}`).Skip(1).Limit(1).WriteCSV(&out, []string{"n"})
+	_, err := base.Query(`{"n": {"$lt": 5}}`).Sort(`{"n": -1}`).Skip(1).Limit(1).WriteCSV(&out, []string{"n"})
 
 	require.NoError(t, err, "the export succeeds")
 	rows, err := csv.NewReader(&out).ReadAll()
 	require.NoError(t, err, "the output is CSV")
-	assert.Equal(t, [][]string{{"n"}, {"4"}}, rows, "of 3, 4 and 5, newest first, the second, and only that")
+	assert.Equal(t, [][]string{{"n"}, {"3"}}, rows, "of 1 to 4, highest first, the second, and only that")
 
 	out.Reset()
 	n, err := base.WriteCSV(&out, []string{"n"})
@@ -110,11 +169,91 @@ func TestIntegrationQuerySortSkipAndLimitChooseWhatIsExported(t *testing.T) {
 	assert.EqualValues(t, 5, n, "and was not changed by the exporter built from it")
 }
 
-func TestIntegrationAQueryThatIsNotJSONIsAnExportError(t *testing.T) {
+func TestIntegrationMistakesAreExportErrors(t *testing.T) {
 	uri := seeded(t)
-	var out bytes.Buffer
+	refused := errors.New("the disk is full")
+	cases := map[string]func() (int64, error){
+		"a query that is not JSON": func() (int64, error) {
+			return exporter.New(uri, "app", "people").Query("{n: ").WriteJSON(&bytes.Buffer{}, exporter.JSONOptions{})
+		},
+		"CSV without fields": func() (int64, error) {
+			return exporter.New(uri, "app", "people").WriteCSV(&bytes.Buffer{}, nil)
+		},
+		"a writer that fails": func() (int64, error) {
+			return exporter.New(uri, "app", "people").WriteJSON(failingWriter{refused}, exporter.JSONOptions{})
+		},
+	}
+	for name, export := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := export()
 
-	_, err := exporter.New(uri, "app", "people").Query("{n: ").WriteJSON(&out, exporter.JSONOptions{})
+			assert.ErrorIs(t, err, exporter.ErrExport, "the export fails")
+		})
+	}
+}
 
-	assert.ErrorIs(t, err, exporter.ErrExport, "a query mongoexport cannot parse fails the export")
+func TestIntegrationAWriterThatFailsIsNamedInTheError(t *testing.T) {
+	uri := seeded(t)
+	refused := errors.New("the disk is full")
+
+	_, err := exporter.New(uri, "app", "people").WriteJSON(failingWriter{refused}, exporter.JSONOptions{})
+
+	assert.ErrorIs(t, err, refused, "the writer's own error reaches the caller")
+}
+
+// failingWriter refuses every write.
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestAnEmptyNameIsRefused(t *testing.T) {
+	cases := map[string]exporter.Exporter{
+		"no URI":        exporter.New("", "app", "people"),
+		"no database":   exporter.New(unreachable, "", "people"),
+		"no collection": exporter.New(unreachable, "app", ""),
+	}
+	for name, e := range cases {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+
+			_, err := e.WriteJSON(&bytes.Buffer{}, exporter.JSONOptions{})
+
+			assert.ErrorIs(t, err, exporter.ErrExport, "the export is refused rather than run against a default")
+			assert.Less(t, time.Since(start), 500*time.Millisecond, "before anything is dialled")
+		})
+	}
+}
+
+func TestIntegrationACollectionThatDoesNotExistIsAnExportError(t *testing.T) {
+	uri := seeded(t)
+
+	_, err := exporter.New(uri, "app", "peple").WriteJSON(&bytes.Buffer{}, exporter.JSONOptions{})
+
+	assert.ErrorIs(t, err, exporter.ErrExport, "a misspelt collection fails instead of exporting nothing")
+}
+
+// slowWriter holds its first write long enough for an export to still be
+// running when another starts.
+type slowWriter struct{ once sync.Once }
+
+func (w *slowWriter) Write(p []byte) (int, error) {
+	w.once.Do(func() { time.Sleep(1500 * time.Millisecond) })
+	return len(p), nil
+}
+
+// Tests run exports in parallel, so two at once must not race; the race
+// detector is what fails this test.
+func TestIntegrationExportsCanRunAtTheSameTime(t *testing.T) {
+	uri := seeded(t)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		_, err := exporter.New(uri, "app", "people").WriteJSON(&slowWriter{}, exporter.JSONOptions{})
+		assert.NoError(t, err, "the slow export succeeds")
+	})
+	time.Sleep(1200 * time.Millisecond)
+
+	_, err := exporter.New(uri, "app", "people").WriteJSON(&bytes.Buffer{}, exporter.JSONOptions{})
+
+	assert.NoError(t, err, "an export alongside it succeeds")
+	wg.Wait()
 }
