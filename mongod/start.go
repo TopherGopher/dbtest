@@ -258,7 +258,7 @@ func (c *Container) removeUnconfirmed(ctx context.Context, cfg config) {
 	// removeByName gives one with no deadline its own.
 	if err := c.removeByName(context.WithoutCancel(ctx), c.name); err != nil {
 		c.logger.Error("Creating a container was cut short, and it could not then be removed, so it may exist. "+
-			"Remove it by hand: docker rm -fv followed by the container name.",
+			"Remove it by hand: docker rm -fv "+c.name,
 			"container", c.name, "error", err)
 	}
 }
@@ -366,7 +366,7 @@ func (c *Container) removeAfterFailedStart(ctx context.Context) {
 	defer cancel()
 	if err := c.Stop(ctx); err != nil {
 		c.logger.Error("A container failed to start and then could not be removed, so it may still be running. "+
-			"Remove it by hand: docker rm -fv followed by the container name.",
+			"Remove it by hand: docker rm -fv "+c.name,
 			"container", c.name, "error", err)
 	}
 }

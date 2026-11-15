@@ -75,7 +75,7 @@ func (c *Container) initiateReplicaSet(ctx context.Context) error {
 // set, and what to do about it.
 const reasonNoShell = "the image has neither mongosh nor the legacy mongo shell, and Start runs one of them " +
 	"inside the container to call rs.initiate(). Use an image that has one (every official mongo image from 4.4 does), " +
-	"or leave out WithReplicaSet for a standalone mongod"
+	"where a replica set adds about half a second to a start, or leave out WithReplicaSet for a standalone mongod"
 
 // shellFailed reports a shell that ran and exited with an error, in its own
 // words. It writes them to standard error.
