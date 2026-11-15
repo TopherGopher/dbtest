@@ -190,6 +190,27 @@ Initiating uses the shell in the image: `mongosh`, or the legacy `mongo`
 where the image has only that. An image with neither fails with
 `ErrNotInitiated`. A replica set adds about half a second to a start.
 
+## Commands and scripts
+
+`Exec` runs a command inside the container. A command that exits non-zero is
+not an error: read `ExitCode` in the result.
+
+`RunScript` runs JavaScript in the image's shell and returns what it printed,
+which for a one-line script is the value of its last expression:
+
+```go
+ok, err := c.RunScript(ctx, "db.runCommand({ping: 1}).ok") // "1"
+```
+
+`db` is the `test` database; use `db.getSiblingDB("app")` for another. Each
+shell formats a document its own way, so end with `JSON.stringify(...)` to
+parse the result.
+
+On a container with credentials the shell logs in as the root user first. A
+script that throws returns a `*ScriptError`, which matches `ErrScriptFailed`
+and holds everything the shell wrote. An image with no shell returns
+`ErrNoShell`.
+
 ## Cleaning up
 
 `Stop` removes the container, even when the context it is given has already
@@ -226,10 +247,6 @@ docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 - **TLS.** There is no option for it until a container can be given a
   certificate, which is issue
   [#34](https://github.com/TopherGopher/mongotest/issues/34).
-- **Exec and scripts.** `Container` has no exec method; pass a client with
-  `Options.WithDocker` and exec through it. Issue
-  [#35](https://github.com/TopherGopher/mongotest/issues/35) adds `Exec` and
-  `RunScript`.
 - **Data that outlives the container.** Issue
   [#55](https://github.com/TopherGopher/mongotest/issues/55).
 

@@ -326,3 +326,31 @@ func ExampleReapRunningContainers_errors() {
 	}
 	// Output: still running: orders-db
 }
+
+// RunScript runs JavaScript in the container's MongoDB shell and returns what
+// it printed. Here a stand-in daemon plays the shell.
+func ExampleContainer_RunScript() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	docker.(stage).ExecFunc = func(_ string, cmd []string) dockerclient.ExecResult {
+		return dockerclient.ExecResult{Stdout: "1\n"}
+	}
+	ctx := context.Background()
+
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker))
+	if err != nil {
+		fmt.Println("start:", err)
+		return
+	}
+	defer c.Stop(ctx)
+
+	ok, err := c.RunScript(ctx, "db.runCommand({ping: 1}).ok")
+	if err != nil {
+		// A *ScriptError's fields hold all the shell wrote; the message
+		// quotes the start of it.
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("ping ok:", ok)
+	// Output: ping ok: 1
+}

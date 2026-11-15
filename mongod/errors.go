@@ -39,6 +39,11 @@ var (
 	// ErrNotInitiated: WithReplicaSet could not initiate the set. The error
 	// says whether the image has no shell to do it with, or the shell failed.
 	ErrNotInitiated = errors.New("the replica set could not be initiated")
+	// ErrScriptFailed: the shell ran a script and exited non-zero. The error
+	// is a *ScriptError holding the shell's exit code and output.
+	ErrScriptFailed = errors.New("a script failed in the MongoDB shell")
+	// ErrNoShell: the image has no MongoDB shell to run a script with.
+	ErrNoShell = errors.New("the image has no MongoDB shell (mongosh or mongo)")
 	// ErrReap: ReapRunningContainers could not remove every container. The
 	// error also matches each removal's own error.
 	ErrReap = reaper.ErrReap
