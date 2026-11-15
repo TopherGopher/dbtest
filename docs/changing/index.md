@@ -15,9 +15,9 @@ calls survive the rework.
 Each page on the site says how far along it is:
 
 <div class="mt-legend" markdown>
-<div><span class="mt-status__badge current">Current</span><span>Describes what is on <code>master</code> today.</span></div>
+<div><span class="mt-status__badge current">Current</span><span>Describes what is on <code>main</code> today.</span></div>
 <div><span class="mt-status__badge changing">Changing</span><span>Works today, but the API on the page is being reworked.</span></div>
-<div><span class="mt-status__badge landing">Landing</span><span>Implemented in an open pull request. Not on <code>master</code> yet; details may still move.</span></div>
+<div><span class="mt-status__badge landing">Landing</span><span>Implemented in an open pull request. Not on <code>main</code> yet; details may still move.</span></div>
 </div>
 
 The same badge appears as an icon next to the page in the navigation.

@@ -1,6 +1,6 @@
 # Documentation site for mongotest.
 # Build locally with:   pip install -r docs/requirements.txt && mkdocs serve
-# Published to GitHub Pages by .github/workflows/docs.yml on every push to master.
+# Published to GitHub Pages by .github/workflows/docs.yml on every push to main.
 
 site_name: mongotest
 site_url: https://tophergopher.github.io/mongotest/
@@ -12,7 +12,7 @@ copyright: >-
 
 repo_name: TopherGopher/mongotest
 repo_url: https://github.com/TopherGopher/mongotest
-edit_uri: edit/master/docs/
+edit_uri: edit/main/docs/
 
 docs_dir: docs
 site_dir: site
@@ -91,9 +91,9 @@ extra:
   # Page status, set per page in front matter. The nav shows an icon; the
   # page shows a banner (see overrides/main.html). Keep these four.
   status:
-    current: Describes what is on master today
+    current: Describes what is on main today
     changing: Works today, but the API on this page is being reworked
-    landing: Implemented in an open pull request, not yet on master
+    landing: Implemented in an open pull request, not yet on main
 
 markdown_extensions:
   - abbr

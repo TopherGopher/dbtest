@@ -23,7 +23,7 @@ tracks: ["#40"]
 
 | Status | Use it when |
 | --- | --- |
-| `current` | The page describes what is on `master`. |
+| `current` | The page describes what is on `main`. |
 | `changing` | The page describes what works today, and an issue or pull request is reworking it. |
 | `landing` | The page describes code in an open pull request. |
 

@@ -8,7 +8,7 @@ description: How this site is built, and the conventions for adding a guide.
 This site is plain Markdown under `docs/`, built with
 [MkDocs](https://www.mkdocs.org/) and the
 [Material theme](https://squidfunk.github.io/mkdocs-material/). Every push to
-`master` that touches `docs/` or `mkdocs.yml` rebuilds and publishes it.
+`main` that touches `docs/` or `mkdocs.yml` rebuilds and publishes it.
 
 ## Preview locally
 

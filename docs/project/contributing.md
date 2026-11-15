@@ -45,7 +45,7 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
 ## The standard
 
 A change is reviewed against
-[`AGENTS.md`](https://github.com/TopherGopher/mongotest/blob/master/AGENTS.md)
+[`AGENTS.md`](https://github.com/TopherGopher/mongotest/blob/main/AGENTS.md)
 at the repository root. In short:
 
 - Every pull request starts from an issue that says what the problem is and
@@ -61,7 +61,7 @@ at the repository root. In short:
 ## Documentation
 
 The site you are reading lives in `docs/` and is rebuilt on every push to
-`master`. A change that adds or alters behaviour should update the guide that
+`main`. A change that adds or alters behaviour should update the guide that
 describes it in the same pull request. [Writing a new page](../reference/writing-docs.md)
 has the conventions and the local preview command.
 

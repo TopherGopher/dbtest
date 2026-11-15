@@ -6,7 +6,7 @@ description: mongotest is released under the MIT License.
 # License
 
 mongotest is released under the MIT License. The full text is in the
-[`LICENSE`](https://github.com/TopherGopher/mongotest/blob/master/LICENSE) file
+[`LICENSE`](https://github.com/TopherGopher/mongotest/blob/main/LICENSE) file
 at the root of the repository and reproduced below.
 
 ```text

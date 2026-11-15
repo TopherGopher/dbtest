@@ -29,7 +29,7 @@
 {% block announce %}
   <span class="mt-announce">
     <strong>The API is being reworked.</strong>
-    Every page carries a status badge: what is on master, and what is in an
+    Every page carries a status badge: what is on main, and what is in an
     open pull request.
     <a href="{{ 'changing/' | url }}">See what is changing</a>
   </span>
@@ -49,9 +49,9 @@
       "landing": "Landing"
     } %}
     {% set texts = {
-      "current": "This page describes what is on <code>master</code> today.",
+      "current": "This page describes what is on <code>main</code> today.",
       "changing": "What this page describes works today, but the API is being reworked. <a href=\"" ~ ('changing/' | url) ~ "#what-stays-and-what-goes\">What stays and what goes</a> lists the calls that survive.",
-      "landing": "This page describes code in an open pull request. It is not on <code>master</code> yet and details may still move."
+      "landing": "This page describes code in an open pull request. It is not on <code>main</code> yet and details may still move."
     } %}
     <div class="mt-status mt-status--{{ status }}" role="note">
       <span class="mt-status__badge">{{ labels[status] }}</span>

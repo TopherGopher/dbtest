@@ -1,7 +1,7 @@
 name: Docs
 
 # Builds the documentation site on every change and publishes it to GitHub
-# Pages when the change lands on master. Pull requests get a build check only,
+# Pages when the change lands on main. Pull requests get a build check only,
 # so a broken page is caught before it ships.
 #
 # One-time setup: in the repository settings, under Pages, set "Source" to
@@ -9,13 +9,13 @@ name: Docs
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -27,7 +27,7 @@ permissions:
 
 # One run at a time for each branch. A newer push waits for a deployment in
 # flight and replaces one still queued. Pull requests have groups of their
-# own, so their builds can never push a master deployment out of the queue.
+# own, so their builds can never push a main deployment out of the queue.
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: false
@@ -73,9 +73,9 @@ jobs:
 
   deploy:
     name: Deploy to GitHub Pages
-    # Only publish from master. Pull requests stop after the build job, and
+    # Only publish from main. Pull requests stop after the build job, and
     # so does a manual run started from any other branch.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:

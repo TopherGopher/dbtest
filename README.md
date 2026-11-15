@@ -44,7 +44,7 @@ This will thwack any containers that were created via mongotest.
 # Documentation
 
 The documentation site lives in [`docs/`](docs/) and is built with MkDocs
-Material. It is published to GitHub Pages from `master` by
+Material. It is published to GitHub Pages from `main` by
 [`.github/workflows/docs.yml`](.github/workflows/docs.yml). To preview it
 locally:
 
