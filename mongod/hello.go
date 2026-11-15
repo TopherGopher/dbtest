@@ -72,15 +72,9 @@ func helloMessage() []byte {
 // the moment the container exists, and hangs up if no mongod is listening
 // behind it.
 func (p readyProbe) hello(ctx context.Context) error {
-	dialer := net.Dialer{Timeout: helloTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", addr(p.host, p.port))
+	conn, err := p.dial(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: %w", errNoReply, err)
-	}
-	if p.tlsConfig != nil {
-		config := p.tlsConfig.Clone()
-		config.ServerName = p.host
-		conn = tls.Client(conn, config)
+		return err
 	}
 	defer conn.Close()
 	// Closing the connection is what makes a read give up when ctx ends.
@@ -92,6 +86,38 @@ func (p readyProbe) hello(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", errNoReply, err)
 	}
 	return readHelloReply(conn)
+}
+
+// dial connects to the published port, over TLS when mongod requires it.
+func (p readyProbe) dial(ctx context.Context) (net.Conn, error) {
+	dialer := net.Dialer{Timeout: helloTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr(p.host, p.port))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errNoReply, err)
+	}
+	if p.tlsConfig == nil {
+		return conn, nil
+	}
+	return p.handshake(ctx, conn)
+}
+
+// handshake starts TLS on a connection. A certificate this start did not
+// make means something other than its mongod answered. Any other failure,
+// such as Docker hanging up before mongod listens, is no reply yet.
+func (p readyProbe) handshake(ctx context.Context, conn net.Conn) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, helloTimeout)
+	defer cancel()
+	tlsConn := tls.Client(conn, p.tlsConfig)
+	err := tlsConn.HandshakeContext(ctx)
+	if err == nil {
+		return tlsConn, nil
+	}
+	_ = conn.Close()
+	var untrusted *tls.CertificateVerificationError
+	if errors.As(err, &untrusted) {
+		return nil, fmt.Errorf("%w: %w", errNotMongod, err)
+	}
+	return nil, fmt.Errorf("%w: %w", errNoReply, err)
 }
 
 // readHelloReply reads one reply and says what it means: nil for a serving

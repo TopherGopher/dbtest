@@ -379,14 +379,27 @@ func (s *tlsStage) CopyToContainer(ctx context.Context, id, dir string, files []
 	return s.Fake.CopyToContainer(ctx, id, dir, files)
 }
 
-// With WithTLS, mongod accepts only TLS. A driver needs the URI, which asks
-// for TLS, and TLSConfig, which trusts the certificate made for the
-// container: with the official driver, options.Client().ApplyURI(c.URI()).
-// SetTLSConfig(c.TLSConfig()).
-func ExampleOptions_WithTLS() {
-	plain, closeDocker := exampleDocker()
-	defer closeDocker()
+// exampleTLSDocker returns a stage whose mongod speaks TLS, and a function
+// that closes it.
+func exampleTLSDocker() (dockerclient.Client, func()) {
+	plain, closePlain := exampleDocker()
 	docker := &tlsStage{stage: plain.(stage)}
+	return docker, func() {
+		closePlain()
+		if docker.listener != nil {
+			_ = docker.listener.Close()
+		}
+	}
+}
+
+// With WithTLS, mongod accepts only TLS. A driver needs both the URI, which
+// says tls=true, and TLSConfig, which trusts the certificate made for the
+// container, applied in that order:
+//
+//	options.Client().ApplyURI(c.URI()).SetTLSConfig(c.TLSConfig())
+func ExampleOptions_WithTLS() {
+	docker, closeDocker := exampleTLSDocker()
+	defer closeDocker()
 	ctx := context.Background()
 
 	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithTLS())
@@ -395,7 +408,6 @@ func ExampleOptions_WithTLS() {
 		return
 	}
 	defer c.Stop(ctx)
-	defer docker.listener.Close()
 
 	conn, err := tls.Dial("tcp", net.JoinHostPort(c.Host(), strconv.Itoa(c.Port())), c.TLSConfig())
 	if err != nil {
@@ -403,7 +415,6 @@ func ExampleOptions_WithTLS() {
 		return
 	}
 	defer conn.Close()
-	uri, _ := url.Parse(c.URI())
-	fmt.Println("tls:", uri.Query().Get("tls"))
-	// Output: tls: true
+	fmt.Println("trusted:", conn.ConnectionState().HandshakeComplete)
+	// Output: trusted: true
 }

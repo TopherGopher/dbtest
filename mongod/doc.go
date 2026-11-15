@@ -10,7 +10,8 @@
 //
 // That runs docker.io/library/mongo:8.0, the official image, on a host port
 // the daemon chooses and waits up to a minute for mongod. The package imports no MongoDB driver: hand
-// [Container.URI] to whichever one you use.
+// [Container.URI] to whichever one you use, and with [Options.WithTLS] also
+// [Container.TLSConfig].
 //
 // # Options
 //

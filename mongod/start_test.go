@@ -588,6 +588,12 @@ func TestAStartTimeoutThatEndsDuringAStepIsAStartThatWasNotReady(t *testing.T) {
 				return ctx.Err()
 			}
 		}},
+		{mongod.OpTLSCertificate, mongod.DefaultOptions().WithTLS(), func(m *dockermock.Mock) {
+			m.CopyToContainerFunc = func(ctx context.Context, _, _ string, _ []dockerclient.File) error {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+		}},
 		{mongod.OpStart, mongod.DefaultOptions(), func(m *dockermock.Mock) {
 			m.ContainerStartFunc = func(ctx context.Context, _ string) error {
 				<-ctx.Done()

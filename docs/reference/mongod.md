@@ -53,6 +53,7 @@ tests. `Start(ctx)` is `StartWithOptions(ctx, mongod.DefaultOptions())`.
 | `WithHostIP(host)` | The address containers are reachable at; see [Remote and nested daemons](../guides/remote-daemons.md). |
 | `WithStartTimeout(d)` | How long a start waits, replica set initiation included. The default is one minute. |
 | `WithMongodArgs(args...)` | Extra flags for `mongod`. |
+| `WithTLS()` | Accept only TLS connections; see [TLS](#tls). |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
 | `WithLogger(l)` | Where a start is logged. `*slog.Logger` works; the default discards. |
 | `WithDocker(client)` | A specific Docker client, such as a [double](#testing-code-that-starts-containers). |
@@ -98,8 +99,9 @@ A start refuses two mistakes before it creates anything:
 
 - A bare version such as `8` for `ImageCommunity` or `ImageEnterprise`, whose
   tags all name an OS variant such as `8.0-ubi9`: `ErrNoSuchVersion`.
-- `WithReplicaSet` or `WithMongodArgs` for `ImageAtlasLocal`, which runs its
-  own replica set and takes no `mongod` flags: `ErrUnsupportedForImage`.
+- `WithReplicaSet`, `WithMongodArgs` or `WithTLS` for `ImageAtlasLocal`, which
+  runs its own replica set and takes no `mongod` flags:
+  `ErrUnsupportedForImage`.
 
 An image the package does not know is treated like the official one. To pull
 through a mirror, name the image there:
@@ -126,7 +128,8 @@ func TestMain(m *testing.M) {
 
 | Method | Returns |
 | --- | --- |
-| `URI()` | `mongodb://<host>:<port>/?directConnection=true`, with `<user>:<password>@` when the container has credentials. |
+| `URI()` | `mongodb://<host>:<port>/?directConnection=true`, with `<user>:<password>@` when the container has credentials, and `&tls=true` with `WithTLS`. |
+| `TLSConfig()` | With `WithTLS`, the client configuration that trusts the container's certificate; otherwise nil. |
 | `Host()`, `Port()` | The address to dial. The host is not always loopback; see [Remote and nested daemons](../guides/remote-daemons.md). |
 | `ID()`, `Name()`, `Image()` | What was started. |
 | `Username()`, `Password()` | The root user, or empty for a `mongod` that does not authenticate. `URI()` already includes them. |
@@ -176,15 +179,18 @@ If the image does not create the user, the start removes the container and
 returns `ErrAuthNotEnforced` rather than hand back an open `mongod`.
 
 Anyone who can use the daemon can read the credentials. Traffic is not
-encrypted unless you ask for TLS.
+encrypted unless you ask for [TLS](#tls).
 
 ## TLS
 
 `WithTLS()` makes `mongod` accept only TLS connections. Each container gets
-its own certificate authority and a server certificate, made in memory and
-valid for a day, that names the address `URI()` uses as well as `localhost`.
-Give a driver both the URI, which asks for TLS, and `TLSConfig()`, which
-trusts that certificate:
+its own certificate authority, and a server certificate signed by it. Both
+are made in memory and expire after a day. The server certificate is valid
+for the host in `URI()` and for `localhost`.
+
+Give a driver both the URI, which includes `tls=true`, and `TLSConfig()`,
+which trusts the container's certificate authority. Apply the URI first: a URI
+applied afterwards replaces the TLS configuration.
 
 ```go
 client, err := mongo.Connect(options.Client().ApplyURI(c.URI()).SetTLSConfig(c.TLSConfig()))

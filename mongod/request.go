@@ -49,8 +49,9 @@ func (c config) command() []string {
 		cmd = append(cmd, "--keyFile", keyFilePath)
 	}
 	if c.tls {
-		// mongod 7.0.10 and later refuse TLS without a CA file. Given one, it
-		// asks clients for a certificate, which drivers do not send.
+		// mongod 7.0.10 and later will not use TLS without a CA file. With
+		// one, mongod asks each client for a certificate, which drivers do
+		// not send by default; the last flag lets them connect without one.
 		cmd = append(cmd, "--tlsMode", "requireTLS", "--tlsCertificateKeyFile", tlsServerPath,
 			"--tlsCAFile", tlsCAPath, "--tlsAllowConnectionsWithoutCertificates")
 	}

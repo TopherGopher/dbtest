@@ -187,7 +187,9 @@ func (o Options) WithoutAuth() Options {
 
 // WithTLS makes mongod accept only TLS connections, with a certificate made
 // for this container. Connect with [Container.URI] and give the driver
-// [Container.TLSConfig], which trusts that certificate.
+// [Container.TLSConfig], which trusts that certificate. An image that takes
+// no mongod flags, such as Atlas Local, refuses it with
+// [ErrUnsupportedForImage].
 func (o Options) WithTLS() Options {
 	o.tls = true
 	return o
@@ -378,7 +380,7 @@ func (c config) validate() error {
 	case len(c.mongodArgs) > 0 && !c.image.acceptsMongodArgs():
 		return &UnsupportedForImageError{Image: c.image, Option: "WithMongodArgs", Reason: reasonCommandIsEntrypoint}
 	case c.tls && !c.image.acceptsMongodArgs():
-		return &UnsupportedForImageError{Image: c.image, Option: "WithTLS", Reason: reasonCommandIsEntrypoint}
+		return &UnsupportedForImageError{Image: c.image, Option: "WithTLS", Reason: reasonNoTLSFlags}
 	}
 	return nil
 }

@@ -130,6 +130,7 @@ const (
 	reasonPreconfiguredReplicaSet = "it already runs a single-node replica set under a name it generates, " +
 		"so remove the option and read the name from the server"
 	reasonCommandIsEntrypoint = "it has no entrypoint, so the flags would replace the program it runs; remove the option"
+	reasonNoTLSFlags          = "it starts mongod itself and takes no flags, so TLS cannot be turned on; use another image or remove the option"
 )
 
 func invalidPort(port int) error {
@@ -167,13 +168,13 @@ func problemOf(cause error) string {
 
 // The steps of a start, as StartError.Op names them.
 const (
-	OpPullImage   = "pull the image"
-	OpCreate      = "create the container"
-	OpCopyKeyFile = "copy the replica set key file into the container"
-	OpCopyTLS     = "copy the TLS certificate into the container"
-	OpStart       = "start the container"
-	OpInspect     = "inspect the container"
-	OpInitiate    = "initiate the replica set"
+	OpPullImage      = "pull the image"
+	OpCreate         = "create the container"
+	OpCopyKeyFile    = "copy the replica set key file into the container"
+	OpTLSCertificate = "put a TLS certificate in the container"
+	OpStart          = "start the container"
+	OpInspect        = "inspect the container"
+	OpInitiate       = "initiate the replica set"
 )
 
 // StartError says which step of a start failed. It wraps the daemon's error.

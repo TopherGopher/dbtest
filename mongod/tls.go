@@ -9,8 +9,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"fmt"
-	"math/big"
 	"net"
 	"time"
 
@@ -18,7 +16,8 @@ import (
 )
 
 // Where the TLS files go inside the container. They are copied in before
-// mongod starts, because a bind mount does not reach a remote daemon.
+// mongod starts: a remote daemon cannot see this machine's files, so a bind
+// mount would not work.
 const (
 	tlsCopyDir    = "/etc"
 	tlsDirName    = "mongo-tls"
@@ -30,25 +29,31 @@ const (
 // any test run, short enough that a leaked one soon stops working.
 const certificateLifetime = 24 * time.Hour
 
-// certificates are a container's own CA and a server certificate it signed.
+// certificates are a container's own CA and a server certificate signed by
+// that CA.
 type certificates struct {
-	caPEM     []byte
-	serverPEM []byte // the certificate, then its key, as mongod reads them
-	server    tls.Certificate
+	caPEM []byte
+	// serverPEM is the certificate followed by its key, in the one file
+	// --tlsCertificateKeyFile expects.
+	serverPEM []byte
 	roots     *x509.CertPool
 }
 
 // newCertificates makes a CA and a server certificate for mongod, in
-// memory. The server certificate names the loopback addresses the shell
-// inside the container uses, and host, the address a caller dials.
+// memory. The server certificate is valid for localhost and the loopback
+// addresses, which the shell inside the container dials, and for host, which
+// a caller dials. The CA's key is dropped once it has signed, so nothing can
+// sign another certificate the caller would trust.
 func newCertificates(host string) (certificates, error) {
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return certificates{}, err
 	}
+	// Valid from an hour ago, so a container whose clock is behind this
+	// machine's still accepts it.
 	now := time.Now()
 	caTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "mongotest CA"},
+		Subject:   pkix.Name{CommonName: "mongotest CA"},
 		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(certificateLifetime),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
 	}
@@ -70,7 +75,7 @@ func serverCertificate(ca *x509.Certificate, caKey *ecdsa.PrivateKey, host strin
 		return certificates{}, err
 	}
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "localhost"},
+		Subject:   pkix.Name{CommonName: "localhost"},
 		NotBefore: ca.NotBefore, NotAfter: ca.NotAfter,
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
@@ -93,19 +98,21 @@ func serverCertificate(ca *x509.Certificate, caKey *ecdsa.PrivateKey, host strin
 	return certificates{
 		caPEM:     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}),
 		serverPEM: append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})...),
-		server:    tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key},
 		roots:     roots,
 	}, nil
 }
 
 // tlsConfig returns a client configuration that trusts only the CA. Each
-// call returns a new one, so a caller can change it freely.
+// call returns a new one, so changing it affects nothing else.
 func (c certificates) tlsConfig() *tls.Config {
-	return &tls.Config{RootCAs: c.roots.Clone(), MinVersion: tls.VersionTLS12}
+	return &tls.Config{RootCAs: c.roots.Clone()}
 }
 
 // copyInto puts the CA and the server certificate into a container that is
-// created but not started. mongod does not check who can read them.
+// created but not started. The daemon writes them as root, so they are made
+// readable by everyone for mongod to read them whatever user it runs as.
+// Unlike a replica set key file, mongod accepts a certificate key others can
+// read.
 func (c certificates) copyInto(ctx context.Context, docker dockerclient.Client, id string) error {
 	return docker.CopyToContainer(ctx, id, tlsCopyDir, []dockerclient.File{
 		{Name: tlsDirName + "/ca.pem", Mode: 0o644, Content: c.caPEM},
@@ -113,9 +120,14 @@ func (c certificates) copyInto(ctx context.Context, docker dockerclient.Client, 
 	})
 }
 
-// TLSConfig returns a client configuration that trusts the container's
-// certificate, or nil when the container was started without WithTLS. Pass
-// it to the driver along with URI. Each call returns a new one.
+// TLSConfig returns the client configuration that trusts the container's
+// certificate, or nil when the container was started without
+// [Options.WithTLS]. Give it to the driver after [Container.URI]: applying a
+// URI that says tls=true afterwards replaces it, in the official drivers.
+//
+//	options.Client().ApplyURI(c.URI()).SetTLSConfig(c.TLSConfig())
+//
+// Each call returns a new one, so changing it affects nothing else.
 func (c *Container) TLSConfig() *tls.Config {
 	if c.certs == nil {
 		return nil
@@ -123,14 +135,25 @@ func (c *Container) TLSConfig() *tls.Config {
 	return c.certs.tlsConfig()
 }
 
-// certificatesFor makes the certificates for a start with WithTLS, or none.
+// probeTLSConfig is the configuration Start's readiness check dials with:
+// TLSConfig, naming the address it dials. It is nil without TLS.
+func (c *Container) probeTLSConfig() *tls.Config {
+	config := c.TLSConfig()
+	if config != nil {
+		config.ServerName = c.host
+	}
+	return config
+}
+
+// certificatesFor makes the certificates when WithTLS was given, and returns
+// nil otherwise.
 func (c config) certificatesFor(host string) (*certificates, error) {
 	if !c.tls {
 		return nil, nil
 	}
 	certs, err := newCertificates(host)
 	if err != nil {
-		return nil, fmt.Errorf("mongod: cannot make the TLS certificates: %w", err)
+		return nil, &StartError{Op: OpTLSCertificate, Name: c.name, Image: c.image.Reference(), Err: err}
 	}
 	return &certs, nil
 }
