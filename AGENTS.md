@@ -10,7 +10,7 @@ Work is planned in GitHub issues and nowhere else. There is no plan file.
 
 - **Every pull request starts from an issue.** The issue says what the
   problem is, why it matters, and what done looks like. The pull request
-  names the issue it closes.
+  names every issue it closes.
 - **No issue, no work yet.** If the work has no issue, or the issue no
   longer matches it, spawn the `project-manager` to create or update one
   before writing code.
@@ -20,6 +20,15 @@ Work is planned in GitHub issues and nowhere else. There is no plan file.
 - **Findings go where the work is.** A measurement or a decision that
   explains a change belongs in its issue or its pull request, not in a
   comment and not in a separate document.
+- **Issues that overlap share a pull request.** Issues whose changes touch
+  the same files, or serve the same purpose, share one branch and one pull
+  request. Only issues whose changes are in completely different files, and
+  so cannot conflict, get a branch and pull request each, opened against
+  `main` so that each can merge on its own.
+- **A branch is named for its issues.** The name is `issue-`, then the issue
+  numbers from lowest to highest, then a few lowercase words saying what the
+  work does, all joined by hyphens: `issue-34-35-mongod-exec-and-tls`. It
+  carries no commit hash, date or random string.
 
 ## The library
 
