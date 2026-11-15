@@ -170,6 +170,7 @@ const (
 	OpPullImage   = "pull the image"
 	OpCreate      = "create the container"
 	OpCopyKeyFile = "copy the replica set key file into the container"
+	OpCopyTLS     = "copy the TLS certificate into the container"
 	OpStart       = "start the container"
 	OpInspect     = "inspect the container"
 	OpInitiate    = "initiate the replica set"

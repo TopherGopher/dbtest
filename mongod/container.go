@@ -25,6 +25,7 @@ type Container struct {
 	password   string
 	host       string
 	port       int
+	certs      *certificates // nil without WithTLS
 	docker     dockerclient.Client
 	logger     dockerclient.Logger
 
@@ -131,6 +132,9 @@ func (c *Container) uri(password string) string {
 	}
 	b.WriteString(addr(c.host, c.Port()))
 	b.WriteString("/?directConnection=true")
+	if c.certs != nil {
+		b.WriteString("&tls=true")
+	}
 	return b.String()
 }
 

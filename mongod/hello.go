@@ -2,6 +2,7 @@ package mongod
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -75,6 +76,11 @@ func (p readyProbe) hello(ctx context.Context) error {
 	conn, err := dialer.DialContext(ctx, "tcp", addr(p.host, p.port))
 	if err != nil {
 		return fmt.Errorf("%w: %w", errNoReply, err)
+	}
+	if p.tlsConfig != nil {
+		config := p.tlsConfig.Clone()
+		config.ServerName = p.host
+		conn = tls.Client(conn, config)
 	}
 	defer conn.Close()
 	// Closing the connection is what makes a read give up when ctx ends.

@@ -2,6 +2,7 @@ package mongod_test
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -353,4 +354,56 @@ func ExampleContainer_RunScript() {
 	}
 	fmt.Println("ping ok:", ok)
 	// Output: ping ok: 1
+}
+
+// tlsStage is the stage for a container started with TLS: once the start
+// copies its certificate in, a stand-in for mongod answers over TLS with it.
+type tlsStage struct {
+	stage
+	listener net.Listener
+}
+
+func (s *tlsStage) CopyToContainer(ctx context.Context, id, dir string, files []dockerclient.File) error {
+	for _, f := range files {
+		cert, err := tls.X509KeyPair(f.Content, f.Content)
+		if err != nil {
+			continue
+		}
+		listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
+		if err != nil {
+			return err
+		}
+		go acceptAll(listener, answerCommand)
+		s.listener, s.port = listener, listener.Addr().(*net.TCPAddr).Port
+	}
+	return s.Fake.CopyToContainer(ctx, id, dir, files)
+}
+
+// With WithTLS, mongod accepts only TLS. A driver needs the URI, which asks
+// for TLS, and TLSConfig, which trusts the certificate made for the
+// container: with the official driver, options.Client().ApplyURI(c.URI()).
+// SetTLSConfig(c.TLSConfig()).
+func ExampleOptions_WithTLS() {
+	plain, closeDocker := exampleDocker()
+	defer closeDocker()
+	docker := &tlsStage{stage: plain.(stage)}
+	ctx := context.Background()
+
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithTLS())
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer c.Stop(ctx)
+	defer docker.listener.Close()
+
+	conn, err := tls.Dial("tcp", net.JoinHostPort(c.Host(), strconv.Itoa(c.Port())), c.TLSConfig())
+	if err != nil {
+		fmt.Println("the server is not trusted:", err)
+		return
+	}
+	defer conn.Close()
+	uri, _ := url.Parse(c.URI())
+	fmt.Println("tls:", uri.Query().Get("tls"))
+	// Output: tls: true
 }

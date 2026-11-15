@@ -175,8 +175,24 @@ which is why a loopback container gets none unless you ask.
 If the image does not create the user, the start removes the container and
 returns `ErrAuthNotEnforced` rather than hand back an open `mongod`.
 
-Anyone who can use the daemon can read the credentials, and traffic is not
-encrypted.
+Anyone who can use the daemon can read the credentials. Traffic is not
+encrypted unless you ask for TLS.
+
+## TLS
+
+`WithTLS()` makes `mongod` accept only TLS connections. Each container gets
+its own certificate authority and a server certificate, made in memory and
+valid for a day, that names the address `URI()` uses as well as `localhost`.
+Give a driver both the URI, which asks for TLS, and `TLSConfig()`, which
+trusts that certificate:
+
+```go
+client, err := mongo.Connect(options.Client().ApplyURI(c.URI()).SetTLSConfig(c.TLSConfig()))
+```
+
+`RunScript` and replica set initiation connect with TLS too. Atlas Local takes
+no `mongod` flags, so `WithTLS` is refused for it with
+`ErrUnsupportedForImage`.
 
 ## Replica sets
 
@@ -244,9 +260,6 @@ docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 
 ## Not here yet
 
-- **TLS.** There is no option for it until a container can be given a
-  certificate, which is issue
-  [#34](https://github.com/TopherGopher/mongotest/issues/34).
 - **Data that outlives the container.** Issue
   [#55](https://github.com/TopherGopher/mongotest/issues/55).
 

@@ -93,7 +93,11 @@ func (c *Container) shellCommand(shell, script string) []string {
 	if c.username != "" {
 		script = authenticateScript + script
 	}
-	return []string{shell, "--quiet", "--norc", "--eval", script}
+	cmd := []string{shell, "--quiet", "--norc"}
+	if c.certs != nil {
+		cmd = append(cmd, "--tls", "--tlsCAFile", tlsCAPath)
+	}
+	return append(cmd, "--eval", script)
 }
 
 // authenticateScript logs the shell in as the root user. It reads the

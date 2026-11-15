@@ -42,7 +42,12 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	cfg.hostSource = address.Source
 	cfg.announceExposure(host)
 
+	certs, err := cfg.certificatesFor(host)
+	if err != nil {
+		return nil, err
+	}
 	c := newContainer(host, cfg, docker)
+	c.certs = certs
 	deadline, err := c.create(ctx, cfg, host)
 	if err != nil {
 		return nil, err
@@ -325,6 +330,7 @@ func (c *Container) start(ctx context.Context, cfg config, deadline time.Time) e
 		docker: c.docker, logger: c.logger,
 		id: c.id, name: c.name, host: c.host, port: c.port,
 		requireAuth:    cfg.username != "",
+		tlsConfig:      c.TLSConfig(),
 		hasHealthCheck: declaresHealthCheck(info.State.Health.Status),
 		notReady:       notReady,
 	}
@@ -351,6 +357,11 @@ func (c *Container) run(ctx context.Context, cfg config) (dockerclient.Container
 	if cfg.needsKeyFile() {
 		if err := copyKeyFile(ctx, c.docker, c.id, c.Image()); err != nil {
 			return dockerclient.ContainerInspect{}, c.startError(OpCopyKeyFile, err)
+		}
+	}
+	if c.certs != nil {
+		if err := c.certs.copyInto(ctx, c.docker, c.id); err != nil {
+			return dockerclient.ContainerInspect{}, c.startError(OpCopyTLS, err)
 		}
 	}
 	c.logger.Debug("Starting the MongoDB container.", "container", c.name, "image", c.Image())

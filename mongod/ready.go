@@ -2,6 +2,7 @@ package mongod
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"path"
@@ -31,6 +32,8 @@ type readyProbe struct {
 	// requireAuth says the container was created with credentials, so the
 	// mongod that serves must enforce them.
 	requireAuth bool
+	// tlsConfig is set when mongod requires TLS, and trusts its certificate.
+	tlsConfig *tls.Config
 	// hasHealthCheck says the image declares a health check to wait for.
 	hasHealthCheck bool
 	// notReady builds the error for a wait that ran out of time or was
