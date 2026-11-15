@@ -6,22 +6,29 @@ on:
   pull_request:
     branches: [ master ]
 
+# The token every job gets can read the repository and nothing more.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
     steps:
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
-      with:
-        go-version: ^1.15
-
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # No later step pushes, so the token is not left in the git config.
+        persist-credentials: false
+
+    # After the checkout: it reads the Go version from go.mod.
+    - name: Set up Go 1.x
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
 
     - name: Get dependencies
-      run: |
-        go get -v -t -d ./...
+      run: go mod download
 
     - name: Vet
       run: go vet -v ./...
@@ -43,15 +50,17 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
-      with:
-        go-version: ^1.15
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # No later step pushes, so the token is not left in the git config.
+        persist-credentials: false
+    - name: Set up Go 1.x
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
     - name: Get dependencies
-      run: |
-        go get -v -t -d ./...
+      run: go mod download
 
     - name: Test package
       run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
@@ -62,14 +71,12 @@ jobs:
       working-directory: ./mobyclient
       run: go test -v -race ./...
 
-    - name: Convert code coverage for package
-      uses: jandelgado/gcov2lcov-action@v1.0.5
-      with:
-        infile: coverage.out
-        outfile: coverage.lcov
-
     - name: Upload code coverage to Coveralls for package
-      uses: coverallsapp/github-action@v1.1.2
+      uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        path-to-lcov: coverage.lcov
+        # The profile "Test package" writes, read as Go's own format.
+        file: coverage.out
+        format: golang
+        # The reporter this action downloads; without it, the newest one.
+        coverage-reporter-version: v0.6.22

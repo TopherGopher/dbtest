@@ -17,6 +17,18 @@ type Factory func(t *testing.T) dockerclient.Client
 // downloaded: the daemon behind the client is a double.
 const TestImage = "mongo:8"
 
+// What the daemon behind a conformance client must report for TestImage.
+// The suite cannot set either through the client, so the double is told:
+// a dockermock.Fake takes them in its ImageUser and Health fields.
+const (
+	// TestImageUser is the user TestImage declares, as MongoDB's own images
+	// declare one by name.
+	TestImageUser = "mongodb"
+	// TestImageHealth is the health a running container of TestImage
+	// reports, as one from an image with a health check does.
+	TestImageHealth = "healthy"
+)
+
 // Conformance runs every behaviour assertion against one implementation.
 func Conformance(t *testing.T, newClient Factory) {
 	t.Run("rejects bad input before reaching the daemon", func(t *testing.T) {
@@ -34,6 +46,46 @@ func Conformance(t *testing.T, newClient Factory) {
 	t.Run("runs a command and reports its output", func(t *testing.T) {
 		conformanceExec(t, newClient(t))
 	})
+	t.Run("reports the user an image declares", func(t *testing.T) {
+		conformanceImageUser(t, newClient(t))
+	})
+	t.Run("reports the health check of a running container", func(t *testing.T) {
+		conformanceHealth(t, newClient(t))
+	})
+}
+
+// conformanceImageUser checks ImageInspect passes on the image's user, which
+// decides who owns the key file a replica set with credentials needs.
+func conformanceImageUser(t *testing.T, c dockerclient.Client) {
+	ctx := context.Background()
+	if err := c.ImagePull(ctx, TestImage); err != nil {
+		t.Fatalf("pulling %s: %v", TestImage, err)
+	}
+	image, err := c.ImageInspect(ctx, TestImage)
+	if err != nil {
+		t.Fatalf("inspecting %s: %v", TestImage, err)
+	}
+	if image.Config.User != TestImageUser {
+		t.Errorf("ImageInspect reported the image's user as %q, want %q. Without it a replica set with credentials "+
+			"cannot start on MongoDB's own images: its key file gets the wrong owner and mongod refuses it. "+
+			"Fill ImageInspect.Config.User from the daemon's answer", image.Config.User, TestImageUser)
+	}
+}
+
+// conformanceHealth checks ContainerInspect passes on the health check's
+// status, which is the only sign that some images have finished starting.
+func conformanceHealth(t *testing.T, c dockerclient.Client) {
+	ctx := context.Background()
+	id := createRunning(t, c)
+	info, err := c.ContainerInspect(ctx, id)
+	if err != nil {
+		t.Fatalf("inspecting %s: %v", id, err)
+	}
+	if info.State.Health.Status != TestImageHealth {
+		t.Errorf("ContainerInspect reported the container's health as %q, want %q. Without it a start returns "+
+			"before an image that declares a health check, such as Atlas Local, is ready. "+
+			"Fill ContainerInspect.State.Health from the daemon's answer", info.State.Health.Status, TestImageHealth)
+	}
 }
 
 func conformanceValidation(t *testing.T, c dockerclient.Client) {

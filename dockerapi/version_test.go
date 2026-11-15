@@ -3,7 +3,10 @@ package dockerapi
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -154,4 +157,33 @@ func TestPinnedVersionSkipsNegotiation(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidArgument, "a non major.minor pin is an invalid argument")
 		assert.Contains(t, err.Error(), "1.44", "the error must show the expected form")
 	})
+}
+
+// A first call stuck on a daemon that is not answering must not hold every
+// later call past its own deadline.
+func TestNegotiateDoesNotMakeOneCallerWaitForAnother(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); srv.CloseClientConnections(); srv.Close() })
+	c, err := New(WithHost("tcp://" + strings.TrimPrefix(srv.URL, "http://")))
+	require.NoError(t, err, "client construction")
+	go func() { _ = c.Negotiate(context.Background()) }() // never returns while the daemon is stuck
+	time.Sleep(50 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Negotiate(ctx) }()
+
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, context.DeadlineExceeded, "the second caller gives up at its own deadline")
+	case <-time.After(3 * time.Second):
+		require.Fail(t, "a caller with a deadline is still waiting behind one without")
+	}
 }

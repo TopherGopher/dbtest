@@ -1,3 +1,5 @@
+.claude/worktrees/
+
 # MkDocs build output; published by CI, never committed.
 site/
 
