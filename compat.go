@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/tophergopher/mongotest/mongod"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -16,11 +17,6 @@ import (
 // TestConnection is a convenience alias for Instance; new code may prefer
 // Instance.
 type TestConnection = Instance
-
-// ErrCommandFailed: a command run with ExecCommandInMongoContainer exited
-// non-zero. The error gives the exit code; Container.Exec returns it as a
-// value.
-var ErrCommandFailed = errors.New("mongotest: the command exited with a non-zero code")
 
 // attachURI is the server NewTestConnection(false) connects to.
 const attachURI = "mongodb://127.0.0.1:27017/?directConnection=true"
@@ -43,14 +39,15 @@ func NewReplicaSetContainer(rsName string) (*TestConnection, error) {
 }
 
 // MongoClientWithContainer is a convenience wrapper around Start: it passes
-// the client to f, then removes the container. It returns f's error joined
-// with Stop's. New code may prefer Run.
-func MongoClientWithContainer(f func(*mongo.Client) error) error {
+// the client to f, then removes the container, even if f fails the test or
+// panics. It returns f's error joined with Stop's. New code may prefer Run.
+func MongoClientWithContainer(f func(*mongo.Client) error) (err error) {
 	inst, err := Start(context.Background())
 	if err != nil {
 		return err
 	}
-	return errors.Join(f(inst.Client), inst.Stop(context.Background()))
+	defer func() { err = errors.Join(err, inst.Stop(context.Background())) }()
+	return f(inst.Client)
 }
 
 // GetAvailablePort returns a TCP port that was free on 127.0.0.1 when it was
@@ -74,19 +71,35 @@ func (inst *Instance) KillMongoContainer() error {
 // MongoContainerID is a convenience wrapper around Container.ID; new code
 // may prefer Container.ID. It is empty for an instance from Attach.
 func (inst *Instance) MongoContainerID() string {
-	if inst.Container == nil {
+	if inst == nil || inst.Container == nil {
 		return ""
 	}
 	return inst.Container.ID()
 }
 
-// RunMongoScriptOnContainer is a convenience wrapper around
-// Container.RunScript; new code may prefer Container.RunScript.
-func (inst *Instance) RunMongoScriptOnContainer(js string) (string, error) {
-	if inst.Container == nil {
-		return "", ErrNoContainer
+// container returns the instance's container, or ErrNoContainer.
+func (inst *Instance) container() (*mongod.Container, error) {
+	if inst == nil || inst.Container == nil {
+		return nil, ErrNoContainer
 	}
-	return inst.Container.RunScript(context.Background(), js)
+	return inst.Container, nil
+}
+
+// RunMongoScriptOnContainer is a convenience wrapper around
+// Container.RunScript; new code may prefer Container.RunScript. On a script
+// that fails, it returns what the shell wrote and an error matching
+// ErrCommandFailed.
+func (inst *Instance) RunMongoScriptOnContainer(js string) (string, error) {
+	c, err := inst.container()
+	if err != nil {
+		return "", err
+	}
+	out, err := c.RunScript(context.Background(), js)
+	var failed *mongod.ScriptError
+	if errors.As(err, &failed) {
+		return failed.Stdout + failed.Stderr, fmt.Errorf("%w: %w", ErrCommandFailed, err)
+	}
+	return out, err
 }
 
 // ExecCommandInMongoContainer is a convenience wrapper around
@@ -94,10 +107,11 @@ func (inst *Instance) RunMongoScriptOnContainer(js string) (string, error) {
 // output followed by standard error, and on a non-zero exit code that output
 // and an error matching ErrCommandFailed.
 func (inst *Instance) ExecCommandInMongoContainer(cmd []string) (string, error) {
-	if inst.Container == nil {
-		return "", ErrNoContainer
+	c, err := inst.container()
+	if err != nil {
+		return "", err
 	}
-	result, err := inst.Container.Exec(context.Background(), cmd...)
+	result, err := c.Exec(context.Background(), cmd...)
 	if err != nil {
 		return "", err
 	}

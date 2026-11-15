@@ -2,6 +2,8 @@ package mongotest_test
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net"
 	"os/exec"
@@ -13,13 +15,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tophergopher/mongotest"
+	"github.com/tophergopher/mongotest/dockerapi"
 	"github.com/tophergopher/mongotest/mongod"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-// These tests start real containers. They need a Docker daemon, and fail
-// rather than skip without one.
+// The integration tests start real containers. They need a Docker daemon,
+// and fail rather than skip without one.
 
 // insertAndFind writes a document through a client and reads it back.
 func insertAndFind(t *testing.T, client *mongo.Client) {
@@ -32,11 +35,30 @@ func insertAndFind(t *testing.T, client *mongo.Client) {
 	require.NoError(t, coll.FindOne(ctx, bson.M{"name": "Diana"}).Decode(&found), "and read back what it wrote")
 }
 
+// containerExists asks the docker CLI whether a container is still there.
+func containerExists(t *testing.T, id string) bool {
+	t.Helper()
+	out, err := exec.Command("docker", "ps", "-aq", "--no-trunc", "--filter", "id="+id).Output()
+	require.NoError(t, err, "the docker CLI lists containers")
+	return strings.TrimSpace(string(out)) != ""
+}
+
 func TestIntegrationRunGivesAConnectedClient(t *testing.T) {
 	inst := mongotest.Run(t)
 
 	insertAndFind(t, inst.Client)
 	assert.NotNil(t, inst.Container, "the instance has the container it started")
+}
+
+func TestIntegrationRunRemovesTheContainerWhenTheTestEnds(t *testing.T) {
+	var inst *mongotest.Instance
+	t.Run("a test that uses a server", func(t *testing.T) {
+		inst = mongotest.Run(t)
+		require.True(t, containerExists(t, inst.Container.ID()), "the container runs during the test")
+	})
+
+	assert.False(t, containerExists(t, inst.Container.ID()), "and is removed once the test has ended")
+	assert.ErrorIs(t, inst.Ping(context.Background(), nil), mongo.ErrClientDisconnected, "and the client is disconnected")
 }
 
 func TestIntegrationAReplicaSetCommitsATransaction(t *testing.T) {
@@ -61,6 +83,11 @@ func TestIntegrationATLSClientIsConfiguredForTheContainer(t *testing.T) {
 	inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithTLS())
 
 	insertAndFind(t, inst.Client)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := mongotest.Attach(ctx, inst.URI())
+	assert.ErrorIs(t, err, mongotest.ErrNotConnected, "the URI alone cannot connect: the server's certificate is trusted only through TLSConfig")
 }
 
 func TestIntegrationAttachConnectsWithoutStartingAnything(t *testing.T) {
@@ -77,33 +104,52 @@ func TestIntegrationAttachConnectsWithoutStartingAnything(t *testing.T) {
 	assert.Nil(t, inst.Container, "an attached instance has no container")
 	assert.Equal(t, c.URI(), inst.URI(), "and its URI is the one it was given")
 	require.NoError(t, inst.Stop(ctx), "stopping it disconnects")
-	_, err = mongotest.Attach(ctx, c.URI())
-	assert.NoError(t, err, "and leaves the server running")
+	again, err := mongotest.Attach(ctx, c.URI())
+	require.NoError(t, err, "and leaves the server running")
+	assert.NoError(t, again.Stop(ctx), "the second client disconnects too")
 }
 
-func TestIntegrationAttachToNothingFails(t *testing.T) {
+func TestAttachToNothingIsNotConnected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	t.Cleanup(cancel)
 
 	_, err := mongotest.Attach(ctx, "mongodb://127.0.0.1:1/?directConnection=true&serverSelectionTimeoutMS=300")
 
-	assert.Error(t, err, "a server that cannot be reached is reported at once, not on the first command")
+	assert.ErrorIs(t, err, mongotest.ErrNotConnected, "a server that cannot be reached is reported at once, not on the first command")
 }
 
-func TestIntegrationStopRemovesTheContainerAndCanBeCalledTwice(t *testing.T) {
+func TestIntegrationStopCanBeCalledAgainAndAfterADisconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	t.Cleanup(cancel)
 	inst, err := mongotest.Start(ctx)
 	require.NoError(t, err, "a container starts")
-	address := net.JoinHostPort(inst.Container.Host(), strconv.Itoa(inst.Container.Port()))
+	require.NoError(t, inst.Disconnect(ctx), "the caller disconnects the promoted client first")
 
-	require.NoError(t, inst.Stop(ctx), "stopping succeeds")
-	assert.NoError(t, inst.Stop(ctx), "and a second call is harmless, as from a defer and a cleanup")
-	conn, err := net.DialTimeout("tcp", address, time.Second)
-	if err == nil {
-		_ = conn.Close()
-	}
-	assert.Error(t, err, "nothing answers where the container was")
+	require.NoError(t, inst.Stop(ctx), "stopping still succeeds")
+
+	assert.False(t, containerExists(t, inst.Container.ID()), "and removes the container")
+	assert.NoError(t, inst.Stop(ctx), "a second call is harmless, as from a defer and a cleanup")
+	assert.NoError(t, inst.KillMongoContainer(), "and so is the old name for it")
+}
+
+func TestTheOldErrorValuesStillMatch(t *testing.T) {
+	nowhere, err := dockerapi.New(dockerapi.WithHost("unix:///nonexistent/docker.sock"))
+	require.NoError(t, err, "a client for a daemon that is not there can be made")
+
+	inst, err := mongotest.StartWithOptions(context.Background(), mongotest.DefaultOptions().WithDocker(nowhere))
+	t.Cleanup(func() { _ = inst.Stop(context.Background()) })
+
+	assert.ErrorIs(t, err, mongotest.ErrFailedToConnectToDockerDaemon, "code that checked for an unreachable daemon still finds it")
+}
+
+func TestIntegrationAContainerNameInUseMatchesTheOldError(t *testing.T) {
+	name := "mongotest-name-in-use-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	opts := mongotest.DefaultOptions().WithName(name)
+	mongotest.RunWithOptions(t, opts)
+
+	_, err := mongotest.StartWithOptions(context.Background(), opts)
+
+	assert.ErrorIs(t, err, mongotest.ErrMongoContainerAlreadyRunning, "code that checked for a running container still finds it")
 }
 
 func TestIntegrationTheOldConstructorsStillWork(t *testing.T) {
@@ -146,23 +192,25 @@ func TestIntegrationTheOldConstructorsStillWork(t *testing.T) {
 }
 
 func TestIntegrationMongoClientWithContainerCleansUp(t *testing.T) {
-	var hostname string
+	var id string
+	var given *mongo.Client
 
 	err := mongotest.MongoClientWithContainer(func(client *mongo.Client) error {
+		given = client
 		insertAndFind(t, client)
 		var status struct {
 			Host string `bson:"host"`
 		}
 		err := client.Database("admin").RunCommand(context.Background(), bson.M{"serverStatus": 1}).Decode(&status)
-		hostname = status.Host
+		// A container's hostname is the start of its id unless one is set.
+		id = status.Host
+		require.True(t, containerExists(t, id), "the server's hostname names its container")
 		return err
 	})
 
 	require.NoError(t, err, "the function is given a working client")
-	// A container's hostname is the start of its id unless one is set.
-	out, err := exec.Command("docker", "ps", "-aq", "--filter", "id="+hostname).Output()
-	require.NoError(t, err, "the docker CLI lists containers")
-	assert.Empty(t, strings.TrimSpace(string(out)), "the container is removed once the function returns")
+	assert.False(t, containerExists(t, id), "the container is removed once the function returns")
+	assert.ErrorIs(t, given.Ping(context.Background(), nil), mongo.ErrClientDisconnected, "and the client is disconnected")
 }
 
 func TestIntegrationMongoClientWithContainerReturnsTheFunctionsError(t *testing.T) {
@@ -171,14 +219,6 @@ func TestIntegrationMongoClientWithContainerReturnsTheFunctionsError(t *testing.
 	err := mongotest.MongoClientWithContainer(func(*mongo.Client) error { return failed })
 
 	assert.ErrorIs(t, err, failed, "what the function returned reaches the caller")
-}
-
-func TestIntegrationKillMongoContainerTwiceIsHarmless(t *testing.T) {
-	conn, err := mongotest.NewTestConnection(true)
-	require.NoError(t, err, "a container starts")
-
-	require.NoError(t, conn.KillMongoContainer(), "the container is removed")
-	assert.NoError(t, conn.KillMongoContainer(), "and a second call returns nil")
 }
 
 func TestIntegrationScriptsAndCommandsRunInTheContainer(t *testing.T) {
@@ -190,8 +230,16 @@ func TestIntegrationScriptsAndCommandsRunInTheContainer(t *testing.T) {
 	require.NoError(t, err, "a script runs")
 	assert.Equal(t, "1", out, "and its output is returned")
 
-	_, err = conn.ExecCommandInMongoContainer([]string{"sh", "-c", "exit 3"})
+	_, err = conn.RunMongoScriptOnContainer("throw new Error('boom')")
+	assert.ErrorIs(t, err, mongotest.ErrCommandFailed, "a script that throws is a failed command")
+
+	out, err = conn.ExecCommandInMongoContainer([]string{"sh", "-c", "echo out; echo err >&2"})
+	require.NoError(t, err, "a command runs")
+	assert.Equal(t, "out\nerr\n", out, "and returns standard output followed by standard error")
+
+	out, err = conn.ExecCommandInMongoContainer([]string{"sh", "-c", "echo out; exit 3"})
 	assert.ErrorIs(t, err, mongotest.ErrCommandFailed, "a command that exits non-zero is an error")
+	assert.Equal(t, "out\n", out, "returned with what it wrote")
 }
 
 func TestIntegrationAnAttachedInstanceHasNoContainerToRunIn(t *testing.T) {
@@ -207,6 +255,15 @@ func TestIntegrationAnAttachedInstanceHasNoContainerToRunIn(t *testing.T) {
 	assert.Empty(t, attached.MongoContainerID(), "and it reports no container id")
 }
 
+func TestANilInstanceIsHarmless(t *testing.T) {
+	var inst *mongotest.Instance
+
+	assert.Empty(t, inst.MongoContainerID(), "old code that checked the id of a failed start gets nothing")
+	assert.NoError(t, inst.KillMongoContainer(), "and stopping it does nothing")
+	_, err := inst.RunMongoScriptOnContainer("1")
+	assert.ErrorIs(t, err, mongotest.ErrNoContainer, "and it has nothing to run a script in")
+}
+
 func TestGetAvailablePortReturnsAPortThatCanBeListenedOn(t *testing.T) {
 	port, err := mongotest.GetAvailablePort()
 	require.NoError(t, err, "a port is found")
@@ -215,4 +272,18 @@ func TestGetAvailablePortReturnsAPortThatCanBeListenedOn(t *testing.T) {
 
 	require.NoError(t, err, "and is free to listen on")
 	_ = ln.Close()
+}
+
+func TestGenerateCARootMakesASelfSignedCA(t *testing.T) {
+	cert, certPEM, key := mongotest.GenerateCARoot()
+
+	require.NotNil(t, key, "a key is returned")
+	assert.True(t, cert.IsCA, "the certificate is a CA")
+	block, _ := pem.Decode(certPEM)
+	require.NotNil(t, block, "the PEM decodes")
+	assert.Equal(t, cert.Raw, block.Bytes, "to the same certificate")
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	_, err := cert.Verify(x509.VerifyOptions{Roots: roots})
+	assert.NoError(t, err, "and it verifies against itself")
 }

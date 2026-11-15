@@ -3,20 +3,10 @@ package mongotest
 import (
 	"context"
 	"fmt"
-	"testing"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
-
-// Run is all a test needs: a connected client, and a container that is
-// removed when the test ends. This example is compiled but not run, because
-// it needs a Docker daemon.
-func ExampleRun() {
-	var t *testing.T // the test's own t
-	db := Run(t).Database("shop")
-	_, _ = db.Collection("orders").InsertOne(context.Background(), map[string]string{"item": "book"})
-}
 
 func ExampleMongoClientWithContainer() {
 	type fooRecord struct {

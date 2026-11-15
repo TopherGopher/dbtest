@@ -14,7 +14,7 @@ package mongotest
 import (
 	"context"
 	"errors"
-	"sync"
+	"fmt"
 	"testing"
 
 	"github.com/tophergopher/mongotest/mongod"
@@ -23,26 +23,23 @@ import (
 )
 
 // Options configures a start. Its With methods return a changed copy, as in
-// mongotest.DefaultOptions().WithReplicaSet("rs0"); see the mongod package.
+// mongotest.DefaultOptions().WithReplicaSet("rs0"). The known images and the
+// errors a start returns are in the mongod package.
 type Options = mongod.Options
 
 // DefaultOptions returns the options Start uses.
 func DefaultOptions() Options { return mongod.DefaultOptions() }
 
-// ErrNoContainer is returned when an instance from Attach is asked to do
-// something only a container it started can do, such as run a script.
-var ErrNoContainer = errors.New("mongotest: the instance was attached to a running server and has no container")
-
 // Instance is a MongoDB server and a client connected to it. The client's
-// methods are promoted, so inst.Database("app") works.
+// methods are promoted, so inst.Database("app") works. Stop, not the
+// promoted Disconnect, removes the container.
 type Instance struct {
 	*mongo.Client
 	// Container is the container the instance started, or nil for one from
 	// Attach.
 	Container *mongod.Container
 
-	uri      string
-	stopOnce sync.Once
+	uri string
 }
 
 // Start starts a MongoDB container with the default options and connects to
@@ -58,9 +55,9 @@ func StartWithOptions(ctx context.Context, opts Options) (*Instance, error) {
 	if err != nil {
 		return nil, err
 	}
-	client, err := connect(ctx, c.URI(), clientOptions(c))
+	client, err := connect(ctx, clientOptions(c))
 	if err != nil {
-		return nil, errors.Join(err, c.Stop(context.WithoutCancel(ctx)))
+		return nil, errors.Join(err, c.Stop(ctx))
 	}
 	return &Instance{Client: client, Container: c, uri: c.URI()}, nil
 }
@@ -95,14 +92,18 @@ func RunWithOptions(tb testing.TB, opts Options) *Instance {
 	}
 	// The test's context has ended by the time cleanup runs; Stop removes
 	// the container all the same.
-	tb.Cleanup(func() { _ = inst.Stop(context.Background()) })
+	tb.Cleanup(func() {
+		if err := inst.Stop(context.Background()); err != nil {
+			tb.Errorf("mongotest: %v", err)
+		}
+	})
 	return inst
 }
 
 // Attach connects to a MongoDB server that is already running. Its instance
 // has no container, and Stop only disconnects.
 func Attach(ctx context.Context, uri string) (*Instance, error) {
-	client, err := connect(ctx, uri, options.Client().ApplyURI(uri))
+	client, err := connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		return nil, err
 	}
@@ -110,31 +111,35 @@ func Attach(ctx context.Context, uri string) (*Instance, error) {
 }
 
 // connect creates a client and pings the server once, so a URI that leads
-// nowhere is reported here rather than at the first command.
-func connect(ctx context.Context, uri string, opts *options.ClientOptions) (*mongo.Client, error) {
+// nowhere is reported here rather than at the first command. The error does
+// not quote the URI, which may hold a password.
+func connect(ctx context.Context, opts *options.ClientOptions) (*mongo.Client, error) {
 	client, err := mongo.Connect(ctx, opts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrNotConnected, err)
 	}
 	if err := client.Ping(ctx, nil); err != nil {
 		_ = client.Disconnect(context.WithoutCancel(ctx))
-		return nil, err
+		return nil, fmt.Errorf("%w: %w. Check that the server is running and reachable at the URI", ErrNotConnected, err)
 	}
 	return client, nil
 }
 
-// URI returns the connection string the instance connected with.
+// URI returns the connection string the instance connected with. It
+// includes any password, so keep it out of logs. With WithTLS, a driver also
+// needs Container.TLSConfig to trust the server.
 func (inst *Instance) URI() string { return inst.uri }
 
 // Stop disconnects the client, then removes the container if the instance
-// started one. A second call returns nil.
+// started one. It can be called again, including after a Stop that failed,
+// and after the client was disconnected.
 func (inst *Instance) Stop(ctx context.Context) error {
 	if inst == nil {
 		return nil
 	}
-	var err error
-	inst.stopOnce.Do(func() {
-		err = errors.Join(inst.Client.Disconnect(ctx), inst.Container.Stop(ctx))
-	})
-	return err
+	err := inst.Client.Disconnect(ctx)
+	if errors.Is(err, mongo.ErrClientDisconnected) {
+		err = nil
+	}
+	return errors.Join(err, inst.Container.Stop(ctx))
 }
