@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -59,6 +60,68 @@ func TestStartPullsAnImageTheDaemonDoesNotHave(t *testing.T) {
 	require.NoError(t, err, "a missing image is pulled, not reported")
 	require.Len(t, m.CallsTo("ImagePull"), 1, "once")
 	assert.Equal(t, "docker.io/library/mongo:8.0", m.CallsTo("ImagePull")[0].Args[0], "the image that was asked for")
+}
+
+// A first run can sit in a pull for minutes. Without a line at the level
+// loggers show by default, it looks like a hang.
+func TestAPullIsAnnouncedWhereAFirstTimeUserSeesIt(t *testing.T) {
+	const image = "docker.io/library/mongo:8.0"
+	pulls := map[string]func(*dockermock.Mock, mongod.Options) error{
+		"by a start": func(m *dockermock.Mock, opts mongod.Options) error {
+			creates := 0
+			m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+				creates++
+				if creates == 1 {
+					return "", nil, dockerclient.ErrNotFound
+				}
+				return containerID, nil, nil
+			}
+			_, err := start(t, m, opts)
+			return err
+		},
+		"by PullImage": func(m *dockermock.Mock, opts mongod.Options) error {
+			missingImage(m)
+			return mongod.PullImage(context.Background(), opts.WithDocker(m))
+		},
+	}
+	for name, pull := range pulls {
+		t.Run(name, func(t *testing.T) {
+			m, _ := readyMock(t)
+			logger := &levelLogger{}
+			announcedBeforeThePull := false
+			m.ImagePullFunc = func(context.Context, string) error {
+				announcedBeforeThePull = len(logger.about("info", "image", image)) > 0
+				return nil
+			}
+
+			require.NoError(t, pull(m, mongod.DefaultOptions().WithLogger(logger)), "the pull succeeds")
+
+			assert.True(t, announcedBeforeThePull, "the pull is announced at info, naming the image, before the wait for it begins")
+		})
+	}
+}
+
+// A pull can take minutes, and the start timeout is for mongod, not for the
+// registry.
+func TestAPullLongerThanTheStartTimeoutDoesNotUseItUp(t *testing.T) {
+	const timeout = time.Second
+	m, _ := readyMock(t)
+	var firstDeadline time.Time
+	m.ContainerCreateFunc = func(ctx context.Context, _ string, _ dockerclient.ContainerConfig) (string, []string, error) {
+		if firstDeadline.IsZero() {
+			firstDeadline, _ = ctx.Deadline()
+			return "", nil, dockerclient.ErrNotFound
+		}
+		return containerID, nil, nil
+	}
+	m.ImagePullFunc = func(context.Context, string) error {
+		time.Sleep(time.Until(firstDeadline) + 50*time.Millisecond) // until the timeout that began before the pull has passed
+		return nil
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(timeout))
+
+	assert.NoError(t, err, "the timeout begins again once the image is there, so a slow pull does not fail a start that would have been quick")
 }
 
 func TestStartNamesTheStepThatFailed(t *testing.T) {
@@ -482,46 +545,140 @@ func TestAFailedCreationLeavesNothingToReap(t *testing.T) {
 	assert.Empty(t, m.CallsTo("ContainerRemove"), "no container exists, so none is asked for")
 }
 
-// The examples pass context.Background(), so a daemon that never answers
-// must not be able to hold Start for ever.
-func TestStartGivesUpOnADaemonThatNeverCreatesTheContainer(t *testing.T) {
+// startWithin starts a container with no deadline of the caller's, and
+// fails the test if the start outlasts the limit. The examples pass
+// context.Background(), so a daemon that never answers must not be able to
+// hold Start for ever.
+func startWithin(t *testing.T, limit time.Duration, opts mongod.Options) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := mongod.StartWithOptions(context.Background(), opts)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(limit):
+		require.Fail(t, "Start is still waiting for a daemon that will never answer")
+		return nil
+	}
+}
+
+// The start timeout covers every call to the daemon after the pull. Running
+// out of it during one is the same failure as running out of it while
+// waiting for mongod, and has the same remedy.
+func TestAStartTimeoutThatEndsDuringAStepIsAStartThatWasNotReady(t *testing.T) {
+	cases := []struct {
+		op    string
+		opts  mongod.Options
+		stall func(*dockermock.Mock)
+	}{
+		{mongod.OpCreate, mongod.DefaultOptions(), func(m *dockermock.Mock) {
+			m.ContainerCreateFunc = func(ctx context.Context, _ string, _ dockerclient.ContainerConfig) (string, []string, error) {
+				<-ctx.Done()
+				return "", nil, ctx.Err()
+			}
+		}},
+		{mongod.OpCopyKeyFile, mongod.DefaultOptions().WithReplicaSet("rs0").WithAuth("admin", "s3cret"), func(m *dockermock.Mock) {
+			m.CopyArchiveToContainerFunc = func(ctx context.Context, _, _ string, _ io.Reader) error {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+		}},
+		{mongod.OpStart, mongod.DefaultOptions(), func(m *dockermock.Mock) {
+			m.ContainerStartFunc = func(ctx context.Context, _ string) error {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+		}},
+		{mongod.OpInspect, mongod.DefaultOptions(), func(m *dockermock.Mock) {
+			m.ContainerInspectFunc = func(ctx context.Context, _ string) (dockerclient.ContainerInspect, error) {
+				<-ctx.Done()
+				return dockerclient.ContainerInspect{}, ctx.Err()
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.op, func(t *testing.T) {
+			m, _ := authMock(t)
+			tc.stall(m)
+
+			err := startWithin(t, 5*time.Second, tc.opts.WithDocker(m).WithStartTimeout(50*time.Millisecond))
+
+			require.ErrorIs(t, err, mongod.ErrNotReady, "the start ran out of time, which is what a caller checks for")
+			assert.ErrorIs(t, err, context.DeadlineExceeded, "and it still matches the context error that ended it")
+			var notReady *mongod.NotReadyError
+			require.ErrorAs(t, err, &notReady, "with the details")
+			assert.Equal(t, 50*time.Millisecond, notReady.Timeout, "including the timeout to make longer")
+			assert.False(t, notReady.ContextEnded, "which is what ended it, not the caller's context")
+			var step *mongod.StartError
+			require.ErrorAs(t, err, &step, "the step it was cut short in is kept")
+			assert.Equal(t, tc.op, step.Op, "by name")
+		})
+	}
+}
+
+// The daemon can go on to create a container after this process has stopped
+// waiting for it. Its id never arrives, so its name is all there is to
+// remove it by.
+func TestACreationCutShortIsRemovedByItsGeneratedName(t *testing.T) {
 	m, _ := readyMock(t)
 	m.ContainerCreateFunc = func(ctx context.Context, _ string, _ dockerclient.ContainerConfig) (string, []string, error) {
 		<-ctx.Done()
 		return "", nil, ctx.Err()
 	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := mongod.StartWithOptions(context.Background(), mongod.DefaultOptions().WithDocker(m).WithStartTimeout(50*time.Millisecond))
-		done <- err
-	}()
-
-	select {
-	case err := <-done:
-		assert.ErrorIs(t, err, context.DeadlineExceeded, "the start timeout covers creating the container too")
-	case <-time.After(5 * time.Second):
-		require.Fail(t, "Start is still waiting for a daemon that will never answer")
+	live, bounded := false, false
+	m.ContainerRemoveFunc = func(ctx context.Context, _ string, _ dockerclient.RemoveOptions) error {
+		live = ctx.Err() == nil
+		_, bounded = ctx.Deadline()
+		return dockerclient.ErrNotFound // the usual case: the daemon never got as far as creating it
 	}
+	logger := &levelLogger{}
+
+	err := startWithin(t, 5*time.Second, mongod.DefaultOptions().WithDocker(m).WithLogger(logger).WithStartTimeout(50*time.Millisecond))
+
+	require.Error(t, err, "the start fails")
+	removals := m.CallsTo("ContainerRemove")
+	require.Len(t, removals, 1, "the container is asked for once")
+	name := createdName(t, m)
+	assert.Equal(t, name, removals[0].Args[0], "by the name this start generated for it")
+	assert.Equal(t, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true}, removals[0].Args[1], "running or not, with its volumes")
+	assert.True(t, live, "on a context that is not the one that ended")
+	assert.True(t, bounded, "and that has a deadline, so a stalled daemon cannot hang the caller")
+	assert.Empty(t, logger.about("error", "container", name), "a container that was never created is not reported as left behind")
 }
 
-func TestStartGivesUpOnADaemonThatNeverStartsTheContainer(t *testing.T) {
+func TestACreationCutShortThatCannotBeRemovedIsLogged(t *testing.T) {
 	m, _ := readyMock(t)
-	m.ContainerStartFunc = func(ctx context.Context, _ string) error {
+	m.ContainerCreateFunc = func(ctx context.Context, _ string, _ dockerclient.ContainerConfig) (string, []string, error) {
 		<-ctx.Done()
-		return ctx.Err()
+		return "", nil, ctx.Err()
 	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := mongod.StartWithOptions(context.Background(), mongod.DefaultOptions().WithDocker(m).WithStartTimeout(50*time.Millisecond))
-		done <- err
-	}()
+	m.ContainerRemoveFunc = func(context.Context, string, dockerclient.RemoveOptions) error {
+		return errors.New("the daemon is not answering")
+	}
+	logger := &levelLogger{}
 
-	select {
-	case err := <-done:
-		assert.ErrorIs(t, err, context.DeadlineExceeded, "the start timeout covers every call to the daemon after the pull")
-	case <-time.After(5 * time.Second):
-		require.Fail(t, "Start is still waiting for a daemon that will never answer")
+	err := startWithin(t, 5*time.Second, mongod.DefaultOptions().WithDocker(m).WithLogger(logger).WithStartTimeout(50*time.Millisecond))
+
+	require.Error(t, err, "the start fails")
+	assert.Len(t, logger.about("error", "container", createdName(t, m)), 1, "the container that may exist is named, so it can be removed by hand")
+}
+
+// A name given with WithName may belong to a container that was there
+// first, and is not this start's to remove.
+func TestACreationCutShortUnderAGivenNameRemovesNothing(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerCreateFunc = func(ctx context.Context, _ string, _ dockerclient.ContainerConfig) (string, []string, error) {
+		<-ctx.Done()
+		return "", nil, ctx.Err()
 	}
+
+	err := startWithin(t, 5*time.Second, mongod.DefaultOptions().WithDocker(m).WithName("orders-db").WithStartTimeout(50*time.Millisecond))
+
+	require.Error(t, err, "the start fails")
+	assert.Empty(t, m.CallsTo("ContainerRemove"), "nothing is removed by a name the caller chose")
 }
 
 // A removal holds the container's lock while the daemon works, so it must

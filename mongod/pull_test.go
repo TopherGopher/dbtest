@@ -25,6 +25,9 @@ func TestPullImageLeavesAnImageTheDaemonHasAlone(t *testing.T) {
 	err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m))
 
 	require.NoError(t, err, "an image that is already there needs nothing")
+	inspections := m.CallsTo("ImageInspect")
+	require.Len(t, inspections, 1, "the daemon is asked whether it has the image")
+	assert.Equal(t, "docker.io/library/mongo:8.0", inspections[0].Args[0], "and it is asked about the image a start would run")
 	assert.Empty(t, m.CallsTo("ImagePull"), "pulling it again would be a trip to the registry for nothing, and can hit a rate limit")
 }
 
@@ -35,9 +38,11 @@ func TestPullImagePullsAnImageTheDaemonLacks(t *testing.T) {
 	err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage("7.0"))
 
 	require.NoError(t, err, "a missing image is pulled")
-	pulls := m.CallsTo("ImagePull")
-	require.Len(t, pulls, 1, "once")
-	assert.Equal(t, "docker.io/library/mongo:7.0", pulls[0].Args[0], "and it is the image a start with these options would run")
+	inspections, pulls := m.CallsTo("ImageInspect"), m.CallsTo("ImagePull")
+	require.Len(t, inspections, 1, "the daemon is asked whether it has the image")
+	require.Len(t, pulls, 1, "and the image is pulled once")
+	assert.Equal(t, "docker.io/library/mongo:7.0", pulls[0].Args[0], "it is the image a start with these options would run")
+	assert.Equal(t, pulls[0].Args[0], inspections[0].Args[0], "and the one the daemon was asked about, not some other it happens to have")
 	assert.Empty(t, m.CallsTo("ContainerCreate"), "no container is created")
 }
 

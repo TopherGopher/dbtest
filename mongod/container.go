@@ -202,16 +202,22 @@ func (c *Container) stop(ctx context.Context) error {
 	return nil
 }
 
-// remove has the daemon remove the container and its anonymous volumes. A
-// container the daemon was never asked for, or no longer has, is removed
-// already.
+// remove has the daemon remove the container. One the daemon was never
+// asked for is removed already.
 func (c *Container) remove(ctx context.Context) error {
 	if c.id == "" {
 		return nil
 	}
+	return c.removeByName(ctx, c.id)
+}
+
+// removeByName has the daemon remove a container, named by its id or its
+// name, and its anonymous volumes. One the daemon does not have is removed
+// already.
+func (c *Container) removeByName(ctx context.Context, idOrName string) error {
 	ctx, cancel := withRemovalDeadline(ctx)
 	defer cancel()
-	err := c.docker.ContainerRemove(ctx, c.id, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
+	err := c.docker.ContainerRemove(ctx, idOrName, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
 	if dockerclient.IsNotFound(err) {
 		return nil
 	}

@@ -240,7 +240,15 @@ func (o Options) refused(err error) Options {
 
 // config is a set of options made ready for a start: the defaults and the
 // environment filled in, and the result checked.
-type config struct{ Options }
+type config struct {
+	Options
+	// generatedName says the container's name was made up here, so no
+	// other container can have it.
+	generatedName bool
+	// hostSource says what decided the address to dial, for the error a
+	// start that runs out of time returns. A start sets it.
+	hostSource string
+}
 
 // newConfig fills in what the options left open, from the environment and
 // then the defaults, and checks the result. It contacts nothing.
@@ -250,7 +258,7 @@ func newConfig(opts Options) (config, error) {
 	}
 	c := config{Options: opts.WithLabel(RequiredLabelKey, RequiredLabelValue)}
 	if c.name == "" {
-		c.name = namePrefix + randomHex(nameRandomBytes)
+		c.name, c.generatedName = namePrefix+randomHex(nameRandomBytes), true
 	}
 	if c.logger == nil {
 		c.logger = dockerclient.NopLogger()

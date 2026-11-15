@@ -31,10 +31,18 @@ var authenticateScript = fmt.Sprintf(
 // legacy mongo shell.
 var shells = []string{"mongosh", "mongo"}
 
-// exitNoSuchProgram is the exit code a container runtime reports for a
-// program the image does not have. The wording of its message varies
-// between runtimes, so only the code is trusted.
-const exitNoSuchProgram = 127
+// The exit codes a container runtime reports for a program the image does
+// not have: 127, and from some daemons 126. The wording of the message
+// varies between runtimes, so only the code is trusted.
+const (
+	exitCannotRun     = 126
+	exitNoSuchProgram = 127
+)
+
+// shellMissing reports whether an exit code says the shell never ran.
+func shellMissing(exitCode int) bool {
+	return exitCode == exitCannotRun || exitCode == exitNoSuchProgram
+}
 
 // maxShellOutputLen is the most of a shell's own words quoted in an error.
 const maxShellOutputLen = 500
@@ -56,7 +64,7 @@ func (c *Container) initiateReplicaSet(ctx context.Context) error {
 			return c.startError(OpInitiate, &notInitiatedError{reason: "the daemon could not run a shell inside the container", err: err})
 		case result.ExitCode == 0:
 			return nil
-		case result.ExitCode != exitNoSuchProgram:
+		case !shellMissing(result.ExitCode):
 			return c.startError(OpInitiate, shellFailed(shell, result))
 		}
 	}

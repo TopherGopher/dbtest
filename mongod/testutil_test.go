@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -174,6 +175,47 @@ func askHello(address string) error {
 		return errors.New("the reply is not mongod saying ok to the hello")
 	}
 	return nil
+}
+
+// logLine is one line a start logged: its level, and its keys and values.
+type logLine struct {
+	level string
+	attrs map[string]any
+}
+
+// levelLogger keeps the level and attributes of every line, and not the
+// message, which is free to change.
+type levelLogger struct {
+	mu    sync.Mutex
+	lines []logLine
+}
+
+func (l *levelLogger) log(level string, keysAndValues []any) {
+	attrs := map[string]any{}
+	for i := 0; i+1 < len(keysAndValues); i += 2 {
+		attrs[keysAndValues[i].(string)] = keysAndValues[i+1]
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, logLine{level: level, attrs: attrs})
+}
+
+func (l *levelLogger) Debug(_ string, kv ...any) { l.log("debug", kv) }
+func (l *levelLogger) Info(_ string, kv ...any)  { l.log("info", kv) }
+func (l *levelLogger) Warn(_ string, kv ...any)  { l.log("warn", kv) }
+func (l *levelLogger) Error(_ string, kv ...any) { l.log("error", kv) }
+
+// about returns the lines logged at a level that carry a key with a value.
+func (l *levelLogger) about(level, key string, value any) []logLine {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var found []logLine
+	for _, line := range l.lines {
+		if line.level == level && line.attrs[key] == value {
+			found = append(found, line)
+		}
+	}
+	return found
 }
 
 // closedPort returns a loopback port nothing is listening on.

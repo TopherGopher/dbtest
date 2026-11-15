@@ -39,6 +39,7 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	// whether the container needs credentials.
 	host := dialHost(address.Host)
 	cfg = cfg.withCredentialsIfExposed(host)
+	cfg.hostSource = address.Source
 	cfg.announceExposure(host)
 
 	c := newContainer(host, cfg, docker)
@@ -46,16 +47,33 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := c.start(ctx, cfg, address.Source, deadline); err != nil {
+	if err := c.start(ctx, cfg, deadline); err != nil {
 		c.removeAfterFailedStart(ctx)
 		return nil, err
 	}
-	// The logged URI hides the password: logs are shared more widely than
-	// access to the daemon.
-	c.logger.Info("MongoDB is ready. The password is hidden in the URI shown here; Container.URI() returns the real one.",
-		"container", c.name, "id", shortID(c.id), "uri", c.uri(redactedPassword))
+	c.logger.Info(c.readyMessage(), "container", c.name, "id", shortID(c.id), "uri", c.uri(redactedPassword))
 	return c, nil
 }
+
+// What a start logs once mongod is ready. The logged URI hides the password,
+// because logs are shared more widely than access to the daemon, and the
+// line says so only when there is a password to hide.
+const (
+	readyMessage               = "MongoDB is ready."
+	readyMessagePasswordHidden = "MongoDB is ready. The password is hidden in the URI shown here; Container.URI() returns the real one."
+)
+
+// readyMessage returns the line for this container.
+func (c *Container) readyMessage() string {
+	if c.username == "" {
+		return readyMessage
+	}
+	return readyMessagePasswordHidden
+}
+
+// pullingMessage is logged before a pull, at a level a first-time user sees:
+// a pull can take minutes, and without it a first run looks like a hang.
+const pullingMessage = "The Docker daemon does not have this image yet, so it is being pulled. That happens once and can take a few minutes."
 
 // PullImage makes sure the daemon has the image a start with these options
 // would run, pulling it only if it is missing. Call it once in TestMain, so
@@ -79,6 +97,7 @@ func PullImage(ctx context.Context, opts Options) error {
 	if _, err := docker.ImageInspect(ctx, image); err == nil {
 		return nil
 	}
+	cfg.logger.Info(pullingMessage, "image", image)
 	if err := docker.ImagePull(ctx, image); err != nil {
 		return &StartError{Op: OpPullImage, Image: image, Err: err}
 	}
@@ -161,32 +180,38 @@ func (c *Container) create(ctx context.Context, cfg config, host string) (time.T
 // createOrPull creates the container, pulling the image only if the daemon
 // does not have it, which keeps the usual case to one call.
 //
-// The start timeout begins here and covers every later call to the daemon,
-// so a daemon that stops answering cannot hold a caller who set no deadline.
-// A pull can take minutes and is not counted: the timeout begins again
-// after one.
+// A pull can take minutes and is not counted against the start timeout,
+// which begins again after one.
 func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (time.Time, error) {
-	image := cfg.image.Reference()
 	request := cfg.containerConfig(host)
+	deadline, err := c.createWithin(ctx, cfg, request)
+	if !dockerclient.IsNotFound(err) {
+		return deadline, err
+	}
+	c.logger.Info(pullingMessage, "image", request.Image)
+	if err := c.docker.ImagePull(ctx, request.Image); err != nil {
+		return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: request.Image, Err: err}
+	}
+	return c.createWithin(ctx, cfg, request)
+}
 
+// createWithin creates the container inside the start timeout, and returns
+// the time the timeout ends. The timeout begins here and covers every later
+// call to the daemon, so a daemon that stops answering cannot hold a caller
+// who set no deadline.
+func (c *Container) createWithin(ctx context.Context, cfg config, request dockerclient.ContainerConfig) (time.Time, error) {
 	deadline := time.Now().Add(cfg.startTimeout)
-	warnings, err := c.createOnce(ctx, deadline, request)
-	if dockerclient.IsNotFound(err) {
-		c.logger.Debug("The Docker daemon does not have this image yet, so it is being pulled. That happens once and can take a few minutes.",
-			"image", image)
-		if err := c.docker.ImagePull(ctx, image); err != nil {
-			return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: image, Err: err}
-		}
-		deadline = time.Now().Add(cfg.startTimeout)
-		warnings, err = c.createOnce(ctx, deadline, request)
+	bounded, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	err := c.createOnce(bounded, request)
+	if err == nil {
+		return deadline, nil
 	}
-	if err != nil {
-		return deadline, &StartError{Op: OpCreate, Name: c.name, Image: image, Err: err}
+	if bounded.Err() != nil {
+		c.removeUnconfirmed(ctx, cfg)
 	}
-	for _, warning := range warnings {
-		c.logger.Warn("The Docker daemon created the container, but warned about it.", "container", c.name, "warning", warning)
-	}
-	return deadline, nil
+	failed := &StartError{Op: OpCreate, Name: c.name, Image: request.Image, Err: err}
+	return deadline, c.unlessCutShort(ctx, bounded, cfg, failed)
 }
 
 // createOnce asks the daemon for the container and records its id, holding
@@ -194,23 +219,61 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 // arrives meanwhile waits for the id: asked sooner, the daemon might not
 // know the container yet, and the teardown would leave it behind.
 //
-// The lock is not held across a pull, so a container torn down in between
-// is not created.
-func (c *Container) createOnce(ctx context.Context, deadline time.Time, request dockerclient.ContainerConfig) ([]string, error) {
+// ctx carries the start timeout, so the wait under the lock has an end. The
+// lock is not held across a pull, so a container torn down in between is not
+// created.
+func (c *Container) createOnce(ctx context.Context, request dockerclient.ContainerConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.stopped {
-		return nil, &ContainerExitedError{Name: c.name, Status: "removed"}
+		return &ContainerExitedError{Name: c.name, Status: "removed"}
 	}
-	// The lock is held until the daemon answers, so the wait has an end.
-	ctx, cancel := context.WithDeadline(ctx, deadline)
-	defer cancel()
 	id, warnings, err := c.docker.ContainerCreate(ctx, c.name, request)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	c.id = id
-	return warnings, nil
+	for _, warning := range warnings {
+		c.logger.Warn("The Docker daemon created the container, but warned about it.", "container", c.name, "warning", warning)
+	}
+	return nil
+}
+
+// removeUnconfirmed removes, by name, a container whose creation was cut
+// short: the daemon may have created it all the same, and its id never
+// arrived. Only a generated name is used, because a name from WithName may
+// belong to a container that is someone else's.
+func (c *Container) removeUnconfirmed(ctx context.Context, cfg config) {
+	if !cfg.generatedName {
+		return
+	}
+	// The context that was cut short cannot carry the request, and
+	// removeByName gives one with no deadline its own.
+	if err := c.removeByName(context.WithoutCancel(ctx), c.name); err != nil {
+		c.logger.Error("Creating a container was cut short, and it could not then be removed, so it may exist. "+
+			"Remove it by hand: docker rm -fv followed by the container name.",
+			"container", c.name, "error", err)
+	}
+}
+
+// unlessCutShort returns a step's error as it is, or inside a NotReadyError
+// if bounded, which carries the start timeout, had ended: the step did not
+// fail so much as run out of time, and the remedy is the timeout's.
+func (c *Container) unlessCutShort(caller, bounded context.Context, cfg config, err error) error {
+	if bounded.Err() == nil {
+		return err
+	}
+	return c.notReady(caller, cfg, bounded.Err(), err)
+}
+
+// notReady builds the error for a start that ran out of time or was
+// cancelled, at whatever step it had reached. caller is the context passed
+// to Start, which tells a start its caller ended from one that timed out.
+func (c *Container) notReady(caller context.Context, cfg config, cause, lastErr error) error {
+	return &NotReadyError{
+		Name: c.name, ID: c.id, Host: c.host, Port: c.port, HostSource: cfg.hostSource,
+		Timeout: cfg.startTimeout, ContextEnded: caller.Err() != nil, Cause: cause, LastErr: lastErr,
+	}
 }
 
 // forget drops a container the daemon never created, so that nothing tries
@@ -222,25 +285,25 @@ func (c *Container) forget() {
 	reaper.Unregister(c.reaperHandle)
 }
 
-// start runs the created container and returns once it is usable. hostSource
-// says where the dial address came from, for the error a failed wait returns.
+// start runs the created container and returns once it is usable.
 //
 // Everything here shares the one deadline: starting the container, the wait
 // for mongod and the replica set's initiation.
-func (c *Container) start(ctx context.Context, cfg config, hostSource string, deadline time.Time) error {
+func (c *Container) start(ctx context.Context, cfg config, deadline time.Time) error {
 	bounded, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	notReady := func(cause, lastErr error) error { return c.notReady(ctx, cfg, cause, lastErr) }
+
 	info, err := c.run(bounded, cfg)
 	if err != nil {
-		return err
+		return c.unlessCutShort(ctx, bounded, cfg, err)
 	}
 	probe := readyProbe{
 		docker: c.docker, logger: c.logger,
 		id: c.id, name: c.name, host: c.host, port: c.port,
-		hostSource: hostSource, timeout: cfg.startTimeout,
 		requireAuth:    cfg.username != "",
 		hasHealthCheck: declaresHealthCheck(info.State.Health.Status),
-		callerEnded:    func() bool { return ctx.Err() != nil },
+		notReady:       notReady,
 	}
 	if err := probe.wait(bounded); err != nil {
 		return err
@@ -249,10 +312,11 @@ func (c *Container) start(ctx context.Context, cfg config, hostSource string, de
 		return nil
 	}
 	err = c.initiateReplicaSet(bounded)
-	if bounded.Err() != nil {
+	if err != nil && bounded.Err() != nil {
 		// Out of time, which says nothing about whether the image can
-		// initiate a set at all.
-		return probe.notReady(bounded.Err(), errNoPrimary)
+		// initiate a set at all. A set initiated just as the time ran out
+		// is a start that succeeded.
+		return notReady(bounded.Err(), errNoPrimary)
 	}
 	return err
 }

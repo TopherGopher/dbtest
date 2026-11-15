@@ -38,6 +38,9 @@ func shellsThatAnswer(m *dockermock.Mock, results map[string]dockerclient.ExecRe
 // notInTheImage is what the daemon reports for a program a container lacks.
 var notInTheImage = dockerclient.ExecResult{ExitCode: 127, Stdout: `exec: "mongosh": executable file not found in $PATH`}
 
+// notRunnable is what some daemons report for the same thing.
+var notRunnable = dockerclient.ExecResult{ExitCode: 126}
+
 func TestTheSetIsInitiatedWithMongoshWhenTheImageHasIt(t *testing.T) {
 	m, _ := readyMock(t)
 	tried := shellsThatAnswer(m, map[string]dockerclient.ExecResult{"mongosh": {}})
@@ -50,13 +53,17 @@ func TestTheSetIsInitiatedWithMongoshWhenTheImageHasIt(t *testing.T) {
 // Images before MongoDB 5.0 ship only the legacy shell, which can initiate a
 // set just as well.
 func TestTheSetIsInitiatedWithTheLegacyShellWhenThatIsAllTheImageHas(t *testing.T) {
-	m, _ := readyMock(t)
-	tried := shellsThatAnswer(m, map[string]dockerclient.ExecResult{"mongosh": notInTheImage, "mongo": {}})
+	for name, missing := range map[string]dockerclient.ExecResult{"exit code 127": notInTheImage, "exit code 126": notRunnable} {
+		t.Run(name, func(t *testing.T) {
+			m, _ := readyMock(t)
+			tried := shellsThatAnswer(m, map[string]dockerclient.ExecResult{"mongosh": missing, "mongo": {}})
 
-	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
+			_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
 
-	require.NoError(t, err, "an older image still gets a replica set")
-	assert.Equal(t, []string{"mongosh", "mongo"}, *tried, "the legacy shell is tried only when the current one is missing")
+			require.NoError(t, err, "an older image still gets a replica set")
+			assert.Equal(t, []string{"mongosh", "mongo"}, *tried, "the legacy shell is tried only when the current one is missing")
+		})
+	}
 }
 
 func TestAnImageWithNoShellCannotHaveAReplicaSet(t *testing.T) {
@@ -157,6 +164,20 @@ func TestAnInitiationThatOutlastsTheStartTimeoutIsNotReady(t *testing.T) {
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "which the error says")
 	assert.NotErrorIs(t, err, mongod.ErrNotInitiated, "it is not evidence that the image lacks a shell")
 	assert.Less(t, time.Since(started), 5*time.Second, "and the wait and the initiation share the one timeout")
+}
+
+// The set can be initiated with the last of the time there is. The deadline
+// passing straight afterwards takes nothing from a start that has succeeded.
+func TestAnInitiationThatFinishesAsTheTimeoutPassesIsStillAStart(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ExecFunc = func(ctx context.Context, _ string, _ ...string) (dockerclient.ExecResult, error) {
+		<-ctx.Done() // the shell reports success, and the timeout has passed by the time Start hears of it
+		return dockerclient.ExecResult{}, nil
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0").WithStartTimeout(150*time.Millisecond))
+
+	assert.NoError(t, err, "a set that accepts writes is what was asked for, however close to the deadline it came")
 }
 
 func TestAnEmptyReplicaSetNameIsRefused(t *testing.T) {

@@ -165,6 +165,7 @@ const (
 )
 
 // StartError says which step of a start failed. It wraps the daemon's error.
+// A step the start timeout cut short comes inside a [NotReadyError].
 type StartError struct {
 	Op    string // one of the Op constants
 	Name  string // the container name, or "" when PullImage reports a pull
@@ -197,11 +198,13 @@ func (e *UnpublishedPortError) Error() string {
 func (e *UnpublishedPortError) Is(target error) bool { return target == ErrNoPublishedPort }
 
 // NotReadyError reports that mongod was not ready in time. It matches
-// ErrNotReady, the context error that ended the wait, and the last failure
-// the wait saw.
+// ErrNotReady, the context error that ended the start, and the last failure
+// the start saw.
 type NotReadyError struct {
 	Name string
-	ID   string
+	// ID is empty, and Port zero, if the time ran out before the daemon
+	// had created the container or published its port.
+	ID string
 	// Host and Port are the address that was dialled. HostSource says what
 	// chose the host, since a wrong address looks just like a slow start.
 	Host       string
@@ -211,13 +214,27 @@ type NotReadyError struct {
 	// ContextEnded says the context passed to Start ended the wait, not the
 	// start timeout, so a longer timeout would not have helped.
 	ContextEnded bool
-	// Cause is the context's error. LastErr is the last failed attempt, or nil.
+	// Cause is the context's error. LastErr is the last failed attempt to
+	// reach mongod, or the [StartError] of a step that was cut short, or nil.
 	Cause   error
 	LastErr error
 }
 
+// where names the container, with as much of its id and address as the
+// start had learned.
+func (e *NotReadyError) where() string {
+	where := "container " + e.Name
+	if e.ID != "" {
+		where += " (" + shortID(e.ID) + ")"
+	}
+	if e.Port != 0 {
+		where += " at " + addr(e.Host, e.Port)
+	}
+	return where
+}
+
 func (e *NotReadyError) Error() string {
-	where := fmt.Sprintf("container %s (%s) at %s", e.Name, shortID(e.ID), addr(e.Host, e.Port))
+	where := e.where()
 	if e.ContextEnded {
 		return fmt.Sprintf("mongod: the context passed to Start ended before %s was ready: %v%s. If it has a deadline, make it later",
 			where, e.Cause, e.lastFailure())

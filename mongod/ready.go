@@ -25,20 +25,17 @@ type readyProbe struct {
 	logger dockerclient.Logger
 	id     string
 	name   string
-	// host and port are the address a caller will connect to. hostSource
-	// says what decided the host, for the error a failed wait returns.
-	host       string
-	port       int
-	hostSource string
-	timeout    time.Duration
+	// host and port are the address a caller will connect to.
+	host string
+	port int
 	// requireAuth says the container was created with credentials, so the
 	// mongod that serves must enforce them.
 	requireAuth bool
 	// hasHealthCheck says the image declares a health check to wait for.
 	hasHealthCheck bool
-	// callerEnded reports whether the context passed to Start has ended,
-	// which tells a wait the caller cut short from one that timed out.
-	callerEnded func() bool
+	// notReady builds the error for a wait that ran out of time or was
+	// cancelled, from the context error and the last failure the wait saw.
+	notReady func(cause, lastErr error) error
 }
 
 // wait polls until the container is ready, ctx ends, or the container can no
@@ -139,14 +136,6 @@ func declaresHealthCheck(status string) bool {
 // isFinal reports whether waiting longer cannot help.
 func isFinal(err error) bool {
 	return errors.Is(err, ErrAuthNotEnforced) || errors.Is(err, ErrContainerExited)
-}
-
-// notReady builds the error for a wait that ran out of time or was cancelled.
-func (p readyProbe) notReady(cause, lastErr error) error {
-	return &NotReadyError{
-		Name: p.name, ID: p.id, Host: p.host, Port: p.port, HostSource: p.hostSource,
-		Timeout: p.timeout, ContextEnded: p.callerEnded(), Cause: cause, LastErr: lastErr,
-	}
 }
 
 // mongodState is how far the container has got towards a usable mongod.
