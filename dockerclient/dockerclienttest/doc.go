@@ -9,7 +9,7 @@
 //		dockerclienttest.Conformance(t, func(t *testing.T) dockerclient.Client {
 //			d := dockermock.NewDaemon()
 //			t.Cleanup(d.Close)
-//			d.ServeFake(dockermock.NewFake())
+//			d.ServeFake(conformanceFake())
 //			c, err := dockerapi.New(dockerapi.WithHost(d.Host()))
 //			require.NoError(t, err)
 //			return c
@@ -18,6 +18,16 @@
 //
 //	func BenchmarkClient(b *testing.B) {
 //		dockerclienttest.Benchmarks(b, func(b *testing.B) dockerclient.Client { ... })
+//	}
+//
+// The daemon behind the client must report the user and the health check
+// the suite expects of its test image, which a dockermock.Fake does once
+// told:
+//
+//	func conformanceFake() *dockermock.Fake {
+//		f := dockermock.NewFake()
+//		f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
+//		return f
 //	}
 //
 // The factory must return a client whose daemon starts empty and keeps
