@@ -45,7 +45,7 @@ func exampleDocker() (dockerclient.Client, func()) {
 	}
 	go acceptAll(listener, answerCommand)
 
-	fake := dockermock.NewFake(dockermock.WithImages("mongo:8.0", "mongo:7.0", "mirror.corp.example/mongo:8.0"))
+	fake := dockermock.NewFake(dockermock.WithImages("docker.io/library/mongo:8.0", "docker.io/library/mongo:7.0", "mirror.corp.example/mongo:8.0"))
 	fake.Processes = func(c dockermock.ContainerState) [][]string {
 		if len(c.Config.Env) > 0 {
 			return [][]string{{"1", "mongod --auth --bind_ip_all"}}
@@ -86,7 +86,7 @@ func ExampleStartWithOptions() {
 	defer c.Stop(context.Background())
 
 	fmt.Println(c.Image(), c.ReplicaSet())
-	// Output: mongo:7.0 rs0
+	// Output: docker.io/library/mongo:7.0 rs0
 }
 
 // A With method returns a copy, so tests can add to a shared base without
@@ -114,8 +114,8 @@ func ExampleOptions() {
 	fmt.Printf("%s %q\n", withSet.Image(), withSet.ReplicaSet())
 	fmt.Printf("%s %q\n", plain.Image(), plain.ReplicaSet())
 	// Output:
-	// mongo:7.0 "rs0"
-	// mongo:7.0 ""
+	// docker.io/library/mongo:7.0 "rs0"
+	// docker.io/library/mongo:7.0 ""
 }
 
 // A version on its own keeps the default image, and a repository on its own
@@ -142,7 +142,7 @@ func ExampleOptions_WithImage() {
 	fmt.Println(older.Image())
 	fmt.Println(mirrored.Image())
 	// Output:
-	// mongo:7.0
+	// docker.io/library/mongo:7.0
 	// mirror.corp.example/mongo:8.0
 }
 
@@ -163,7 +163,7 @@ func ExampleStartWithOptions_environment() {
 	defer c.Stop(context.Background())
 
 	fmt.Println(c.Image())
-	// Output: mongo:7.0
+	// Output: docker.io/library/mongo:7.0
 }
 
 func ExampleOptions_WithAuth() {
@@ -230,7 +230,8 @@ func ExampleContainer_URI() {
 }
 
 // A lone word is a version if it starts with a digit or is "latest", and a
-// repository otherwise. Parts a reference does not name stay empty.
+// repository otherwise. A name with no registry is Docker Hub's, and is
+// spelled out in full.
 func ExampleParseMongoImage() {
 	for _, ref := range []string{"8.0", "latest", "mongo", "localhost:5000/team/mongo:8"} {
 		image, err := mongod.ParseMongoImage(ref)
@@ -243,7 +244,7 @@ func ExampleParseMongoImage() {
 	// Output:
 	// registry="" repository="" version="8.0"
 	// registry="" repository="" version="latest"
-	// registry="" repository="mongo" version=""
+	// registry="docker.io" repository="library/mongo" version=""
 	// registry="localhost:5000" repository="team/mongo" version="8"
 }
 

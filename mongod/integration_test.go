@@ -212,7 +212,7 @@ func TestIntegrationStartFailsWhenTheImageDoesNotExist(t *testing.T) {
 	var failed *mongod.StartError
 	require.ErrorAs(t, err, &failed, "an image that cannot be pulled cannot be run, and saying so at once beats waiting out the start timeout")
 	assert.Equal(t, mongod.OpPullImage, failed.Op, "the error says the pull is what failed")
-	assert.Equal(t, "mongo:this-tag-does-not-exist", failed.Image, "and names the image at fault, which is what the reader has to correct")
+	assert.Equal(t, "docker.io/library/mongo:this-tag-does-not-exist", failed.Image, "and names the image at fault, which is what the reader has to correct")
 	assert.False(t, errors.Is(err, context.DeadlineExceeded), "the failure is a missing image, not a slow one; reporting a timeout would send the reader looking in the wrong place")
 }
 

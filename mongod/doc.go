@@ -8,8 +8,8 @@
 //
 //	client, err := mongo.Connect(options.Client().ApplyURI(c.URI()))
 //
-// That runs mongo:8.0 on a host port the daemon chooses and waits up to a
-// minute for mongod. The package imports no MongoDB driver: hand
+// That runs docker.io/library/mongo:8.0, the official image, on a host port
+// the daemon chooses and waits up to a minute for mongod. The package imports no MongoDB driver: hand
 // [Container.URI] to whichever one you use.
 //
 // # Options
@@ -29,11 +29,15 @@
 //
 // # Images
 //
-//	ImageDockerHub    mongo:8.0                                    the default
-//	ImagePublicECR    public.ecr.aws/docker/library/mongo:8.0      no Docker Hub rate limit
-//	ImageCommunity    mongodb/mongodb-community-server:8.0-ubi9    no bare version tags
-//	ImageEnterprise   mongodb/mongodb-enterprise-server:8.0-ubi9   needs a licence
-//	ImageAtlasLocal   mongodb/mongodb-atlas-local:8.0              Atlas Search; own replica set
+//	ImageDockerHub    docker.io/library/mongo:8.0                            the default
+//	ImagePublicECR    public.ecr.aws/docker/library/mongo:8.0                no Docker Hub rate limit
+//	ImageCommunity    docker.io/mongodb/mongodb-community-server:8.0-ubi9    no bare version tags
+//	ImageEnterprise   docker.io/mongodb/mongodb-enterprise-server:8.0-ubi9   needs a licence
+//	ImageAtlasLocal   docker.io/mongodb/mongodb-atlas-local:8.0              Atlas Search; own replica set
+//
+// Every image is named in full, registry included, so nothing depends on a
+// daemon's default registry. A short name such as "mongo:7" is accepted
+// wherever an image is, and is taken to be Docker Hub's.
 //
 // Two mistakes are refused up front, because the containers they produce
 // fail without naming the cause: a bare version such as "8.0" for

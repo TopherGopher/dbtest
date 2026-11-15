@@ -18,21 +18,23 @@ func TestParseMongoImage(t *testing.T) {
 		{"8", mongod.MongoImage{Version: "8"}},
 		{"8.0-ubi9", mongod.MongoImage{Version: "8.0-ubi9"}},
 		{"latest", mongod.MongoImage{Version: "latest"}},
-		{"mongo", mongod.MongoImage{Repository: "mongo"}},
-		{"mongo:8.0", mongod.MongoImage{Repository: "mongo", Version: "8.0"}},
-		{"mongodb/mongodb-atlas-local", mongod.MongoImage{Repository: "mongodb/mongodb-atlas-local"}},
+		{"mongo", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo"}},
+		{"mongo:8.0", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "8.0"}},
+		{"mongodb/mongodb-atlas-local", mongod.MongoImage{Registry: "docker.io", Repository: "mongodb/mongodb-atlas-local"}},
+		{"docker.io/library/mongo:8.0", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "8.0"}},
+		{"mirror.corp.example/mongo", mongod.MongoImage{Registry: "mirror.corp.example", Repository: "mongo"}},
 		{"public.ecr.aws/docker/library/mongo", mongod.MongoImage{Registry: "public.ecr.aws", Repository: "docker/library/mongo"}},
 		{"localhost:5000/team/mongo", mongod.MongoImage{Registry: "localhost:5000", Repository: "team/mongo"}},
 		{"localhost:5000/team/mongo:8", mongod.MongoImage{Registry: "localhost:5000", Repository: "team/mongo", Version: "8"}},
-		{"mongo@sha256:" + digest, mongod.MongoImage{Repository: "mongo", Version: "sha256:" + digest}},
-		{"  mongo:8.0  ", mongod.MongoImage{Repository: "mongo", Version: "8.0"}},
+		{"mongo@sha256:" + digest, mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "sha256:" + digest}},
+		{"  mongo:8.0  ", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "8.0"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.ref, func(t *testing.T) {
 			got, err := mongod.ParseMongoImage(tc.ref)
 
 			require.NoError(t, err, "a reference docker accepts is parsed")
-			assert.Equal(t, tc.want, got, "into the parts it names, leaving the rest empty")
+			assert.Equal(t, tc.want, got, "into the parts it names, with a short name spelled out as Docker Hub's and a named registry left alone")
 		})
 	}
 }
@@ -53,7 +55,7 @@ func TestParseMongoImageRefusesWhatDockerWould(t *testing.T) {
 
 func TestMustParseMongoImagePanicsOnAReferenceDockerWouldRefuse(t *testing.T) {
 	assert.Panics(t, func() { mongod.MustParseMongoImage("Mongo:8") }, "it is for a reference written in the source, where an error has nowhere to go")
-	assert.Equal(t, "mongo:8.0", mongod.MustParseMongoImage("mongo:8.0").Reference(), "and returns a good one")
+	assert.Equal(t, "docker.io/library/mongo:8.0", mongod.MustParseMongoImage("mongo:8.0").Reference(), "and returns a good one, under its full name")
 }
 
 func TestAnImageRendersAsDockerSpellsIt(t *testing.T) {
@@ -61,6 +63,7 @@ func TestAnImageRendersAsDockerSpellsIt(t *testing.T) {
 		image mongod.MongoImage
 		want  string
 	}{
+		{mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "8.0"}, "docker.io/library/mongo:8.0"},
 		{mongod.MongoImage{Repository: "mongo", Version: "8.0"}, "mongo:8.0"},
 		{mongod.MongoImage{Registry: "public.ecr.aws", Repository: "docker/library/mongo", Version: "8.0"}, "public.ecr.aws/docker/library/mongo:8.0"},
 		{mongod.MongoImage{Repository: "mongo"}, "mongo"},
@@ -74,11 +77,11 @@ func TestAnImageRendersAsDockerSpellsIt(t *testing.T) {
 }
 
 func TestAnImageCanBeDerivedFromAKnownOne(t *testing.T) {
-	assert.Equal(t, "mirror.corp.example/mongo:8.0", mongod.ImageDockerHub.WithRegistry("mirror.corp.example").Reference(),
+	assert.Equal(t, "mirror.corp.example/library/mongo:8.0", mongod.ImageDockerHub.WithRegistry("mirror.corp.example").Reference(),
 		"WithRegistry changes where the image is pulled from")
-	assert.Equal(t, "team/mongo:8.0", mongod.ImageDockerHub.WithRepository("team/mongo").Reference(),
+	assert.Equal(t, "docker.io/team/mongo:8.0", mongod.ImageDockerHub.WithRepository("team/mongo").Reference(),
 		"WithRepository changes which image it is")
-	assert.Equal(t, "mongo:7.0", mongod.ImageDockerHub.WithVersion("7.0").Reference(),
+	assert.Equal(t, "docker.io/library/mongo:7.0", mongod.ImageDockerHub.WithVersion("7.0").Reference(),
 		"WithVersion changes the tag")
 }
 

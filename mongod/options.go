@@ -80,7 +80,8 @@ type Options struct {
 // default version, a host port the daemon chooses, and a one-minute wait.
 func DefaultOptions() Options { return Options{} }
 
-// WithImage sets the image from a reference. Only the parts it names change:
+// WithImage sets the image from a reference. Only the parts it names change,
+// and a name with no registry is taken to be Docker Hub's:
 //
 //	"8.0"                                    the version
 //	"mongodb/mongodb-atlas-local"            the image, at its default version
@@ -112,6 +113,7 @@ func (o Options) WithMongoImage(img MongoImage) Options {
 // withImageParts takes the repository an image names, if it names one, and
 // the version the caller named, if any.
 func (o Options) withImageParts(img MongoImage, version string) Options {
+	img = img.qualified()
 	if img.Repository != "" {
 		o.image.Registry, o.image.Repository = img.Registry, img.Repository
 	}
@@ -269,7 +271,7 @@ func resolveImage(image MongoImage) (MongoImage, error) {
 		}
 	}
 	if image.Repository == "" {
-		image.Repository = repositoryOfficial
+		image.Registry, image.Repository = registryDockerHub, repositoryOfficial
 	}
 	if image.Version == "" {
 		image.Version = image.defaultTag()

@@ -61,7 +61,7 @@ func (c *Container) Name() string { return c.name }
 
 // Image returns the reference of the image the container runs.
 //
-//	mongo:8
+//	docker.io/library/mongo:8.0
 //	public.ecr.aws/docker/library/mongo:8.0
 func (c *Container) Image() string { return c.image.Reference() }
 

@@ -22,8 +22,8 @@ func TestStartWithNoOptions(t *testing.T) {
 
 	request := created(t, m)
 	binding := request.HostConfig.PortBindings["27017/tcp"][0]
-	assert.Equal(t, "mongo:8.0", request.Image, "the default image")
-	assert.Equal(t, "mongo:8.0", c.Image(), "which the container reports")
+	assert.Equal(t, "docker.io/library/mongo:8.0", request.Image, "the default image, under its full name")
+	assert.Equal(t, "docker.io/library/mongo:8.0", c.Image(), "which the container reports")
 	assert.Equal(t, "127.0.0.1", binding.HostIP, "a local container is not published to the network")
 	assert.Empty(t, binding.HostPort, "the daemon chooses the port, so parallel starts cannot collide")
 	assert.Equal(t, port, c.Port(), "and the container reports the one it chose")
@@ -58,7 +58,7 @@ func TestStartPullsAnImageTheDaemonDoesNotHave(t *testing.T) {
 
 	require.NoError(t, err, "a missing image is pulled, not reported")
 	require.Len(t, m.CallsTo("ImagePull"), 1, "once")
-	assert.Equal(t, "mongo:8.0", m.CallsTo("ImagePull")[0].Args[0], "the image that was asked for")
+	assert.Equal(t, "docker.io/library/mongo:8.0", m.CallsTo("ImagePull")[0].Args[0], "the image that was asked for")
 }
 
 func TestStartNamesTheStepThatFailed(t *testing.T) {
