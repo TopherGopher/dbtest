@@ -9,6 +9,10 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+  - package-ecosystem: "gomod"
+    directory: "/exporter" # its own module, for mongo-tools
+    schedule:
+      interval: "weekly"
   # A new release waits a week before it is proposed, so one that turns out
   # to be compromised is usually withdrawn before it is pinned here.
   - package-ecosystem: "pip"
