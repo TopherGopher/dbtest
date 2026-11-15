@@ -43,6 +43,13 @@ type Fake struct {
 	// The default reports one row per container command, which is enough for
 	// code that waits for a named process to appear.
 	Processes func(c ContainerState) [][]string
+	// ImageUser is the user every image declares, as a USER instruction
+	// does. The default, "", is an image that runs as root.
+	ImageUser string
+	// Health is the health a running container reports, as one from an
+	// image with a HEALTHCHECK does: "starting", "healthy" or "unhealthy".
+	// The default, "", is an image that declares no check.
+	Health string
 }
 
 // ContainerState is what the Fake knows about one container, passed to the
@@ -175,6 +182,7 @@ func (f *Fake) ImageInspect(ctx context.Context, ref string) (dockerclient.Image
 	if !ok {
 		return dockerclient.ImageInspect{}, notFound("image", ref, "GET", "/images/"+ref+"/json")
 	}
+	img.Config.User = f.ImageUser
 	return img, nil
 }
 
@@ -267,14 +275,14 @@ func (f *Fake) ContainerInspect(ctx context.Context, id string) (dockerclient.Co
 	if err != nil {
 		return dockerclient.ContainerInspect{}, err
 	}
-	status := "created"
+	state := dockerclient.ContainerState{Status: "created"}
 	if c.state.Running {
-		status = "running"
+		state = dockerclient.ContainerState{Status: "running", Running: true, Health: dockerclient.ContainerHealth{Status: f.Health}}
 	}
 	return dockerclient.ContainerInspect{
 		ID:              c.state.ID,
 		Name:            c.state.Name,
-		State:           dockerclient.ContainerState{Status: status, Running: c.state.Running},
+		State:           state,
 		Config:          dockerclient.InspectedConfig{Image: c.state.Config.Image, Labels: c.state.Config.Labels},
 		NetworkSettings: dockerclient.NetworkSettings{Ports: c.state.Ports},
 	}, nil

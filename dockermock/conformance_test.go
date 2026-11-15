@@ -13,7 +13,9 @@ import (
 // than no double at all, so this is the test that keeps it honest.
 func TestFakeConformance(t *testing.T) {
 	dockerclienttest.Conformance(t, func(t *testing.T) dockerclient.Client {
-		return dockermock.NewFake()
+		f := dockermock.NewFake()
+		f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
+		return f
 	})
 }
 
