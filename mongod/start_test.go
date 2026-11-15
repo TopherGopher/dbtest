@@ -18,7 +18,7 @@ import (
 func TestStartWithNoOptions(t *testing.T) {
 	m, port := readyMock(t)
 
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 
 	request := created(t, m)
 	binding := request.HostConfig.PortBindings["27017/tcp"][0]
@@ -37,8 +37,8 @@ func TestStartWithNoOptions(t *testing.T) {
 func TestGeneratedNamesDiffer(t *testing.T) {
 	first, _ := readyMock(t)
 	second, _ := readyMock(t)
-	mustStart(t, first)
-	mustStart(t, second)
+	mustStart(t, first, mongod.DefaultOptions())
+	mustStart(t, second, mongod.DefaultOptions())
 
 	assert.NotEqual(t, createdName(t, first), createdName(t, second), "parallel starts must not ask for the same name")
 }
@@ -54,7 +54,7 @@ func TestStartPullsAnImageTheDaemonDoesNotHave(t *testing.T) {
 		return containerID, nil, nil
 	}
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, err, "a missing image is pulled, not reported")
 	require.Len(t, m.CallsTo("ImagePull"), 1, "once")
@@ -92,7 +92,7 @@ func TestStartNamesTheStepThatFailed(t *testing.T) {
 			m, _ := readyMock(t)
 			tc.arrange(m)
 
-			_, err := start(t, m)
+			_, err := start(t, m, mongod.DefaultOptions())
 
 			var startErr *mongod.StartError
 			require.ErrorAs(t, err, &startErr, "a failed step is a StartError")
@@ -106,7 +106,7 @@ func TestAFailedStartRemovesItsContainer(t *testing.T) {
 	m, _ := readyMock(t)
 	m.ContainerStartFunc = func(context.Context, string) error { return errors.New("no") }
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.Error(t, err, "the start fails")
 	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "and does not leave the container it created")
@@ -126,7 +126,7 @@ func TestAFailedStartRemovesItsContainerEvenWhenTheContextIsWhatFailed(t *testin
 		return nil
 	}
 
-	_, err := mongod.Start(ctx, mongod.WithDocker(m), mongod.WithHostIP("127.0.0.1"))
+	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(m).WithHostIP("127.0.0.1"))
 
 	require.Error(t, err, "the start fails")
 	require.True(t, removed, "the container is still removed")
@@ -140,7 +140,7 @@ func TestStartFailsWhenTheDaemonPublishedNoPort(t *testing.T) {
 		return dockerclient.ContainerInspect{State: dockerclient.ContainerState{Running: true}}, nil
 	}
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	assert.ErrorIs(t, err, mongod.ErrNoPublishedPort, "a container with nowhere to connect to is not returned")
 }
@@ -152,7 +152,7 @@ func TestStartTimesOutWhenNothingAnswers(t *testing.T) {
 		return running(dead), nil
 	}
 
-	_, err := start(t, m, mongod.WithStartTimeout(100*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithHostIP("127.0.0.1").WithStartTimeout(100*time.Millisecond))
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a mongod nothing can connect to is not ready")
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "and the error says the time ran out")
@@ -170,7 +170,7 @@ func TestStartStopsWaitingWhenTheCallerCancels(t *testing.T) {
 	time.AfterFunc(50*time.Millisecond, cancel)
 
 	started := time.Now()
-	_, err := mongod.Start(ctx, mongod.WithDocker(m), mongod.WithHostIP("127.0.0.1"))
+	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(m).WithHostIP("127.0.0.1"))
 
 	require.ErrorIs(t, err, context.Canceled, "the caller's context ends the wait")
 	assert.ErrorIs(t, err, mongod.ErrNotReady, "and the error is still the one a caller checks for a mongod that was not ready")
@@ -182,7 +182,7 @@ func TestAnAddressFromTheEnvironmentIsReportedAsComingFromIt(t *testing.T) {
 	m, _ := readyMock(t)
 	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
 
-	_, err := mongod.Start(context.Background(), mongod.WithDocker(m), mongod.WithStartTimeout(50*time.Millisecond))
+	_, err := mongod.StartWithOptions(context.Background(), mongod.DefaultOptions().WithDocker(m).WithStartTimeout(50*time.Millisecond))
 
 	var notReady *mongod.NotReadyError
 	require.ErrorAs(t, err, &notReady, "the start times out")
@@ -222,7 +222,7 @@ func TestStartFailsAtOnceWhenTheContainerHasExited(t *testing.T) {
 			}
 
 			started := time.Now()
-			_, err := start(t, m)
+			_, err := start(t, m, mongod.DefaultOptions())
 
 			require.ErrorIs(t, err, mongod.ErrContainerExited, "a container that is gone will never be ready")
 			var exited *mongod.ContainerExitedError
@@ -246,22 +246,14 @@ func TestStartKeepsWaitingWhileTheContainerIsStillStarting(t *testing.T) {
 		return processes("mongod --bind_ip_all"), nil
 	}
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	assert.NoError(t, err, "a container that has not started yet is not a failure")
 }
 
-func TestANilOptionIsIgnored(t *testing.T) {
-	m, _ := readyMock(t)
-
-	_, err := start(t, m, nil)
-
-	assert.NoError(t, err, "a nil option, as a conditional one may be, changes nothing")
-}
-
 func TestStopRemovesTheContainerAndItsVolumes(t *testing.T) {
 	m, _ := readyMock(t)
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, c.Stop(context.Background()), "stopping succeeds")
 	require.NoError(t, c.Stop(context.Background()), "and is safe to do twice")
@@ -282,7 +274,7 @@ func TestStopTreatsAContainerThatIsAlreadyGoneAsStopped(t *testing.T) {
 	m.ContainerRemoveFunc = func(context.Context, string, dockerclient.RemoveOptions) error {
 		return dockerclient.ErrNotFound
 	}
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 
 	assert.NoError(t, c.Stop(context.Background()), "something else removing it is not a failure")
 }
@@ -298,7 +290,7 @@ func TestAStopTheDaemonRefusedCanBeTriedAgain(t *testing.T) {
 		}
 		return nil
 	}
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 
 	assert.ErrorIs(t, c.Stop(context.Background()), refused, "the refusal is reported")
 	assert.NoError(t, c.Stop(context.Background()), "and the next Stop tries again")
@@ -312,7 +304,7 @@ func TestStopGivesUpAtItsDeadlineWhileAnotherStopIsStuck(t *testing.T) {
 		<-release
 		return nil
 	}
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 	t.Cleanup(func() { close(release) })
 
 	go func() { _ = c.Stop(context.Background()) }() // a test's own Stop, against a stalled daemon
@@ -334,7 +326,7 @@ func TestStopGivesUpAtItsDeadlineWhileAnotherStopIsStuck(t *testing.T) {
 func TestURIAsksForADirectConnection(t *testing.T) {
 	m, port := readyMock(t)
 
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 
 	uri := parseURI(t, c)
 	assert.Equal(t, "mongodb", uri.Scheme, "a MongoDB connection string")
@@ -346,7 +338,7 @@ func TestURIAsksForADirectConnection(t *testing.T) {
 // that gave up there would leave the container running behind a green test.
 func TestStopStillRemovesTheContainerWhenItsContextHasAlreadyEnded(t *testing.T) {
 	m, _ := readyMock(t)
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 	removed, live := false, false
 	m.ContainerRemoveFunc = func(ctx context.Context, _ string, _ dockerclient.RemoveOptions) error {
 		removed, live = true, ctx.Err() == nil
@@ -366,7 +358,7 @@ func TestAWaitEndedByTheCallersDeadlineSaysSo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err := mongod.Start(ctx, mongod.WithDocker(m), mongod.WithHostIP("127.0.0.1"))
+	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(m).WithHostIP("127.0.0.1"))
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "mongod was not ready")
 	require.ErrorIs(t, err, context.DeadlineExceeded, "because a deadline passed")
@@ -379,7 +371,7 @@ func TestAWaitEndedByTheStartTimeoutSaysSo(t *testing.T) {
 	m, _ := readyMock(t)
 	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
 
-	_, err := start(t, m, mongod.WithStartTimeout(50*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(50*time.Millisecond))
 
 	var notReady *mongod.NotReadyError
 	require.ErrorAs(t, err, &notReady, "mongod was not ready")
@@ -398,7 +390,7 @@ func TestThePortIsPublishedWhereItWillBeDialled(t *testing.T) {
 		} {
 			m, _ := readyMock(t)
 
-			c := mustStart(t, m, mongod.WithHostIP(host))
+			c := mustStart(t, m, mongod.DefaultOptions().WithHostIP(host))
 
 			binding := created(t, m).HostConfig.PortBindings["27017/tcp"][0]
 			assert.Equal(t, "127.0.0.1", binding.HostIP, "%s is this machine, so nothing else needs to reach the port", host)
@@ -413,7 +405,7 @@ func TestThePortIsPublishedWhereItWillBeDialled(t *testing.T) {
 				},
 			}
 
-			_, err := start(t, m, mongod.WithHostIP(host), mongod.WithStartTimeout(20*time.Millisecond))
+			_, err := start(t, m, mongod.DefaultOptions().WithHostIP(host).WithStartTimeout(20*time.Millisecond))
 
 			var notReady *mongod.NotReadyError
 			require.ErrorAs(t, err, &notReady, "this daemon never reports a mongod")
@@ -450,7 +442,7 @@ func TestAReapDuringCreationWaitsForTheContainerAndRemovesIt(t *testing.T) {
 		return containerID, nil, nil
 	}
 
-	c, err := start(t, m)
+	c, err := start(t, m, mongod.DefaultOptions())
 
 	require.ErrorIs(t, err, mongod.ErrContainerExited, "a container reaped while it was being created is not returned as running")
 	assert.Nil(t, c, "so the caller is handed nothing to use")
@@ -470,7 +462,7 @@ func TestAReapDuringThePullCreatesNothing(t *testing.T) {
 		return mongod.ReapRunningContainers(ctx)
 	}
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.ErrorIs(t, err, mongod.ErrContainerExited, "a start that was reaped does not carry on")
 	assert.Len(t, m.CallsTo("ContainerCreate"), 1, "the daemon is not asked again for a container nothing would remove")
@@ -483,7 +475,7 @@ func TestAFailedCreationLeavesNothingToReap(t *testing.T) {
 		return "", nil, errors.New("the daemon refused")
 	}
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 	require.Error(t, err, "the start fails")
 
 	require.NoError(t, mongod.ReapRunningContainers(context.Background()), "a later reap has nothing to do")

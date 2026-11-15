@@ -1,6 +1,7 @@
 package mongod_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,7 +37,9 @@ func TestParseMongoImage(t *testing.T) {
 	}
 }
 
-const digest = "9f2b5c8e1d4a7f0b3c6e9d2a5f8b1c4e7d0a3f6b9c2e5d8a1f4b7c0e3d6a9f2b"
+// digest is made up: sixty-four hex digits are all a parser needs. It names
+// no real image and nothing here pulls one, so no release can change it.
+var digest = strings.Repeat("0123456789abcdef", 4)
 
 func TestParseMongoImageRefusesWhatDockerWould(t *testing.T) {
 	for _, ref := range []string{"", "   ", "Mongo:8", "mongo:8:9", "8.0!"} {

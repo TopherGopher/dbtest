@@ -12,10 +12,10 @@ import (
 func BenchmarkStart(b *testing.B) {
 	m, _ := readyMock(b)
 	ctx := context.Background()
-	opts := []mongod.Option{mongod.WithDocker(m), mongod.WithHostIP("127.0.0.1")}
+	opts := mongod.DefaultOptions().WithDocker(m).WithHostIP("127.0.0.1")
 	b.ReportAllocs()
 	for b.Loop() {
-		c, err := mongod.Start(ctx, opts...)
+		c, err := mongod.StartWithOptions(ctx, opts)
 		if err != nil {
 			b.Fatal(err)
 		}

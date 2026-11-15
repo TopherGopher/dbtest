@@ -8,15 +8,17 @@
 //
 //	client, err := mongo.Connect(options.Client().ApplyURI(c.URI()))
 //
-// With no options that runs mongo:8.0 on a host port the daemon chooses and
-// waits up to a minute for mongod. The package imports no MongoDB driver:
-// hand [Container.URI] to whichever one you use.
+// That runs mongo:8.0 on a host port the daemon chooses and waits up to a
+// minute for mongod. The package imports no MongoDB driver: hand
+// [Container.URI] to whichever one you use.
 //
 // # Options
 //
-// Options change a start, and apply in the order given:
+// [StartWithOptions] takes [Options], built by chaining With methods onto
+// [DefaultOptions]. Each returns a copy, so a shared base is never changed:
 //
-//	mongod.Start(ctx, mongod.WithImage("7.0"), mongod.WithReplicaSet("rs0"))
+//	base := mongod.DefaultOptions().WithImage("7.0")
+//	c, err := mongod.StartWithOptions(ctx, base.WithReplicaSet("rs0"))
 //
 // Three settings can also come from the environment, so CI can configure a
 // whole suite. An option overrides the variable:
@@ -39,33 +41,33 @@
 // or WithMongodArgs for Atlas Local ([ErrUnsupportedForImage]). An image this
 // package does not know is treated like the official one.
 //
-// # When Start returns
+// # When a start returns
 //
-// Start returns once mongod has answered a command on the address in the
+// A start returns once mongod has answered a command on the address in the
 // URI, so the first command a caller sends works. An image that creates a
 // user or a replica set first runs a temporary mongod, then replaces it;
-// Start waits for the final one, and for the image's own health check if it
-// declares one. With [WithReplicaSet] it also initiates the set and waits
-// until it accepts writes.
+// the start waits for the final one, and for the image's own health check
+// if it declares one. With [Options.WithReplicaSet] it also initiates the
+// set and waits until it accepts writes.
 //
 // # Where to connect
 //
 // The published port is on the machine the daemon runs on, which is not
-// always this one. Start works the address out: a remote daemon's host,
+// always this one. A start works the address out: a remote daemon's host,
 // loopback for a local one, or the gateway when this process is itself in a
-// container. [WithHostIP] lists the order, and overrides it for a network
-// the detection gets wrong.
+// container. [Options.WithHostIP] lists the order, and overrides it for a
+// network the detection gets wrong.
 //
 // # Who can connect
 //
 // A local container is published on 127.0.0.1 only, and mongod runs without
 // authentication. Any other address needs the port published on every
-// interface, so Start creates a root user, "mongotest", with a random
+// interface, so the start creates a root user, "mongotest", with a random
 // password. [Container.URI] includes the credentials when there are any, so
 // a test that takes its URI from the container runs unchanged in both places.
 //
-//	mongod.Start(ctx, mongod.WithAuth("admin", "secret"))   // always these
-//	mongod.Start(ctx, mongod.WithoutAuth())                 // never any
+//	mongod.DefaultOptions().WithAuth("admin", "secret")   // always these
+//	mongod.DefaultOptions().WithoutAuth()                 // never any
 //
 // Creating the user makes a start a few seconds slower. Anyone who can use
 // the Docker daemon can read the credentials, and traffic is not encrypted.

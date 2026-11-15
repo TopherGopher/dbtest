@@ -10,13 +10,16 @@ import (
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
-// Start creates a MongoDB container, starts it, and waits until mongod is
-// reachable. If a step fails, the container is removed and the error names
-// the step.
-//
-// With no options it runs mongo:8.0 on a host port the daemon chooses and
-// waits up to a minute.
-func Start(ctx context.Context, opts ...Option) (*Container, error) {
+// Start runs MongoDB with the default options: the official image on a host
+// port the daemon chooses, waiting up to a minute for it.
+func Start(ctx context.Context) (*Container, error) {
+	return StartWithOptions(ctx, DefaultOptions())
+}
+
+// StartWithOptions creates a MongoDB container, starts it, and waits until
+// mongod is reachable. If a step fails, the container is removed and the
+// error names the step.
+func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	cfg, err := newConfig(opts)
 	if err != nil {
 		return nil, err

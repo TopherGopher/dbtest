@@ -3,7 +3,9 @@ package mongod
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,7 +24,7 @@ const (
 )
 
 const (
-	// DefaultStartTimeout is how long Start waits for mongod.
+	// DefaultStartTimeout is how long a start waits for mongod.
 	DefaultStartTimeout = 60 * time.Second
 	// DefaultUsername is the root user when credentials are generated.
 	DefaultUsername = "mongotest"
@@ -44,15 +46,19 @@ const (
 	secretRandomBytes = 16
 )
 
-// Option changes how Start runs a container. Options apply in the order
-// given, so a later one overrides an earlier one:
+// Options says how StartWithOptions runs a container. Begin with
+// DefaultOptions and chain the With methods. Each returns a changed copy, so
+// a base shared between tests is never altered by one of them:
 //
-//	mongod.Start(ctx, mongod.WithImage("8.0"), mongod.WithReplicaSet("rs0"))
-type Option func(*config)
-
-// config is what a start works from: the options applied over the defaults.
-type config struct {
+//	base := mongod.DefaultOptions().WithImage("7.0")
+//	c, err := mongod.StartWithOptions(ctx, base.WithReplicaSet("rs0"))
+//
+// The zero value is the same as DefaultOptions.
+type Options struct {
+	// image holds the registry and repository the caller chose, and version
+	// a version the caller named, so the two combine in either order.
 	image        MongoImage
+	version      string
 	port         int
 	name         string
 	hostIP       string
@@ -65,10 +71,14 @@ type config struct {
 	labels       map[string]string
 	logger       dockerclient.Logger
 	docker       dockerclient.Client
-	// errs holds what an option could not accept. An option has nowhere to
-	// return an error, so Start reports the first one.
-	errs []error
+	// err is the first value a With method could not accept. A With method
+	// has nowhere to return an error, so StartWithOptions reports it.
+	err error
 }
+
+// DefaultOptions returns the options Start uses: the official image at its
+// default version, a host port the daemon chooses, and a one-minute wait.
+func DefaultOptions() Options { return Options{} }
 
 // WithImage sets the image from a reference. Only the parts it names change:
 //
@@ -76,70 +86,81 @@ type config struct {
 //	"mongodb/mongodb-atlas-local"            the image, at its default version
 //	"mirror.corp.example/mongo"              the same image from a mirror
 //	"public.ecr.aws/docker/library/mongo:8"  everything
-func WithImage(ref string) Option {
-	return func(c *config) {
-		parsed, err := ParseMongoImage(ref)
-		if err != nil {
-			c.errs = append(c.errs, err)
-			return
-		}
-		if parsed.Repository != "" {
-			c.image.Registry, c.image.Repository = parsed.Registry, parsed.Repository
-		}
-		if parsed.Version != "" {
-			c.image.Version = parsed.Version
-		}
+func (o Options) WithImage(ref string) Options {
+	parsed, err := ParseMongoImage(ref)
+	if err != nil {
+		return o.refused(err)
 	}
+	return o.withImageParts(parsed, parsed.Version)
 }
 
-// WithMongoImage sets the whole image, usually one of the known ones. It
-// replaces every part, including a version an earlier option set:
+// WithMongoImage sets the image to one of the known ones. A version named
+// with WithImage, before or after, is kept:
 //
-//	mongod.WithMongoImage(mongod.ImageAtlasLocal)
-func WithMongoImage(img MongoImage) Option {
-	return func(c *config) { c.image = img }
+//	mongod.DefaultOptions().WithMongoImage(mongod.ImagePublicECR).WithImage("7.0")
+//
+// The image's own version is used only if it differs from that image's
+// default, as after MongoImage.WithVersion.
+func (o Options) WithMongoImage(img MongoImage) Options {
+	named := img.Version
+	if named == img.defaultTag() {
+		named = ""
+	}
+	return o.withImageParts(img, named)
+}
+
+// withImageParts takes the repository an image names, if it names one, and
+// the version the caller named, if any.
+func (o Options) withImageParts(img MongoImage, version string) Options {
+	if img.Repository != "" {
+		o.image.Registry, o.image.Repository = img.Registry, img.Repository
+	}
+	if version != "" {
+		o.version = version
+	}
+	return o
 }
 
 // WithPort publishes mongod on a fixed host port. Prefer the default, where
 // the daemon chooses: a port found free can be taken before the container
 // binds it, which parallel tests hit regularly.
-func WithPort(port int) Option {
-	return func(c *config) { c.port = port }
+func (o Options) WithPort(port int) Options {
+	o.port = port
+	return o
 }
 
 // WithName names the container instead of generating a name.
-func WithName(name string) Option {
-	return func(c *config) { c.name = name }
+func (o Options) WithName(name string) Options {
+	o.name = name
+	return o
 }
 
 // WithHostIP states the address or hostname containers are reachable at, for
-// a network the detection gets wrong. Without it Start uses the first of:
+// a network the detection gets wrong. Without it the first of these is used:
 //
 //  1. the MONGOTEST_HOST_IP environment variable;
 //  2. the daemon's own host, when the daemon is remote (tcp, http, https, ssh);
 //  3. loopback, when this process shares the daemon host's network;
 //  4. the default gateway, when this process is in a container with a network
 //     of its own, because the port is published on the host outside it.
-func WithHostIP(host string) Option {
-	return func(c *config) {
-		if host == "" {
-			c.errs = append(c.errs, ErrEmptyHostIP)
-		}
-		c.hostIP = host
+func (o Options) WithHostIP(host string) Options {
+	if host == "" {
+		return o.refused(ErrEmptyHostIP)
 	}
+	o.hostIP = host
+	return o
 }
 
 // WithReplicaSet starts mongod as a single-member replica set with this
-// name, which is what transactions and change streams need. Start initiates
-// the set and returns once it accepts writes. That uses the image's own
-// mongosh, so an image without it fails with [ErrNotInitiated].
-func WithReplicaSet(name string) Option {
-	return func(c *config) {
-		if name == "" {
-			c.errs = append(c.errs, ErrEmptyReplicaSet)
-		}
-		c.replicaSet = name
+// name, which is what transactions and change streams need. The start
+// initiates the set and returns once it accepts writes. That uses the
+// image's own mongosh, so an image without it fails with [ErrNotInitiated].
+func (o Options) WithReplicaSet(name string) Options {
+	if name == "" {
+		return o.refused(ErrEmptyReplicaSet)
 	}
+	o.replicaSet = name
+	return o
 }
 
 // WithAuth creates a root user and makes mongod require authentication.
@@ -149,68 +170,82 @@ func WithReplicaSet(name string) Option {
 // credentials are only generated for a container other machines can reach.
 // Anyone who can use the Docker daemon can read them, so do not reuse a
 // password that matters.
-func WithAuth(username, password string) Option {
-	return func(c *config) { c.username, c.password, c.noAuth = username, password, false }
+func (o Options) WithAuth(username, password string) Options {
+	o.username, o.password, o.noAuth = username, password, false
+	return o
 }
 
 // WithoutAuth runs mongod without authentication even where other machines
 // can reach it. Use it only on a network you trust.
-func WithoutAuth() Option {
-	return func(c *config) { c.username, c.password, c.noAuth = "", "", true }
+func (o Options) WithoutAuth() Options {
+	o.username, o.password, o.noAuth = "", "", true
+	return o
 }
 
-// WithMongodArgs passes extra flags to mongod.
-func WithMongodArgs(args ...string) Option {
-	return func(c *config) { c.mongodArgs = append(c.mongodArgs, args...) }
+// WithMongodArgs passes extra flags to mongod, after any given before.
+func (o Options) WithMongodArgs(args ...string) Options {
+	o.mongodArgs = append(slices.Clone(o.mongodArgs), args...)
+	return o
 }
 
-// WithStartTimeout sets how long Start waits for mongod.
-func WithStartTimeout(d time.Duration) Option {
-	return func(c *config) { c.startTimeout = d }
+// WithStartTimeout sets how long a start waits for mongod.
+func (o Options) WithStartTimeout(d time.Duration) Options {
+	o.startTimeout = d
+	return o
 }
 
 // WithLabel adds a label to the container.
-func WithLabel(key, value string) Option {
-	return func(c *config) { c.labels[key] = value }
+func (o Options) WithLabel(key, value string) Options {
+	labels := make(map[string]string, len(o.labels)+1)
+	maps.Copy(labels, o.labels)
+	labels[key] = value
+	o.labels = labels
+	return o
 }
 
 // WithLogger sends what a start does to a logger. *slog.Logger works, and
 // nil leaves the logger as it was.
-func WithLogger(l dockerclient.Logger) Option {
-	return func(c *config) {
-		if l != nil {
-			c.logger = l
-		}
+func (o Options) WithLogger(l dockerclient.Logger) Options {
+	if l != nil {
+		o.logger = l
 	}
+	return o
 }
 
 // WithDocker uses a specific Docker client, such as a double from dockermock.
-func WithDocker(client dockerclient.Client) Option {
-	return func(c *config) { c.docker = client }
+func (o Options) WithDocker(client dockerclient.Client) Options {
+	o.docker = client
+	return o
 }
 
-// newConfig applies the options over the defaults, fills in what was left
-// open from the environment, and checks the result. It contacts nothing.
-func newConfig(opts []Option) (config, error) {
-	c := config{
-		labels: map[string]string{},
-		logger: dockerclient.NopLogger(),
+// refused remembers the first value a With method could not accept.
+func (o Options) refused(err error) Options {
+	if o.err == nil {
+		o.err = err
 	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&c)
-		}
+	return o
+}
+
+// config is a set of options made ready for a start: the defaults and the
+// environment filled in, and the result checked.
+type config struct{ Options }
+
+// newConfig fills in what the options left open, from the environment and
+// then the defaults, and checks the result. It contacts nothing.
+func newConfig(opts Options) (config, error) {
+	if opts.err != nil {
+		return config{}, opts.err
 	}
-	if len(c.errs) > 0 {
-		return config{}, c.errs[0]
-	}
+	c := config{Options: opts.WithLabel(RequiredLabelKey, RequiredLabelValue)}
 	if c.name == "" {
 		c.name = namePrefix + randomHex(nameRandomBytes)
 	}
-	c.labels[RequiredLabelKey] = RequiredLabelValue
+	if c.logger == nil {
+		c.logger = dockerclient.NopLogger()
+	}
 
 	var err error
-	if c.image, err = resolveImage(c.image); err != nil {
+	if c.image, err = resolveImage(c.image.WithVersion(c.version)); err != nil {
 		return config{}, err
 	}
 	if c.startTimeout, err = resolveStartTimeout(c.startTimeout); err != nil {

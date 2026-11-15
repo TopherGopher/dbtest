@@ -14,7 +14,7 @@ import (
 
 func TestAContainerIsRegisteredForReapingUntilItIsStopped(t *testing.T) {
 	m, _ := readyMock(t)
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 	assert.Contains(t, reaper.Names(), c.Name(), "a started container is removed if the process is signalled")
 
 	require.NoError(t, c.Stop(context.Background()), "stopping succeeds")
@@ -29,7 +29,7 @@ func TestAContainerIsRegisteredBeforeMongodIsReady(t *testing.T) {
 		return processes("mongod --bind_ip_all"), nil
 	}
 
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 
 	assert.Contains(t, registeredDuringTheWait, c.Name(), "a signal during the readiness wait must not leave the container running")
 }
@@ -39,7 +39,7 @@ func TestAFailedStartLeavesNothingRegistered(t *testing.T) {
 	m.ContainerStartFunc = func(context.Context, string) error { return errors.New("no") }
 	before := len(reaper.Names())
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.Error(t, err, "the start fails")
 	assert.Len(t, reaper.Names(), before, "and its container, already removed, is not kept for reaping")
@@ -47,7 +47,7 @@ func TestAFailedStartLeavesNothingRegistered(t *testing.T) {
 
 func TestReapRunningContainersRemovesWhatIsStillUp(t *testing.T) {
 	m, _ := readyMock(t)
-	c := mustStart(t, m)
+	c := mustStart(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, mongod.ReapRunningContainers(context.Background()), "the reap succeeds")
 
@@ -60,7 +60,7 @@ func TestReapRunningContainersReportsWhatItCouldNotRemove(t *testing.T) {
 	m, _ := readyMock(t)
 	refused := errors.New("the daemon refused")
 	m.ContainerRemoveFunc = func(context.Context, string, dockerclient.RemoveOptions) error { return refused }
-	mustStart(t, m)
+	mustStart(t, m, mongod.DefaultOptions())
 
 	err := mongod.ReapRunningContainers(context.Background())
 

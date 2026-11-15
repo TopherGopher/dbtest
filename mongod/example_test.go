@@ -55,12 +55,12 @@ func exampleDocker() (dockerclient.Client, func()) {
 	return stage{Fake: fake, port: listener.Addr().(*net.TCPAddr).Port}, func() { _ = listener.Close() }
 }
 
+// Start needs no options. This example is compiled but not run, because it
+// talks to a real Docker daemon.
 func ExampleStart() {
-	docker, closeDocker := exampleDocker()
-	defer closeDocker()
 	ctx := context.Background()
 
-	c, err := mongod.Start(ctx, mongod.WithDocker(docker))
+	c, err := mongod.Start(ctx)
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
@@ -68,25 +68,71 @@ func ExampleStart() {
 	defer c.Stop(context.Background())
 
 	// Hand c.URI() to a MongoDB driver.
-	fmt.Println(c.Image())
-	// Output: mongo:8.0
+	fmt.Println(c.URI())
 }
 
-// A version on its own keeps the default image, and a repository on its own
-// keeps the default version, which is how to pull through a mirror.
-func ExampleWithImage() {
+// Chain the options a start needs onto DefaultOptions.
+func ExampleStartWithOptions() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
 	ctx := context.Background()
 
-	older, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithImage("7.0"))
+	opts := mongod.DefaultOptions().WithDocker(docker).WithImage("7.0").WithReplicaSet("rs0")
+	c, err := mongod.StartWithOptions(ctx, opts)
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer c.Stop(context.Background())
+
+	fmt.Println(c.Image(), c.ReplicaSet())
+	// Output: mongo:7.0 rs0
+}
+
+// A With method returns a copy, so tests can add to a shared base without
+// changing it for each other.
+func ExampleOptions() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+	base := mongod.DefaultOptions().WithDocker(docker).WithImage("7.0")
+
+	withSet, err := mongod.StartWithOptions(ctx, base.WithReplicaSet("rs0"))
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer withSet.Stop(context.Background())
+
+	plain, err := mongod.StartWithOptions(ctx, base)
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer plain.Stop(context.Background())
+
+	fmt.Printf("%s %q\n", withSet.Image(), withSet.ReplicaSet())
+	fmt.Printf("%s %q\n", plain.Image(), plain.ReplicaSet())
+	// Output:
+	// mongo:7.0 "rs0"
+	// mongo:7.0 ""
+}
+
+// A version on its own keeps the default image, and a repository on its own
+// keeps the default version, which is how to pull through a mirror.
+func ExampleOptions_WithImage() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+
+	older, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithImage("7.0"))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}
 	defer older.Stop(context.Background())
 
-	mirrored, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithImage("mirror.corp.example/mongo"))
+	mirrored, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithImage("mirror.corp.example/mongo"))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
@@ -102,14 +148,14 @@ func ExampleWithImage() {
 
 // MONGOTEST_IMAGE moves a whole suite to another image without editing a
 // test, which is how CI gets off Docker Hub's pull limits.
-func ExampleStart_environment() {
+func ExampleStartWithOptions_environment() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
 	ctx := context.Background()
 	os.Setenv(mongod.EnvImage, "mongo:7.0")
 	defer os.Unsetenv(mongod.EnvImage)
 
-	c, err := mongod.Start(ctx, mongod.WithDocker(docker))
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
@@ -120,12 +166,12 @@ func ExampleStart_environment() {
 	// Output: mongo:7.0
 }
 
-func ExampleWithAuth() {
+func ExampleOptions_WithAuth() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
 	ctx := context.Background()
 
-	c, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithAuth("admin", "p@ssword"))
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithAuth("admin", "p@ssword"))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
@@ -141,14 +187,14 @@ func ExampleWithAuth() {
 	// password printed: false
 }
 
-// Transactions and change streams need a replica set. Start initiates it
-// and returns once it accepts writes.
-func ExampleWithReplicaSet() {
+// Transactions and change streams need a replica set. The start initiates
+// it and returns once it accepts writes.
+func ExampleOptions_WithReplicaSet() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
 	ctx := context.Background()
 
-	c, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithReplicaSet("rs0"))
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithReplicaSet("rs0"))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
@@ -166,7 +212,7 @@ func ExampleContainer_URI() {
 	defer closeDocker()
 	ctx := context.Background()
 
-	c, err := mongod.Start(ctx, mongod.WithDocker(docker), mongod.WithAuth("admin", "p@ssword"))
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithAuth("admin", "p@ssword"))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
@@ -202,13 +248,13 @@ func ExampleParseMongoImage() {
 }
 
 // Every error matches a sentinel, so a caller never reads a message.
-func ExampleStart_errors() {
+func ExampleStartWithOptions_errors() {
 	ctx := context.Background()
 
-	_, err := mongod.Start(ctx, mongod.WithMongoImage(mongod.ImageCommunity.WithVersion("8")))
+	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithMongoImage(mongod.ImageCommunity.WithVersion("8")))
 	fmt.Println("no such version:", errors.Is(err, mongod.ErrNoSuchVersion))
 
-	_, err = mongod.Start(ctx, mongod.WithMongoImage(mongod.ImageAtlasLocal), mongod.WithMongodArgs("--quiet"))
+	_, err = mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithMongoImage(mongod.ImageAtlasLocal).WithMongodArgs("--quiet"))
 	var unsupported *mongod.UnsupportedForImageError
 	if errors.As(err, &unsupported) {
 		fmt.Println("remove:", unsupported.Option)
@@ -233,7 +279,7 @@ func ExampleReapRunningContainers() {
 	defer closeDocker()
 	ctx := context.Background()
 
-	if _, err := mongod.Start(ctx, mongod.WithDocker(docker)); err != nil {
+	if _, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker)); err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}

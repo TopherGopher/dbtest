@@ -58,7 +58,7 @@ var (
 )
 
 // MongoImage is an image in three parts, so one can change without restating
-// the others. Any part may be empty; Start fills it in.
+// the others. Any part may be empty; a start fills it in.
 //
 //	mongod.ImageCommunity.WithVersion("8.0-ubi8")                        // from a known image
 //	mongod.MustParseMongoImage("public.ecr.aws/docker/library/mongo:8")  // from a constant

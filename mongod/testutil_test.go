@@ -203,12 +203,11 @@ func running(hostPort int) dockerclient.ContainerInspect {
 }
 
 // start starts a container against a mocked daemon and stops it when the
-// test ends. The dial address is pinned to loopback so the result does not
-// depend on where the tests run; an option passed in can still override it.
-func start(t testing.TB, m *dockermock.Mock, opts ...mongod.Option) (*mongod.Container, error) {
+// test ends. TestMain pins the dial address to loopback, so the result does
+// not depend on where the tests run; WithHostIP still overrides it.
+func start(t testing.TB, m *dockermock.Mock, opts mongod.Options) (*mongod.Container, error) {
 	t.Helper()
-	opts = append([]mongod.Option{mongod.WithDocker(m), mongod.WithHostIP("127.0.0.1")}, opts...)
-	c, err := mongod.Start(context.Background(), opts...)
+	c, err := mongod.StartWithOptions(context.Background(), opts.WithDocker(m))
 	if err == nil {
 		t.Cleanup(func() { _ = c.Stop(context.Background()) })
 	}
@@ -216,9 +215,9 @@ func start(t testing.TB, m *dockermock.Mock, opts ...mongod.Option) (*mongod.Con
 }
 
 // mustStart is start for a test that is about something after the start.
-func mustStart(t testing.TB, m *dockermock.Mock, opts ...mongod.Option) *mongod.Container {
+func mustStart(t testing.TB, m *dockermock.Mock, opts mongod.Options) *mongod.Container {
 	t.Helper()
-	c, err := start(t, m, opts...)
+	c, err := start(t, m, opts)
 	require.NoError(t, err, "the start must succeed")
 	return c
 }
@@ -246,7 +245,7 @@ func createdName(t testing.TB, m *dockermock.Mock) string {
 // daemon never reports a mongod, so the start ends on a short timeout: the
 // request is built before anything is waited for, and nothing has to listen
 // on an address this machine may not have.
-func requestFor(t testing.TB, opts ...mongod.Option) dockerclient.ContainerConfig {
+func requestFor(t testing.TB, opts mongod.Options) dockerclient.ContainerConfig {
 	t.Helper()
 	m := &dockermock.Mock{
 		ContainerCreateFunc: func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
@@ -256,8 +255,7 @@ func requestFor(t testing.TB, opts ...mongod.Option) dockerclient.ContainerConfi
 			return running(1), nil
 		},
 	}
-	opts = append(opts, mongod.WithStartTimeout(20*time.Millisecond))
-	_, err := start(t, m, opts...)
+	_, err := start(t, m, opts.WithStartTimeout(20*time.Millisecond))
 	require.ErrorIs(t, err, mongod.ErrNotReady, "this daemon never reports a mongod")
 	return created(t, m)
 }

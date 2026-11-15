@@ -252,7 +252,7 @@ func (e *NoSuchVersionError) Is(target error) bool {
 // matches ErrUnsupportedForImage and dockerclient.ErrInvalidArgument.
 type UnsupportedForImageError struct {
 	Image  MongoImage
-	Option string // the helper to remove, such as "WithReplicaSet"
+	Option string // the option to remove, such as "WithReplicaSet"
 	Reason string
 }
 

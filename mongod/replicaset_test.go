@@ -27,7 +27,7 @@ func shell(m *dockermock.Mock, result dockerclient.ExecResult, err error) (comma
 func TestWithReplicaSetStartsMongodAsAMember(t *testing.T) {
 	m, _ := readyMock(t)
 
-	c := mustStart(t, m, mongod.WithReplicaSet("rs0"))
+	c := mustStart(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
 
 	name, passed := flagValue(created(t, m).Cmd, "--replSet")
 	require.True(t, passed, "mongod is started as a replica set member")
@@ -39,7 +39,7 @@ func TestWithReplicaSetInitiatesTheSet(t *testing.T) {
 	m, _ := readyMock(t)
 	commands := shell(m, dockerclient.ExecResult{}, nil)
 
-	mustStart(t, m, mongod.WithReplicaSet("rs0"))
+	mustStart(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
 
 	assert.Len(t, *commands, 1, "a member that is never initiated accepts no writes, so Start initiates it")
 }
@@ -50,7 +50,7 @@ func TestThePasswordIsNotOnTheCommandLineThatInitiatesTheSet(t *testing.T) {
 	m, _ := authMock(t)
 	commands := shell(m, dockerclient.ExecResult{}, nil)
 
-	mustStart(t, m, mongod.WithReplicaSet("rs0"), mongod.WithAuth("admin", "s3cret-marker"))
+	mustStart(t, m, mongod.DefaultOptions().WithReplicaSet("rs0").WithAuth("admin", "s3cret-marker"))
 
 	require.Len(t, *commands, 1, "the set is initiated")
 	for _, argument := range (*commands)[0] {
@@ -73,7 +73,7 @@ func TestAStartFailsWhenTheSetCannotBeInitiated(t *testing.T) {
 			m, _ := readyMock(t)
 			shell(m, tc.result, tc.err)
 
-			_, err := start(t, m, mongod.WithReplicaSet("rs0"))
+			_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
 
 			require.ErrorIs(t, err, mongod.ErrNotInitiated, "a member that accepts no writes is not returned as ready")
 			var failed *mongod.StartError
@@ -92,7 +92,7 @@ func TestAnInitiationThatOutlastsTheStartTimeoutIsNotReady(t *testing.T) {
 	}
 
 	started := time.Now()
-	_, err := start(t, m, mongod.WithReplicaSet("rs0"), mongod.WithStartTimeout(150*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0").WithStartTimeout(150*time.Millisecond))
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a set that never accepts writes is a start that ran out of time")
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "which the error says")
@@ -103,7 +103,7 @@ func TestAnInitiationThatOutlastsTheStartTimeoutIsNotReady(t *testing.T) {
 func TestAnEmptyReplicaSetNameIsRefused(t *testing.T) {
 	m, _ := readyMock(t)
 
-	_, err := start(t, m, mongod.WithReplicaSet(""))
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet(""))
 
 	require.ErrorIs(t, err, mongod.ErrEmptyReplicaSet, "a caller who asked for a replica set must not get a standalone mongod")
 	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "it is an option mistake like the others")

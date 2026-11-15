@@ -20,7 +20,7 @@ import (
 // startWith starts a container whose process listing is scripted. The
 // published port always answers, as it does from the moment a real container
 // is created, so only the listing decides whether the start succeeds.
-func startWith(t *testing.T, timeout time.Duration, commands func(poll int) []string, opts ...mongod.Option) error {
+func startWith(t *testing.T, opts mongod.Options, commands func(poll int) []string) error {
 	t.Helper()
 	m, _ := readyMock(t)
 	polls := 0
@@ -28,7 +28,7 @@ func startWith(t *testing.T, timeout time.Duration, commands func(poll int) []st
 		polls++
 		return processes(commands(polls)...), nil
 	}
-	_, err := start(t, m, append(opts, mongod.WithStartTimeout(timeout))...)
+	_, err := start(t, m, opts)
 	return err
 }
 
@@ -70,7 +70,7 @@ func TestStartCountsOnlyAMongodThePortCanReach(t *testing.T) {
 			if !tc.ready {
 				timeout = 60 * time.Millisecond
 			}
-			err := startWith(t, timeout, always(tc.command))
+			err := startWith(t, mongod.DefaultOptions().WithStartTimeout(timeout), always(tc.command))
 
 			if tc.ready {
 				assert.NoError(t, err, "a published port leads to this mongod")
@@ -102,7 +102,7 @@ func TestStartFindsTheCommandColumnInAnyListing(t *testing.T) {
 			m, _ := readyMock(t)
 			m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return tc.top, nil }
 
-			_, err := start(t, m, mongod.WithStartTimeout(5*time.Second))
+			_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(5*time.Second))
 
 			assert.NoError(t, err, "a daemon may title and order the columns its own way")
 		})
@@ -111,7 +111,7 @@ func TestStartFindsTheCommandColumnInAnyListing(t *testing.T) {
 
 func TestStartWaitsPastTheTemporaryMongod(t *testing.T) {
 	sawFinal := false
-	err := startWith(t, 10*time.Second, func(poll int) []string {
+	err := startWith(t, mongod.DefaultOptions().WithStartTimeout(10*time.Second), func(poll int) []string {
 		if poll <= 3 {
 			return []string{"bash docker-entrypoint.sh mongod", "mongod --bind_ip 127.0.0.1 --fork"}
 		}
@@ -124,7 +124,7 @@ func TestStartWaitsPastTheTemporaryMongod(t *testing.T) {
 }
 
 func TestAMongodStuckOnLoopbackIsNamedInTheError(t *testing.T) {
-	err := startWith(t, 60*time.Millisecond, always("mongod --bind_ip 127.0.0.1"))
+	err := startWith(t, mongod.DefaultOptions().WithStartTimeout(60*time.Millisecond), always("mongod --bind_ip 127.0.0.1"))
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "it never became reachable")
 	assert.ErrorIs(t, err, mongod.ErrLoopbackOnly, "so the caller can tell this from a mongod that never started")
@@ -142,7 +142,7 @@ func TestALoopbackOnlyMongodIsStillNamedWhenTheTimeoutCutsAPollShort(t *testing.
 		return dockerclient.Top{}, ctx.Err()
 	}
 
-	_, err := start(t, m, mongod.WithStartTimeout(80*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
 	assert.ErrorIs(t, err, mongod.ErrLoopbackOnly, "what the wait last learned is kept, not replaced by the timeout that ended it")
 }
@@ -162,7 +162,7 @@ func TestStartRequiresAuthWhenCredentialsWereSet(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			started := time.Now()
-			err := startWith(t, time.Minute, always(tc.command), mongod.WithAuth("admin", "secret"))
+			err := startWith(t, mongod.DefaultOptions().WithStartTimeout(time.Minute).WithAuth("admin", "secret"), always(tc.command))
 
 			if tc.enforced {
 				assert.NoError(t, err, "this mongod makes clients authenticate")
@@ -183,7 +183,7 @@ func TestAPortThatOnlyAcceptsConnectionsIsNotReady(t *testing.T) {
 		return running(port), nil
 	}
 
-	_, err := start(t, m, mongod.WithStartTimeout(80*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
 	assert.ErrorIs(t, err, mongod.ErrNotReady, "nothing answered a command, so no mongod is serving there")
 }
@@ -203,7 +203,7 @@ func TestStartKeepsAskingUntilMongodAnswers(t *testing.T) {
 		return running(port), nil
 	}
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, err, "mongod answers inside the timeout")
 	assert.Greater(t, connections.Load(), int32(unanswered), "the connections that were hung up on did not count")
@@ -232,7 +232,7 @@ func TestStartWaitsForTheHealthCheckAnImageDeclares(t *testing.T) {
 	m, port := readyMock(t)
 	healthy := health(m, port, 4)
 
-	_, err := start(t, m)
+	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, err, "the check passes inside the timeout")
 	assert.True(t, *healthy, "a mongod that answers is not returned while its image says it is still starting")
@@ -242,13 +242,13 @@ func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {
 	m, port := readyMock(t)
 	health(m, port, math.MaxInt)
 
-	_, err := start(t, m, mongod.WithStartTimeout(80*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
 	assert.ErrorIs(t, err, mongod.ErrNotReady, "the image never said its mongod was usable")
 }
 
 func TestAMongodThatWentAwayIsNotReportedAsStuckOnLoopback(t *testing.T) {
-	err := startWith(t, 150*time.Millisecond, func(poll int) []string {
+	err := startWith(t, mongod.DefaultOptions().WithStartTimeout(150*time.Millisecond), func(poll int) []string {
 		if poll == 1 {
 			return []string{"mongod --bind_ip 127.0.0.1 --fork"}
 		}
@@ -270,7 +270,7 @@ func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 		return running(port), nil
 	}
 
-	_, err := start(t, m, mongod.WithStartTimeout(80*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
 	assert.ErrorIs(t, err, mongod.ErrNotReady, "a reply that is not mongod's does not make the address a mongod")
 }
@@ -286,7 +286,7 @@ func TestAPortThatNeverAnswersDoesNotHoldTheStartPastItsTimeout(t *testing.T) {
 	}
 
 	started := time.Now()
-	_, err := start(t, m, mongod.WithStartTimeout(100*time.Millisecond))
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(100*time.Millisecond))
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "nothing answered")
 	assert.Less(t, time.Since(started), time.Second, "and the wait for a reply ends with the start timeout, not after it")
@@ -302,7 +302,7 @@ func TestAnImageWithNoHealthCheckIsNotWaitedOn(t *testing.T) {
 				return info, nil
 			}
 
-			_, err := start(t, m, mongod.WithStartTimeout(5*time.Second))
+			_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(5*time.Second))
 
 			assert.NoError(t, err, "this is what the daemon reports for an image that declares no check, so there is nothing to wait for")
 		})

@@ -12,7 +12,7 @@ import (
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
-// Container is a running mongod, created by Start and removed by Stop. It
+// Container is a running mongod, created by a start and removed by Stop. It
 // holds no MongoDB client: hand URI to a driver to connect.
 //
 // Every method is safe to call from several goroutines.
@@ -98,7 +98,7 @@ func (c *Container) Password() string { return c.password }
 func (c *Container) Port() int { return c.port }
 
 // Host returns the address mongod is reachable at from this process. It is
-// not always loopback; see [WithHostIP]. A connection string built from Host
+// not always loopback; see [Options.WithHostIP]. A connection string built from Host
 // and Port by hand carries no credentials, so use URI when the container has
 // them.
 //

@@ -20,7 +20,7 @@ func main() {
 	defer cancel()
 
 	// The test labels the container so it can find one that leaks.
-	c, err := mongod.Start(ctx, mongod.WithLabel("mongotest.reaphelper", os.Getenv("REAPHELPER_LABEL")))
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithLabel("mongotest.reaphelper", os.Getenv("REAPHELPER_LABEL")))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reaphelper: cannot start a container:", err)
 		os.Exit(2)
