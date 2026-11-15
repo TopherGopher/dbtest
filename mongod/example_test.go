@@ -89,6 +89,31 @@ func ExampleStartWithOptions() {
 	// Output: docker.io/library/mongo:7.0 rs0
 }
 
+// Fetch the image once, in TestMain, so that tests starting in parallel do
+// not each find it missing. An image the daemon already has is left alone.
+func ExamplePullImage() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+	opts := mongod.DefaultOptions().WithDocker(docker).WithImage("6.0")
+
+	if err := mongod.PullImage(ctx, opts); err != nil {
+		fmt.Println("cannot pull the image:", err)
+		return
+	}
+
+	// A start with the same options now finds the image there.
+	c, err := mongod.StartWithOptions(ctx, opts)
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer c.Stop(context.Background())
+
+	fmt.Println(c.Image())
+	// Output: docker.io/library/mongo:6.0
+}
+
 // A With method returns a copy, so tests can add to a shared base without
 // changing it for each other.
 func ExampleOptions() {

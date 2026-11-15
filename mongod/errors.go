@@ -144,12 +144,15 @@ const (
 // StartError says which step of a start failed. It wraps the daemon's error.
 type StartError struct {
 	Op    string // one of the Op constants
-	Name  string // the container name
+	Name  string // the container name, or "" when PullImage reports a pull
 	Image string // the image reference
 	Err   error
 }
 
 func (e *StartError) Error() string {
+	if e.Name == "" {
+		return fmt.Sprintf("mongod: cannot %s (image %s): %v", e.Op, e.Image, e.Err)
+	}
 	return fmt.Sprintf("mongod: cannot %s (container %s, image %s): %v", e.Op, e.Name, e.Image, e.Err)
 }
 

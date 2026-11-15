@@ -30,3 +30,6 @@ what to do if it affects you.
   then `c.URI()`.
 - `mongod.DefaultOptions()` chooses the image, a replica set, credentials and
   more; the package documentation lists them.
+- `mongod.PullImage` fetches the image before the tests need it, and leaves
+  an image the daemon already has alone. Call it once in `TestMain`, so tests
+  that start in parallel do not each find the image missing.

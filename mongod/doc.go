@@ -39,6 +39,10 @@
 // daemon's default registry. A short name such as "mongo:7" is accepted
 // wherever an image is, and is taken to be Docker Hub's.
 //
+// A start pulls an image the daemon does not have. [PullImage] does that
+// ahead of time, which is worth calling once in TestMain when tests start
+// containers in parallel.
+//
 // Two mistakes are refused up front, because the containers they produce
 // fail without naming the cause: a bare version such as "8.0" for
 // ImageCommunity or ImageEnterprise ([ErrNoSuchVersion]), and WithReplicaSet

@@ -57,6 +57,34 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	return c, nil
 }
 
+// PullImage makes sure the daemon has the image a start with these options
+// would run, pulling it only if it is missing. Call it once in TestMain, so
+// that tests starting in parallel do not each find the image missing:
+//
+//	if err := mongod.PullImage(ctx, mongod.DefaultOptions()); err != nil {
+//		log.Fatal(err)
+//	}
+func PullImage(ctx context.Context, opts Options) error {
+	cfg, err := newConfig(opts)
+	if err != nil {
+		return err
+	}
+	docker, err := cfg.client()
+	if err != nil {
+		return err
+	}
+	image := cfg.image.Reference()
+	// Asked first: pulling an image the daemon already has is a trip to
+	// the registry for nothing, and can run into its rate limit.
+	if _, err := docker.ImageInspect(ctx, image); err == nil {
+		return nil
+	}
+	if err := docker.ImagePull(ctx, image); err != nil {
+		return &StartError{Op: OpPullImage, Image: image, Err: err}
+	}
+	return nil
+}
+
 // ReapRunningContainers removes every container Start created in this
 // process that has not been stopped. Call it after m.Run in TestMain so a run leaves nothing
 // behind:
