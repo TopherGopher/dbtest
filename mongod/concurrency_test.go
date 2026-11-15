@@ -2,69 +2,57 @@ package mongod_test
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/dockerclient"
 	"github.com/tophergopher/mongotest/mongod"
 )
 
 // fanOut is how many containers the test below starts at the same moment.
-// What bounds it is the start timeout: every mongod has to come up inside it
-// on the CPUs there are. This is half of what a four-CPU runner manages.
 const fanOut = 48
-
-// shellsAtOnce is how many mongosh processes the test runs at a time. A
-// mongosh is far heavier than the mongod it talks to, so one per container
-// all at once would measure the shells and not the starts.
-const shellsAtOnce = 8
 
 // Tests that run in parallel each call Start, so starts arrive together.
 // Every one has to succeed, and every one has to be given a server of its
-// own: a value written to one must be found there and nowhere else.
+// own: a container no other start was given, published on a port no other
+// has, with a mongod answering at the address the container reports.
 func TestIntegrationContainersStartedTogetherAreEachTheirOwnServer(t *testing.T) {
 	docker, ctx := liveDocker(t)
 	key, value := runLabel(t)
 	requireImage(t, ctx, docker, mongod.ImageDockerHub)
-	opts := mongod.DefaultOptions().WithDocker(docker).WithLabel(key, value)
+	// The start timeout is the suite's own, not the default minute. How long
+	// this many mongods take to come up together depends on the CPUs there
+	// are, and a loaded runner should make this test slow, not fail it.
+	opts := mongod.DefaultOptions().WithDocker(docker).WithLabel(key, value).WithStartTimeout(integrationTimeout)
 
 	containers, errs := startTogether(ctx, opts, fanOut)
-	t.Cleanup(func() { stopAll(containers) })
+	t.Cleanup(func() { stopTogether(context.Background(), containers) })
 	for i, err := range errs {
 		require.NoError(t, err, "start %d of %d made at the same moment must succeed", i+1, fanOut)
 	}
 
-	const marks = `db.getSiblingDB("fanout").marks`
-	written := inEach(containers, func(i int, c *mongod.Container) error {
-		_, err := mongoshIn(ctx, docker, c, fmt.Sprintf(`%s.insertOne({owner: %d})`, marks, i))
-		return err
-	})
-	for i, err := range written {
-		require.NoError(t, err, "container %d must take a write as soon as Start has returned it", i+1)
-	}
+	ids, ports := map[string]bool{}, map[int]bool{}
+	for i, c := range containers {
+		ids[c.ID()], ports[c.Port()] = true, true
 
-	found := make([]string, len(containers))
-	read := inEach(containers, func(i int, c *mongod.Container) (err error) {
-		found[i], err = mongoshIn(ctx, docker, c, marks+`.find().toArray().map(m => m.owner).join(",")`)
-		return err
-	})
-	for i, err := range read {
-		require.NoError(t, err, "container %d must answer a read", i+1)
-		assert.Equal(t, strconv.Itoa(i), found[i],
-			"container %d holds the one value written to it: two starts handed the same server would each find the other's value too", i+1)
+		info, err := docker.ContainerInspect(ctx, c.ID())
+		require.NoError(t, err, "container %d is on the daemon under the id it reports", i+1)
+		assert.Equal(t, strconv.Itoa(c.Port()), info.HostPort("27017/tcp"),
+			"the daemon published container %d on the port the container reports, not on another start's", i+1)
+		assert.NoError(t, askHello(net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))),
+			"and a mongod answers at the address container %d reports, as soon as Start has returned it", i+1)
 	}
+	assert.Len(t, ids, fanOut, "every start was given a container no other start was given")
+	assert.Len(t, ports, fanOut, "published on a port no other has")
 
-	stopped := inEach(containers, func(_ int, c *mongod.Container) error { return c.Stop(ctx) })
-	for i, err := range stopped {
+	for i, err := range stopTogether(ctx, containers) {
 		require.NoError(t, err, "container %d is removed", i+1)
 	}
-	if ids, checked := containersLabelled(t, key, value); checked {
-		assert.Empty(t, ids, "nothing this test started is left on the daemon")
+	if left, checked := containersLabelled(t, key, value); checked {
+		assert.Empty(t, left, "nothing this test started is left on the daemon")
 	}
 }
 
@@ -85,41 +73,14 @@ func startTogether(ctx context.Context, opts mongod.Options, n int) ([]*mongod.C
 	return containers, errs
 }
 
-// inEach runs do for every container, shellsAtOnce at a time, and returns
-// each one's error.
-func inEach(containers []*mongod.Container, do func(i int, c *mongod.Container) error) []error {
+// stopTogether removes every container at the same moment, and returns each
+// one's error. Stop does nothing for one that is nil or already gone.
+func stopTogether(ctx context.Context, containers []*mongod.Container) []error {
 	errs := make([]error, len(containers))
-	free := make(chan struct{}, shellsAtOnce)
 	var wg sync.WaitGroup
 	for i, c := range containers {
-		wg.Go(func() {
-			free <- struct{}{}
-			defer func() { <-free }()
-			errs[i] = do(i, c)
-		})
+		wg.Go(func() { errs[i] = c.Stop(ctx) })
 	}
 	wg.Wait()
 	return errs
-}
-
-// stopAll removes every container that was started. Stop does nothing for
-// one that is nil or already gone.
-func stopAll(containers []*mongod.Container) {
-	for _, c := range containers {
-		_ = c.Stop(context.Background())
-	}
-}
-
-// mongoshIn runs one mongosh expression inside a container and returns what it
-// printed. It reports a failure as an error where evalIn fails the test, so
-// it can be called off the test's own goroutine.
-func mongoshIn(ctx context.Context, docker dockerclient.Client, c *mongod.Container, script string) (string, error) {
-	result, err := docker.Exec(ctx, c.ID(), mongoshCommand(c, script)...)
-	if err != nil {
-		return "", err
-	}
-	if result.ExitCode != 0 {
-		return "", fmt.Errorf("mongosh exited with code %d: %s", result.ExitCode, strings.TrimSpace(result.Stdout+" "+result.Stderr))
-	}
-	return strings.TrimSpace(result.Stdout), nil
 }

@@ -189,7 +189,7 @@ const (
 // codeCommandNotFound is how a server says it does not know a command.
 const codeCommandNotFound = "CommandNotFound"
 
-// verdict turns a reply into nil or errHelloRefused.
+// verdict turns a reply into nil or a helloRefusal.
 //
 // A server from before the hello command answers that it does not know it.
 // That counts as ready: only a serving mongod can say so.
@@ -197,6 +197,18 @@ func (r helloReply) verdict() error {
 	if r.ok || r.codeName == codeCommandNotFound {
 		return nil
 	}
-	return fmt.Errorf("%w: %s: %q", errHelloRefused,
-		truncate(r.codeName, maxCodeNameLen), truncate(r.errmsg, maxErrmsgLen))
+	return &helloRefusal{codeName: truncate(r.codeName, maxCodeNameLen), errmsg: truncate(r.errmsg, maxErrmsgLen)}
 }
+
+// helloRefusal is a server's own reason for refusing the hello, cut to a
+// length that is safe to quote. It matches errHelloRefused.
+type helloRefusal struct {
+	codeName string
+	errmsg   string
+}
+
+func (e *helloRefusal) Error() string {
+	return fmt.Sprintf("%v: %s: %q", errHelloRefused, e.codeName, e.errmsg)
+}
+
+func (e *helloRefusal) Is(target error) bool { return target == errHelloRefused }

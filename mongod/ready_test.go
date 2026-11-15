@@ -274,7 +274,10 @@ func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a reply that is not mongod's does not make the address a mongod")
-	assert.Contains(t, err.Error(), mongod.EnvHostIP, "the address may be the wrong one, so the error says how to correct it")
+	assert.ErrorIs(t, err, mongod.ErrNotMongod, "and the error says that something else answered")
+	var notReady *mongod.NotReadyError
+	require.ErrorAs(t, err, &notReady, "with the details")
+	assert.True(t, notReady.AddressInDoubt(), "the address may be the wrong one, so the error says how to correct it")
 }
 
 func TestAPortThatAnswersWithGarbageIsNotReady(t *testing.T) {
@@ -300,8 +303,10 @@ func TestAMongodThatAnswersWithAnErrorIsNotReady(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a server that refuses commands is not ready for a test's")
-	assert.Contains(t, err.Error(), "InterruptedAtShutdown", "the server's own reason reaches the caller")
-	assert.NotContains(t, err.Error(), mongod.EnvHostIP, "a mongod answered, so the address is right and advice about it would mislead")
+	assert.ErrorIs(t, err, mongod.ErrHelloRefused, "the server's own refusal reaches the caller")
+	var notReady *mongod.NotReadyError
+	require.ErrorAs(t, err, &notReady, "with the details")
+	assert.False(t, notReady.AddressInDoubt(), "a mongod answered, so the address is right and advice about it would mislead")
 }
 
 // A server from before the hello command says it does not know it, which
@@ -346,7 +351,9 @@ func TestAFailureToAskTheDaemonIsNotBlamedOnTheAddress(t *testing.T) {
 
 			require.ErrorIs(t, err, mongod.ErrNotReady, "the start runs out of time")
 			assert.ErrorIs(t, err, refused, "the daemon's own error is kept")
-			assert.NotContains(t, err.Error(), mongod.EnvHostIP, "the daemon failed, not the address, so advice about the address would mislead")
+			var notReady *mongod.NotReadyError
+			require.ErrorAs(t, err, &notReady, "with the details")
+			assert.False(t, notReady.AddressInDoubt(), "the daemon failed, not the address, so advice about the address would mislead")
 		})
 	}
 }

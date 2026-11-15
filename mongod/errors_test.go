@@ -32,6 +32,8 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 		{"not ready in time", &notReady, []string{"orders-db", "172.17.0.1:32768"}},
 		{"not ready, with what the wait last saw", &stuck, []string{"orders-db", "172.17.0.1:32768", mongod.ErrLoopbackOnly.Error()}},
 		{"not ready because the caller's context ended", &ended, []string{"orders-db", "172.17.0.1:32768"}},
+		{"not ready before the container had an id or a port",
+			&mongod.NotReadyError{Name: "orders-db", Timeout: time.Minute, Cause: context.DeadlineExceeded}, []string{"orders-db"}},
 		{"an address that cannot be worked out",
 			&mongod.UnresolvedHostError{DockerHost: "unix:///var/run/docker.sock", Evidence: "/.dockerenv exists", Err: errors.New("no default route")},
 			[]string{"unix:///var/run/docker.sock", "/.dockerenv exists", "no default route"}},

@@ -3,6 +3,7 @@ package mongod
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"io"
 	"strings"
@@ -88,14 +89,76 @@ func TestWhatAReplyToTheHelloMeans(t *testing.T) {
 }
 
 func TestAServersErrorIsQuotedButNeverAtLength(t *testing.T) {
-	long := strings.Repeat("é", 5000)
+	long := strings.Repeat("\u20ac", 5000)
+	cases := []struct {
+		name     string
+		reply    string
+		codeName string
+	}{
+		{"a long message", refusal("InterruptedAtShutdown", long), "InterruptedAtShutdown"},
+		{"a long name for the error", refusal(long, long), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := readHelloReply(bytes.NewReader(replyTo(tc.reply)))
 
-	err := readHelloReply(bytes.NewReader(replyTo(refusal("InterruptedAtShutdown", long))))
+			var refused *helloRefusal
+			require.ErrorAs(t, err, &refused, "the server refused the command")
+			if tc.codeName != "" {
+				assert.Equal(t, tc.codeName, refused.codeName, "its name for the error is passed on")
+			}
+			assert.NotEmpty(t, refused.errmsg, "and so is what it said")
+			assert.LessOrEqual(t, len(refused.codeName), maxCodeNameLen, "but a peer cannot make the name as long as it likes")
+			assert.LessOrEqual(t, len(refused.errmsg), maxErrmsgLen, "nor the message")
+			assert.True(t, strings.HasPrefix(long, refused.errmsg), "what is kept is the start of what it said")
+			assert.True(t, utf8.ValidString(refused.codeName+refused.errmsg), "cut between characters, not through one")
+		})
+	}
+}
 
-	require.ErrorIs(t, err, errHelloRefused, "the server refused the command")
-	assert.Contains(t, err.Error(), "InterruptedAtShutdown", "its reason is passed on")
-	assert.Less(t, len(err.Error()), 600, "but a peer cannot make the error as long as it likes")
-	assert.True(t, utf8.ValidString(err.Error()), "and the message is cut between characters, not through one")
+// captured decodes one of capturedReplies.
+func captured(t testing.TB, encoded string) []byte {
+	t.Helper()
+	reply, err := hex.DecodeString(encoded)
+	require.NoError(t, err, "a captured reply is written in hex")
+	return reply
+}
+
+func TestARealServersReplyIsUnderstood(t *testing.T) {
+	for _, tc := range capturedReplies {
+		t.Run(tc.name, func(t *testing.T) {
+			err := readHelloReply(bytes.NewReader(captured(t, tc.hex)))
+
+			if !tc.refused {
+				assert.NoError(t, err, "a serving mongod answered, whatever else its reply carries")
+				return
+			}
+			var refused *helloRefusal
+			require.ErrorAs(t, err, &refused, "a mongod that answers with an error is not ready")
+			assert.Equal(t, "InterruptedAtShutdown", refused.codeName, "and its name for the error is the one the server gave")
+		})
+	}
+}
+
+// The captured replies earn their place by holding the kinds of value a
+// reply built by hand in these tests never has. Replacing them with ones
+// that hold fewer would quietly stop testing those kinds.
+func TestTheCapturedRepliesHoldTheKindsOfValueARealReplyHas(t *testing.T) {
+	seen := map[byte]bool{}
+	for _, tc := range capturedReplies {
+		elements, wellFormed := replyElements(captured(t, tc.hex)[messageHeaderLen:])
+		require.True(t, wellFormed, "%s holds one document", tc.name)
+		wellFormed = eachElement(elements, func(kind byte, _ string, _ []byte) { seen[kind] = true })
+		require.True(t, wellFormed, "%s is read to its end", tc.name)
+	}
+
+	kinds := map[string]byte{
+		"a nested document": bsonDocument, "an array": bsonArray, "a date": bsonDateTime,
+		"a timestamp": bsonTimestamp, "an ObjectID": bsonObjectID,
+	}
+	for name, kind := range kinds {
+		assert.True(t, seen[kind], "at least one captured reply has %s among its fields", name)
+	}
 }
 
 // endless is a peer that never stops sending, to show how much is read.
@@ -113,6 +176,9 @@ func FuzzHelloReply(f *testing.F) {
 	f.Add(append(binary.LittleEndian.AppendUint32(nil, 1<<30), replyTo(okReply)[4:]...))
 	f.Add([]byte("\x8f\x02\x93\x11garbage that is not a reply\x00\xff\xfe"))
 	f.Add([]byte{})
+	for _, tc := range capturedReplies {
+		f.Add(captured(f, tc.hex))
+	}
 	f.Fuzz(func(t *testing.T, reply []byte) {
 		after := &endless{}
 		peer := io.MultiReader(bytes.NewReader(reply), after)

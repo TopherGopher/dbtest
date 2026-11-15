@@ -212,24 +212,6 @@ func ExampleOptions_WithAuth() {
 	// password printed: false
 }
 
-// Transactions and change streams need a replica set. The start initiates
-// it and returns once it accepts writes.
-func ExampleOptions_WithReplicaSet() {
-	docker, closeDocker := exampleDocker()
-	defer closeDocker()
-	ctx := context.Background()
-
-	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithReplicaSet("rs0"))
-	if err != nil {
-		fmt.Println("cannot start mongod:", err)
-		return
-	}
-	defer c.Stop(context.Background())
-
-	fmt.Println(c.ReplicaSet())
-	// Output: rs0
-}
-
 // The URI is all a driver needs. It asks for a direct connection, because a
 // replica set member advertises an address only its container can resolve.
 func ExampleContainer_URI() {

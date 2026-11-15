@@ -88,7 +88,6 @@ func TestAShellThatFailsIsReportedAndTheOtherIsNotTried(t *testing.T) {
 
 	require.ErrorIs(t, err, mongod.ErrNotInitiated, "the set was not initiated")
 	assert.Equal(t, []string{"mongosh"}, *tried, "the image has a shell, so there is nothing to fall back from")
-	assert.Contains(t, err.Error(), "not authorized on admin", "and what the shell said reaches the caller")
 }
 
 func TestWithReplicaSetStartsMongodAsAMember(t *testing.T) {

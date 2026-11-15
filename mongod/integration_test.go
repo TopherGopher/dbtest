@@ -152,6 +152,41 @@ func TestIntegrationAReplicaSetAcceptsWritesWhenStartReturns(t *testing.T) {
 		"the set is initiated and its one member is primary on the first ask, with no retry: that is what transactions and change streams need")
 }
 
+// Images before MongoDB 5.0 have only the legacy mongo shell, so this is the
+// one start that initiates a set with it. The image comes from public ECR
+// because Docker Hub limits pulls, and requireImage fetches it on a first run.
+func TestIntegrationAReplicaSetIsInitiatedWithTheLegacyShell(t *testing.T) {
+	docker, ctx := liveDocker(t)
+	key, value := runLabel(t)
+	legacy := mongod.ImagePublicECR.WithVersion("4.4")
+	requireImage(t, ctx, docker, legacy)
+
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithMongoImage(legacy).WithReplicaSet("rs0").WithLabel(key, value))
+	require.NoError(t, err, "mongod integration: an image with only the legacy shell must still get a replica set")
+	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+
+	inserted := runIn(t, ctx, docker, c, "mongo", "--quiet", "--norc", "--eval", `db.getSiblingDB("mongotest").writes.insert({ok: 1}).nInserted`)
+
+	assert.Equal(t, "1", inserted, "the set takes a write on the first ask, with no retry")
+}
+
+// A missing shell is how Start knows to try the other one. It learns that
+// from an exit code, so the code a real daemon gives a missing program has
+// to be one of those Start takes to mean it.
+func TestIntegrationAMissingProgramIsAnExitCodeAndNotAnError(t *testing.T) {
+	docker, ctx := liveDocker(t)
+	key, value := runLabel(t)
+
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithLabel(key, value))
+	require.NoError(t, err, "mongod integration: cannot start a container to run a command in")
+	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+
+	result, err := docker.Exec(ctx, c.ID(), "mongotest-no-such-program")
+
+	require.NoError(t, err, "a program the image does not have is a result, not a failure to ask the daemon")
+	assert.Contains(t, []int{126, 127}, result.ExitCode, "and its exit code is one Start reads as a missing program")
+}
+
 func TestIntegrationStartFailsWhenTheImageDoesNotExist(t *testing.T) {
 	docker, ctx := liveDocker(t)
 
@@ -313,7 +348,7 @@ func runIn(t testing.TB, ctx context.Context, docker dockerclient.Client, c *mon
 	t.Helper()
 	result, err := docker.Exec(ctx, c.ID(), cmd...)
 	require.NoError(t, err, "running a command inside the container must succeed")
-	require.Zero(t, result.ExitCode, "mongosh must run the expression: %s", strings.TrimSpace(result.Stdout+" "+result.Stderr))
+	require.Zero(t, result.ExitCode, "the shell must run the expression: %s", strings.TrimSpace(result.Stdout+" "+result.Stderr))
 	return strings.TrimSpace(result.Stdout)
 }
 

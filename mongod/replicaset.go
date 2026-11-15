@@ -81,9 +81,22 @@ const reasonNoShell = "the image has neither mongosh nor the legacy mongo shell,
 // words. It writes them to standard error.
 func shellFailed(shell string, result dockerclient.ExecResult) error {
 	output := cmp.Or(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout))
-	return &notInitiatedError{reason: fmt.Sprintf("%s exited with code %d: %s",
-		shell, result.ExitCode, truncate(output, maxShellOutputLen))}
+	return &shellError{shell: shell, exitCode: result.ExitCode, output: truncate(output, maxShellOutputLen)}
 }
+
+// shellError is a shell that ran and failed, with what it wrote, cut to a
+// length that is safe to quote. It matches ErrNotInitiated.
+type shellError struct {
+	shell    string
+	exitCode int
+	output   string
+}
+
+func (e *shellError) Error() string {
+	return fmt.Sprintf("%s exited with code %d: %s", e.shell, e.exitCode, e.output)
+}
+
+func (e *shellError) Is(target error) bool { return target == ErrNotInitiated }
 
 // notInitiatedError says why a replica set was not initiated. It matches
 // ErrNotInitiated and whatever caused it.

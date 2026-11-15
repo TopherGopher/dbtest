@@ -14,7 +14,7 @@ import (
 //
 // This reaches into the package because the shared client is not visible
 // through anything a start returns.
-func TestAHundredStartsDoNotOpenAHundredDaemonConnections(t *testing.T) {
+func TestTheDefaultClientIsCreatedOnceAndShared(t *testing.T) {
 	first, err := config{}.client()
 	require.NoError(t, err, "a client can be built from the environment")
 	second, err := config{}.client()
