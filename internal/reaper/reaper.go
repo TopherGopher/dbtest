@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"slices"
@@ -27,6 +28,9 @@ const runningPoll = 10 * time.Millisecond
 
 // ErrReap is matched by the error Reap returns when any teardown failed.
 var ErrReap = errors.New("one or more teardowns failed")
+
+// errPanicked is why a teardown that panicked failed.
+var errPanicked = errors.New("the teardown panicked")
 
 // Handle identifies one registration. Handles are never reused.
 type Handle int64
@@ -100,8 +104,8 @@ func Names() []string {
 // no signal: call it at the end of a TestMain.
 //
 // The teardowns run at the same time, so one that is stuck cannot use up the
-// time the others need. The error is a [ReapError] naming each failure. A
-// failed teardown is not kept for a second attempt.
+// time the others need. The error is a [ReapError] naming each failure, a
+// panic included. A failed teardown is not kept for a second attempt.
 func Reap(ctx context.Context) error {
 	entries := takeEntries()
 	failures := make([]*TeardownError, len(entries))
@@ -121,10 +125,22 @@ func Reap(ctx context.Context) error {
 // failure, or nil.
 func tearDown(ctx context.Context, e entry) *TeardownError {
 	defer finishOne()
-	if err := e.tear(ctx); err != nil {
+	if err := recovering(ctx, e.tear); err != nil {
 		return &TeardownError{Name: e.name, Err: err}
 	}
 	return nil
+}
+
+// recovering runs a teardown and returns a panic in it as its error. Each
+// teardown has a goroutine of its own, where a panic would end the process
+// while the others were still removing things.
+func recovering(ctx context.Context, tear func(context.Context) error) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("%w: %v", errPanicked, recovered)
+		}
+	}()
+	return tear(ctx)
 }
 
 // takeEntries empties the registry and returns what was in it, counting
@@ -177,16 +193,16 @@ func (e *ReapError) Error() string {
 	for _, failed := range e.Failures {
 		lines = append(lines, failed.Error())
 	}
-	return "mongotest: " + strings.Join(lines, "\n") + "\nRemove what is left with: docker rm -fv " + names(e.Failures)
+	return "mongotest: " + strings.Join(lines, "\n") + "\nRemove what is left with: docker rm -fv " + strings.Join(names(e.Failures), " ")
 }
 
-// names returns what failed, as arguments for a docker command.
-func names(failures []*TeardownError) string {
+// names returns the name of everything that failed.
+func names(failures []*TeardownError) []string {
 	all := make([]string, 0, len(failures))
 	for _, failed := range failures {
 		all = append(all, failed.Name)
 	}
-	return strings.Join(all, " ")
+	return all
 }
 
 func (e *ReapError) Unwrap() []error {
@@ -247,23 +263,45 @@ func reapOnSignal(ch chan os.Signal) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultReapTimeout)
 	defer cancel()
-	if failures := reapUntilEmpty(ctx); len(failures) > 0 {
-		// The process is about to die, so stderr is the only place left.
-		fmt.Fprintln(os.Stderr, leftBehind(sig, failures))
-	}
+	// The process is about to die, so stderr is the only place left.
+	reapAndReport(ctx, sig, os.Stderr)
 	reRaise(sig)
 }
 
-// leftBehind is what a dying process says about the containers it could not
-// remove: which they are, why, and the command that removes them.
-func leftBehind(sig os.Signal, failures []*TeardownError) string {
+// reapAndReport reaps until nothing is left or ctx ends, and then writes
+// which containers it could not remove, if any.
+func reapAndReport(ctx context.Context, sig os.Signal, w io.Writer) {
+	left := leftBehind{failed: reapUntilEmpty(ctx), untried: Names()}
+	if len(left.names()) > 0 {
+		fmt.Fprintln(w, left.report(sig))
+	}
+}
+
+// leftBehind is what a dying process could not remove: the teardowns that
+// failed, and those still registered when its time ran out.
+type leftBehind struct {
+	failed  []*TeardownError
+	untried []string
+}
+
+// names returns every container that may still be running.
+func (l leftBehind) names() []string {
+	return append(names(l.failed), l.untried...)
+}
+
+// report says which containers are left, why, and the command that removes
+// them.
+func (l leftBehind) report(sig os.Signal) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "mongotest: stopped by %v, but %d container(s) could not be removed within %s and may still be running:\n",
-		sig, len(failures), DefaultReapTimeout)
-	for _, failed := range failures {
+		sig, len(l.names()), DefaultReapTimeout)
+	for _, failed := range l.failed {
 		fmt.Fprintf(&b, "  %s: %v\n", failed.Name, failed.Err)
 	}
-	b.WriteString("Remove them with: docker rm -fv " + names(failures))
+	for _, name := range l.untried {
+		fmt.Fprintf(&b, "  %s: the time ran out before it could be removed\n", name)
+	}
+	b.WriteString("Remove them with: docker rm -fv " + strings.Join(l.names(), " "))
 	return b.String()
 }
 

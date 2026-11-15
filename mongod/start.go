@@ -105,8 +105,8 @@ func PullImage(ctx context.Context, opts Options) error {
 }
 
 // ReapRunningContainers removes every container Start created in this
-// process that has not been stopped. Call it after m.Run in TestMain so a run leaves nothing
-// behind:
+// process that has not been stopped. Call it after m.Run in TestMain so a
+// run leaves nothing behind:
 //
 //	func TestMain(m *testing.M) {
 //		code := m.Run()
@@ -117,8 +117,15 @@ func PullImage(ctx context.Context, opts Options) error {
 //	}
 //
 // Every removal is attempted, all at the same time, even if one fails. The
-// error matches ErrReap and is a [ReapError] naming each container that is
-// still there.
+// error matches ErrReap, and is a [ReapError] with an entry for each
+// container that is still there:
+//
+//	var re *mongod.ReapError
+//	if errors.As(err, &re) {
+//		for _, failed := range re.Failures {
+//			log.Printf("remove %s by hand: %v", failed.Name, failed.Err)
+//		}
+//	}
 func ReapRunningContainers(ctx context.Context) error { return reaper.Reap(ctx) }
 
 // defaultClient finds the daemon the way the docker CLI does, once for the

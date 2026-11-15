@@ -1,6 +1,7 @@
 package reaper
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -100,36 +101,98 @@ func TestReapListsFailuresInRegistrationOrder(t *testing.T) {
 // signal there is one deadline for the lot.
 func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
 	resetForTest(t)
+	const others = 4
 	var removed atomic.Int32
-	Register("stuck", func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() })
-	for range 4 {
-		Register("fine", func(ctx context.Context) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
+	othersRemoved := make(chan struct{})
+	stillStuck := errors.New("stuck until the others had been removed")
+	// It gives way only once every other teardown has run, so the test does
+	// not depend on how soon a loaded machine schedules them. The context is
+	// what ends it if they never run.
+	Register("stuck", func(ctx context.Context) error {
+		select {
+		case <-othersRemoved:
+			return stillStuck
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	for range others {
+		Register("fine", func(context.Context) error {
+			if removed.Add(1) == others {
+				close(othersRemoved)
 			}
-			removed.Add(1)
 			return nil
 		})
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	err := Reap(ctx)
 
-	require.ErrorIs(t, err, context.DeadlineExceeded, "the stuck one is reported")
-	assert.EqualValues(t, 4, removed.Load(), "and the rest were removed while it was stuck")
+	require.ErrorIs(t, err, stillStuck, "the rest were removed while the stuck one was still stuck, and it is reported")
+	assert.EqualValues(t, others, removed.Load(), "all of them")
 }
 
-func TestTheSignalReportNamesWhatIsStillRunning(t *testing.T) {
-	failures := []*TeardownError{
-		{Name: "mongotest-1a2b3c4d", Err: context.DeadlineExceeded},
-		{Name: "mongotest-5e6f7a8b", Err: context.DeadlineExceeded},
+// A teardown runs on a goroutine of its own, where a panic would end the
+// process with the other containers half removed.
+func TestATeardownThatPanicsIsReportedAndTheRestStillRun(t *testing.T) {
+	resetForTest(t)
+	removed := false
+	Register("panics", func(context.Context) error { panic("nil map") })
+	Register("fine", func(context.Context) error { removed = true; return nil })
+
+	err := Reap(context.Background())
+
+	var failed *TeardownError
+	require.ErrorAs(t, err, &failed, "the panic is one container's failure, not the end of the process")
+	assert.Equal(t, "panics", failed.Name, "and it names the container that may be left")
+	assert.ErrorIs(t, err, errPanicked, "saying that its removal panicked")
+	assert.True(t, removed, "the other container is removed all the same")
+	registered, running := outstanding()
+	assert.Zero(t, registered+running, "and nothing is left counted as still being removed, which would hold a signal's reap open")
+}
+
+// The process is dying, so what it writes is all the reader gets: it has to
+// account for every container that may be left.
+func TestWhatIsLeftBehindIsEveryFailureAndEverythingNeverTried(t *testing.T) {
+	left := leftBehind{
+		failed: []*TeardownError{
+			{Name: "mongotest-1a2b3c4d", Err: context.DeadlineExceeded},
+			{Name: "mongotest-5e6f7a8b", Err: context.DeadlineExceeded},
+		},
+		untried: []string{"mongotest-9c0d1e2f"},
 	}
 
-	report := leftBehind(syscall.SIGINT, failures)
+	assert.Equal(t, []string{"mongotest-1a2b3c4d", "mongotest-5e6f7a8b", "mongotest-9c0d1e2f"}, left.names(),
+		"a container whose removal failed and one there was no time to try are both still there to remove by hand")
+}
 
-	assert.Contains(t, report, "mongotest-1a2b3c4d", "the process is dying, so this text is all the reader gets")
-	assert.Contains(t, report, "mongotest-5e6f7a8b", "and it has to name every container to remove by hand")
+func TestASignalsReapWritesWhatItLeftBehind(t *testing.T) {
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	refuse := func(context.Context) error { return errors.New("the daemon refused") }
+	remove := func(context.Context) error { return nil }
+	cases := []struct {
+		name     string
+		ctx      context.Context
+		teardown func(context.Context) error
+		written  bool
+	}{
+		{"a removal that failed", context.Background(), refuse, true},
+		{"a container there was no time left to try", ended, remove, true},
+		{"nothing, when everything was removed", context.Background(), remove, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetForTest(t)
+			Register("mongotest-1a2b3c4d", tc.teardown)
+			var out bytes.Buffer
+
+			reapAndReport(tc.ctx, syscall.SIGINT, &out)
+
+			assert.Equal(t, tc.written, out.Len() > 0, "a report is written only when a container may still be running")
+		})
+	}
 }
 
 func TestReapStopsAtTheContextDeadline(t *testing.T) {
@@ -254,24 +317,31 @@ func TestReapUntilEmptyTearsDownWhatRegistersWhileItRuns(t *testing.T) {
 
 func TestReapUntilEmptyGivesUpAtItsDeadline(t *testing.T) {
 	resetForTest(t)
+	const rounds = 3
 	failure := errors.New("the daemon is not answering")
+	// The context ends during the third round, so the test does not depend
+	// on how many rounds a loaded machine fits into a length of time. Its
+	// own deadline is what ends a reap that ignores the cancellation.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var attempts int
 	var again func(context.Context) error
 	again = func(context.Context) error {
 		attempts++
+		if attempts == rounds {
+			cancel()
+		}
 		Register("again", again) // something that keeps coming back
 		return failure
 	}
 	Register("again", again)
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
 
 	failures := reapUntilEmpty(ctx)
 
-	require.NotEmpty(t, failures, "what went wrong on the way is still reported")
+	require.Len(t, failures, rounds, "it goes round again while there is time, and what went wrong on the way is reported")
 	assert.ErrorIs(t, failures[0], failure, "with its cause")
-	assert.Greater(t, attempts, 1, "it does go round again while there is time")
-	assert.NotEmpty(t, Names(), "and stops at the deadline rather than holding a dying process open for something that never drains")
+	assert.Equal(t, rounds, attempts, "and it stops when the time is up")
+	assert.NotEmpty(t, Names(), "rather than holding a dying process open for something that never drains")
 }
 
 func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {

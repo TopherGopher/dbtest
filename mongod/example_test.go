@@ -314,3 +314,33 @@ func ExampleReapRunningContainers() {
 	fmt.Println("reaped:", mongod.ReapRunningContainers(ctx) == nil)
 	// Output: reaped: true
 }
+
+// busy is a daemon that refuses to remove any container.
+type busy struct{ dockerclient.Client }
+
+func (busy) ContainerRemove(context.Context, string, dockerclient.RemoveOptions) error {
+	return errors.New("device or resource busy")
+}
+
+// When a container cannot be removed, the error names it, so that it can be
+// removed by hand.
+func ExampleReapRunningContainers_errors() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+
+	opts := mongod.DefaultOptions().WithDocker(busy{docker}).WithName("orders-db")
+	if _, err := mongod.StartWithOptions(ctx, opts); err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+
+	err := mongod.ReapRunningContainers(ctx)
+	var re *mongod.ReapError
+	if errors.As(err, &re) {
+		for _, failed := range re.Failures {
+			fmt.Println("still running:", failed.Name)
+		}
+	}
+	// Output: still running: orders-db
+}
