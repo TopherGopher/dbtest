@@ -47,11 +47,12 @@ type versionState struct {
 	versionMu     sync.Mutex
 	apiVersion    string
 	versionPinned bool
+	// negotiating is open while one caller asks the daemon for its version,
+	// so the others wait for that answer and ask only once between them.
+	negotiating chan struct{}
 
 	// The daemon's identity is guarded separately, because every response
-	// can reveal it and do() must be able to record it while Negotiate
-	// holds versionMu across its own request. Lock order is versionMu then
-	// runtimeMu, never the reverse.
+	// can reveal it. Neither lock is held across a request.
 	runtimeMu sync.Mutex
 	runtime   Runtime
 	product   string
@@ -98,32 +99,83 @@ func (c *Client) APIVersion() string {
 // calls are no-ops unless the earlier attempt failed. Public methods call it
 // lazily, so callers rarely need to.
 func (c *Client) Negotiate(ctx context.Context) error {
+	for {
+		inFlight, done := c.joinNegotiation()
+		if done {
+			return nil
+		}
+		if inFlight == nil {
+			return c.negotiate(ctx)
+		}
+		// Someone else is asking. Wait for them, but only as long as this
+		// caller's own context allows: a daemon that is not answering must
+		// not hold every caller behind the first.
+		select {
+		case <-inFlight:
+		case <-ctx.Done():
+			return &ResponseError{Method: http.MethodGet, Path: "/version", Err: ctx.Err(),
+				Problem: "the daemon at " + c.host + " had not reported its API version when this call's context ended"}
+		}
+	}
+}
+
+// joinNegotiation says the version is already chosen, or returns a
+// negotiation in flight to wait for, or, returning neither, makes the caller
+// the one that negotiates.
+func (c *Client) joinNegotiation() (inFlight <-chan struct{}, done bool) {
 	c.versionMu.Lock()
 	defer c.versionMu.Unlock()
-	if c.apiVersion != "" {
-		return nil
+	switch {
+	case c.apiVersion != "":
+		return nil, true
+	case c.negotiating != nil:
+		return c.negotiating, false
 	}
-	resp, err := c.request(ctx, http.MethodGet, "/version", nil, nil, false, "", false)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return newStatusError(resp, http.MethodGet, "/version")
-	}
-	var v versionResponse
-	if err := json.UnmarshalRead(resp.Body, &v); err != nil {
-		return decodeError(http.MethodGet, "/version", err)
-	}
-	// The runtime is recorded before the window is checked, so that a
-	// version error can name the daemon that reported it.
-	c.noteRuntime(detectRuntime(v, resp.Header.Get(libpodVersionHeader)))
-	chosen, err := chooseVersion(v.APIVersion, v.MinAPIVersion, c.product)
+	c.negotiating = make(chan struct{})
+	return nil, false
+}
+
+// negotiate asks the daemon, records the answer and releases whoever was
+// waiting. After a failure the next caller asks again.
+func (c *Client) negotiate(ctx context.Context) error {
+	chosen, err := c.askVersion(ctx)
+	c.versionMu.Lock()
+	defer c.versionMu.Unlock()
+	close(c.negotiating)
+	c.negotiating = nil
 	if err != nil {
 		return err
 	}
 	c.apiVersion = chosen
 	return nil
+}
+
+// askVersion asks the daemon which API versions it supports and returns the
+// one to use.
+func (c *Client) askVersion(ctx context.Context) (string, error) {
+	resp, err := c.request(ctx, http.MethodGet, "/version", nil, nil, false, "", false)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", newStatusError(resp, http.MethodGet, "/version")
+	}
+	var v versionResponse
+	if err := json.UnmarshalRead(resp.Body, &v); err != nil {
+		return "", decodeError(http.MethodGet, "/version", err)
+	}
+	// The runtime is recorded before the window is checked, so that a
+	// version error can name the daemon that reported it.
+	c.noteRuntime(detectRuntime(v, resp.Header.Get(libpodVersionHeader)))
+	return chooseVersion(v.APIVersion, v.MinAPIVersion, c.productName())
+}
+
+// productName returns how the daemon described itself, if it has.
+func (c *Client) productName() string {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
+	return c.product
 }
 
 // chooseVersion applies the selection rule to the daemon's window. product

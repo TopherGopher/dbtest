@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/tophergopher/mongotest/dockerapi"
 	"github.com/tophergopher/mongotest/dockerclient"
@@ -41,10 +42,11 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	cfg.announceExposure(host)
 
 	c := newContainer(host, cfg, docker)
-	if err := c.create(ctx, cfg, host); err != nil {
+	deadline, err := c.create(ctx, cfg, host)
+	if err != nil {
 		return nil, err
 	}
-	if err := c.start(ctx, cfg, address.Source); err != nil {
+	if err := c.start(ctx, cfg, address.Source, deadline); err != nil {
 		c.removeAfterFailedStart(ctx)
 		return nil, err
 	}
@@ -110,42 +112,51 @@ func newContainer(host string, cfg config, docker dockerclient.Client) *Containe
 }
 
 // create has the daemon create the container, and reports a teardown that
-// asked for the container while the daemon was at work.
-func (c *Container) create(ctx context.Context, cfg config, host string) error {
-	if err := c.createOrPull(ctx, cfg, host); err != nil {
+// asked for the container while the daemon was at work. It returns the time
+// by which the rest of the start has to finish.
+func (c *Container) create(ctx context.Context, cfg config, host string) (time.Time, error) {
+	deadline, err := c.createOrPull(ctx, cfg, host)
+	if err != nil {
 		c.forget()
-		return err
+		return deadline, err
 	}
 	if !c.stopWanted.Load() {
-		return nil
+		return deadline, nil
 	}
 	// That teardown waited for the id and removes the container. This
 	// removes it only if the teardown ran out of time first.
 	c.removeAfterFailedStart(ctx)
-	return &ContainerExitedError{Name: c.name, ID: c.id, Status: "removed"}
+	return deadline, &ContainerExitedError{Name: c.name, ID: c.id, Status: "removed"}
 }
 
 // createOrPull creates the container, pulling the image only if the daemon
 // does not have it, which keeps the usual case to one call.
-func (c *Container) createOrPull(ctx context.Context, cfg config, host string) error {
+//
+// The start timeout begins here and covers every later call to the daemon,
+// so a daemon that stops answering cannot hold a caller who set no deadline.
+// A pull can take minutes and is not counted: the timeout begins again
+// after one.
+func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (time.Time, error) {
 	image := cfg.image.Reference()
 	request := cfg.containerConfig(host)
 
-	warnings, err := c.createOnce(ctx, request)
+	deadline := time.Now().Add(cfg.startTimeout)
+	warnings, err := c.createOnce(ctx, deadline, request)
 	if dockerclient.IsNotFound(err) {
 		c.logger.Debug("image is not present locally, pulling it", "image", image)
 		if err := c.docker.ImagePull(ctx, image); err != nil {
-			return &StartError{Op: OpPullImage, Name: c.name, Image: image, Err: err}
+			return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: image, Err: err}
 		}
-		warnings, err = c.createOnce(ctx, request)
+		deadline = time.Now().Add(cfg.startTimeout)
+		warnings, err = c.createOnce(ctx, deadline, request)
 	}
 	if err != nil {
-		return &StartError{Op: OpCreate, Name: c.name, Image: image, Err: err}
+		return deadline, &StartError{Op: OpCreate, Name: c.name, Image: image, Err: err}
 	}
 	for _, warning := range warnings {
 		c.logger.Warn("the daemon warned about the container it created", "container", c.name, "warning", warning)
 	}
-	return nil
+	return deadline, nil
 }
 
 // createOnce asks the daemon for the container and records its id, holding
@@ -155,12 +166,15 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) e
 //
 // The lock is not held across a pull, so a container torn down in between
 // is not created.
-func (c *Container) createOnce(ctx context.Context, request dockerclient.ContainerConfig) ([]string, error) {
+func (c *Container) createOnce(ctx context.Context, deadline time.Time, request dockerclient.ContainerConfig) ([]string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.stopped {
 		return nil, &ContainerExitedError{Name: c.name, Status: "removed"}
 	}
+	// The lock is held until the daemon answers, so the wait has an end.
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	id, warnings, err := c.docker.ContainerCreate(ctx, c.name, request)
 	if err != nil {
 		return nil, err
@@ -181,10 +195,12 @@ func (c *Container) forget() {
 // start runs the created container and returns once it is usable. hostSource
 // says where the dial address came from, for the error a failed wait returns.
 //
-// The start timeout covers everything after the container is running: the
-// wait for mongod and the replica set's initiation share it.
-func (c *Container) start(ctx context.Context, cfg config, hostSource string) error {
-	info, err := c.run(ctx, cfg)
+// Everything here shares the one deadline: starting the container, the wait
+// for mongod and the replica set's initiation.
+func (c *Container) start(ctx context.Context, cfg config, hostSource string, deadline time.Time) error {
+	bounded, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	info, err := c.run(bounded, cfg)
 	if err != nil {
 		return err
 	}
@@ -196,8 +212,6 @@ func (c *Container) start(ctx context.Context, cfg config, hostSource string) er
 		hasHealthCheck: declaresHealthCheck(info.State.Health.Status),
 		callerEnded:    func() bool { return ctx.Err() != nil },
 	}
-	bounded, cancel := context.WithTimeout(ctx, cfg.startTimeout)
-	defer cancel()
 	if err := probe.wait(bounded); err != nil {
 		return err
 	}

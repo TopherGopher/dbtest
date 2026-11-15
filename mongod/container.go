@@ -209,11 +209,23 @@ func (c *Container) remove(ctx context.Context) error {
 	if c.id == "" {
 		return nil
 	}
+	ctx, cancel := withRemovalDeadline(ctx)
+	defer cancel()
 	err := c.docker.ContainerRemove(ctx, c.id, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
 	if dockerclient.IsNotFound(err) {
 		return nil
 	}
 	return err
+}
+
+// withRemovalDeadline gives a removal a deadline when its caller set none.
+// The daemon is asked while the container's lock is held, so a daemon that
+// never answers must not be able to hold it for ever.
+func withRemovalDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, bounded := ctx.Deadline(); bounded {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, cleanupTimeout)
 }
 
 // lockPoll is how often lockContext tries again.

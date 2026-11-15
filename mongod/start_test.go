@@ -481,3 +481,84 @@ func TestAFailedCreationLeavesNothingToReap(t *testing.T) {
 	require.NoError(t, mongod.ReapRunningContainers(context.Background()), "a later reap has nothing to do")
 	assert.Empty(t, m.CallsTo("ContainerRemove"), "no container exists, so none is asked for")
 }
+
+// The examples pass context.Background(), so a daemon that never answers
+// must not be able to hold Start for ever.
+func TestStartGivesUpOnADaemonThatNeverCreatesTheContainer(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerCreateFunc = func(ctx context.Context, _ string, _ dockerclient.ContainerConfig) (string, []string, error) {
+		<-ctx.Done()
+		return "", nil, ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := mongod.StartWithOptions(context.Background(), mongod.DefaultOptions().WithDocker(m).WithStartTimeout(50*time.Millisecond))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, context.DeadlineExceeded, "the start timeout covers creating the container too")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "Start is still waiting for a daemon that will never answer")
+	}
+}
+
+func TestStartGivesUpOnADaemonThatNeverStartsTheContainer(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerStartFunc = func(ctx context.Context, _ string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := mongod.StartWithOptions(context.Background(), mongod.DefaultOptions().WithDocker(m).WithStartTimeout(50*time.Millisecond))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, context.DeadlineExceeded, "the start timeout covers every call to the daemon after the pull")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "Start is still waiting for a daemon that will never answer")
+	}
+}
+
+// A removal holds the container's lock while the daemon works, so it must
+// have a deadline even when the caller gave none.
+func TestARemovalHasADeadlineEvenWhenTheCallerSetNone(t *testing.T) {
+	removals := map[string]func(*mongod.Container) error{
+		"Stop":                  func(c *mongod.Container) error { return c.Stop(context.Background()) },
+		"ReapRunningContainers": func(*mongod.Container) error { return mongod.ReapRunningContainers(context.Background()) },
+	}
+	for name, remove := range removals {
+		t.Run(name, func(t *testing.T) {
+			m, _ := readyMock(t)
+			bounded := false
+			m.ContainerRemoveFunc = func(ctx context.Context, _ string, _ dockerclient.RemoveOptions) error {
+				_, bounded = ctx.Deadline()
+				return nil
+			}
+			c := mustStart(t, m, mongod.DefaultOptions())
+
+			require.NoError(t, remove(c), "the removal succeeds")
+
+			assert.True(t, bounded, "a daemon that never answered would otherwise hold the caller for ever")
+		})
+	}
+}
+
+func TestStoppingTwiceAsksTheDaemonOnce(t *testing.T) {
+	m, _ := readyMock(t)
+	c := mustStart(t, m, mongod.DefaultOptions())
+	require.NoError(t, c.Stop(context.Background()), "the first stop removes the container")
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	started := time.Now()
+	err := c.Stop(ended)
+
+	assert.NoError(t, err, "stopped is the state that was asked for, so a second stop has nothing to do")
+	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "and it does not ask the daemon again")
+	assert.Less(t, time.Since(started), time.Second, "nor wait for anything, even with a context that has ended")
+}
