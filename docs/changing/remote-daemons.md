@@ -31,7 +31,7 @@ the first of these that applies. A process counts as containerised when
 
 | # | Condition | Address |
 | --- | --- | --- |
-| 1 | `WithHostIP` was given | that value |
+| 1 | `Options.WithHostIP` was given | that value |
 | 2 | `MONGOTEST_HOST_IP` is set | that value |
 | 3 | The daemon is `tcp://`, `http://`, `https://` or `ssh://` | the daemon's hostname |
 | 4 | Unix socket or named pipe, and this process is not containerised | `127.0.0.1` |
@@ -55,7 +55,7 @@ proxy that refuses a call. If the address is wrong, set it:
 MONGOTEST_HOST_IP=172.17.0.1 go test ./...
 ```
 
-or in code, `mongod.WithHostIP("172.17.0.1")`.
+or in code, `mongod.DefaultOptions().WithHostIP("172.17.0.1")`.
 
 ## Still open
 

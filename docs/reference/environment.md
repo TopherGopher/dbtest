@@ -32,7 +32,7 @@ beats the default. See [The mongod package](../changing/mongod.md#options).
 
 | Variable | Sets | Default |
 | --- | --- | --- |
-| `MONGOTEST_IMAGE` | The image: a version, a repository, or a full reference such as `localhost:5000/team/mongo:8` | `mongo:8.0` |
+| `MONGOTEST_IMAGE` | The image: a version, a repository, or a full reference such as `localhost:5000/team/mongo:8` | `docker.io/library/mongo:8.0` |
 | `MONGOTEST_START_TIMEOUT` | The start timeout, as a Go duration | `60s` |
 | `MONGOTEST_HOST_IP` | The address containers are reachable at, when the detection is wrong | see [Remote and nested daemons](../changing/remote-daemons.md) |
 

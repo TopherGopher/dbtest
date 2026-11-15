@@ -70,5 +70,8 @@ has the conventions and the local preview command.
 - One concern per pull request. A refactor and a behaviour change are two
   pull requests.
 - The description says what changed and why, and names the issue it closes.
+- A change a user would notice adds a line to `CHANGELOG.md`, under
+  "Unreleased". The file arrives with
+  [PR #53](https://github.com/TopherGopher/mongotest/pull/53).
 - CI must be green: `gofmt`, `go vet`, the root module's tests, the
   `mobyclient` module's tests, and the documentation build.
