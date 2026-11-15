@@ -46,7 +46,7 @@ tests. `Start(ctx)` is `StartWithOptions(ctx, mongod.DefaultOptions())`.
 | Method on `Options` | Effect |
 | --- | --- |
 | `WithImage(ref)` | The image. A version (`"7.0"`) changes only the tag, a repository changes only the repository, and a full reference replaces the image. |
-| `WithMongoImage(img)` | One of the [known images](#which-image). A version named with `WithImage` is kept, whichever comes first. |
+| `WithMongoImage(img)` | An image value, such as one of the [known images](#which-image). Only the parts the value names change, so a version named earlier is kept unless the value names one. |
 | `WithReplicaSet(name)` | A single-member [replica set](#replica-sets), ready for writes. |
 | `WithAuth(user, password)`, `WithoutAuth()` | See [Who can connect](#who-can-connect). |
 | `WithPort(port)` | A fixed host port. Prefer the default: a port found free can be taken before the container binds it. |
@@ -74,7 +74,7 @@ A version from an option combines with an image from the environment:
 
 Five images are known:
 
-| Value | Runs | Accepts a bare version such as `8` | Takes `mongod` flags |
+| Value | Runs when no version is named | Accepts a bare version such as `8` | Takes `mongod` flags |
 | --- | --- | --- | --- |
 | `ImageDockerHub` | `docker.io/library/mongo:8.0` | yes | yes |
 | `ImagePublicECR` | `public.ecr.aws/docker/library/mongo:8.0` | yes | yes |
@@ -86,6 +86,13 @@ Every image is named in full, registry included, so nothing depends on a
 daemon's default registry. A short name such as `mongo:7` is accepted
 wherever an image is, and is taken to be Docker Hub's:
 `docker.io/library/mongo:7`.
+
+A known image names no version of its own; a start fills in the default the
+table shows. A version you name, with `WithImage` or in an image value such
+as `mongod.ImageCommunity.WithVersion("8.0-ubi8")`, stays until you name
+another, even when a later option changes the image. So
+`WithImage("mongo:7.0").WithMongoImage(mongod.ImageCommunity)` still asks for
+`7.0`, which the Community image does not publish, and the start is refused.
 
 A start refuses two mistakes before it creates anything:
 
@@ -138,7 +145,9 @@ step failed, and matches a sentinel such as `ErrNotReady` or
 `ErrContainerExited` with `errors.Is`. When `mongod` was not ready in time,
 the message says which of these happened: nothing answered at the address,
 something answered that is not `mongod`, or `mongod` answered with an error.
-A start that gets no answer from the daemon ends at the start timeout.
+A start that gets no answer from the daemon ends at the start timeout, unless
+it is pulling an image: the start timeout does not cover a pull, which is
+bounded only by the context you pass in.
 
 ## Many containers at once
 
