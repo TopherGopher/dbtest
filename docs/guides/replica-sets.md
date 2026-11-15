@@ -6,12 +6,13 @@ status: current
 
 # Replica sets
 
-Transactions, change streams and some retryable write behaviour need a replica
-set. A single member is enough for tests.
+Transactions, change streams and retryable writes need a replica set. A
+single member is enough for tests.
 
 ```go
 inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
 
+ctx := t.Context()
 session, err := inst.StartSession()
 require.NoError(t, err)
 defer session.EndSession(ctx)
@@ -27,22 +28,30 @@ _, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (any, error)
 require.NoError(t, err, "a transaction must commit on a single-member replica set")
 ```
 
-The start runs `mongod` as the only member of a set with that name, initiates
-it, and returns once it accepts writes, so the first transaction needs no
-retry. The URI carries `directConnection=true`, which keeps the driver off the
-`localhost` address the member advertises, an address that works only inside
-the container.
+`WithReplicaSet("rs0")` starts `mongod` as the only member of a replica set
+named `rs0`, and sets the set up. `Run` returns once the member accepts
+writes, so the first transaction needs no retry.
+
+The URI includes `directConnection=true`. Without it, the driver would switch
+to the member's own address, `localhost` inside the container, which the test
+cannot reach. Code that builds its own client should use `inst.URI()`
+unchanged.
 
 The earlier `NewReplicaSetContainer(name)` still works, and does the same.
 
-Atlas Local runs a replica set of its own: use it without `WithReplicaSet`,
-which it refuses with `mongod.ErrUnsupportedForImage`.
+The [Atlas Local image](../reference/mongod.md#which-image) already runs as a
+replica set. Do not add `WithReplicaSet` with it; the start fails with
+`mongod.ErrUnsupportedForImage`.
 
 ## Change streams
 
 With a replica set running, change streams work as they do in production:
 
 ```go
+// A deadline keeps the test from hanging if no event arrives.
+ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+defer cancel()
+
 coll := inst.Database("app").Collection("events")
 stream, err := coll.Watch(ctx, mongo.Pipeline{})
 require.NoError(t, err)

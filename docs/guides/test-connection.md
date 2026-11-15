@@ -6,8 +6,8 @@ status: current
 
 # Starting a server
 
-Each entry point returns an `*Instance`: a client of the official driver,
-connected, and the container it started.
+`Run`, `Start` and `Attach` each return an `*Instance`. It holds a connected
+client of the official driver and the container it started.
 
 ## In a test
 
@@ -17,9 +17,11 @@ db := inst.Database("app")
 ```
 
 `Run` starts a container, connects, and removes the container when the test
-ends. Any failure, Docker being unreachable included, fails the test; it is
-never skipped. `RunWithOptions` takes [options](../reference/mongod.md#options),
-chained onto `DefaultOptions`:
+ends. Any failure fails the test, including an unreachable Docker daemon. The
+test is never skipped.
+
+`RunWithOptions` takes [options](../reference/mongod.md#options). Start from
+`DefaultOptions()` and chain the settings you need:
 
 ```go
 inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
@@ -54,7 +56,8 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
     `t.Context()` has already ended when cleanups run.
 
     ```go
-    db := inst.Database("test_" + t.Name())
+    // Database names cannot hold the "/" a subtest name has.
+    db := inst.Database("test_" + strings.ReplaceAll(t.Name(), "/", "_"))
     t.Cleanup(func() { _ = db.Drop(context.Background()) })
     ```
 
@@ -65,9 +68,10 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
 | The embedded `*mongo.Client` | Every driver method: `inst.Database("app")`, `inst.StartSession()`, … |
 | `inst.Container` | The [`*mongod.Container`](../reference/mongod.md#the-container), for scripts, commands and the TLS configuration. It is nil for an instance from `Attach`. |
 | `inst.URI()` | The connection string. It includes any password, so keep it out of logs. |
-| `inst.Stop(ctx)` | Disconnects, then removes the container. It can be called again, including after a `Stop` that failed. |
+| `inst.Stop(ctx)` | Disconnects, then removes the container. Safe to call more than once, even after a failed `Stop`. |
 
-`Stop`, not the promoted `Disconnect`, removes the container.
+`inst.Disconnect`, inherited from the client, closes the connection but leaves
+the container running. Call `Stop` to remove it.
 
 ## Passing the server to code under test
 
@@ -101,25 +105,26 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 ## Order of cleanup
 
 `t.Cleanup` functions run last-registered first. `Run` registers the
-container's removal itself, so a client the test makes afterwards is
-disconnected first:
+container's removal as it starts. Cleanups the test registers later run
+before it, so a client the test creates is disconnected while the container
+still exists:
 
 ```go
 inst := mongotest.Run(t)
 
-client, err := mongo.Connect(ctx, options.Client().ApplyURI(inst.URI()))
+client, err := mongo.Connect(t.Context(), options.Client().ApplyURI(inst.URI()))
 require.NoError(t, err)
 t.Cleanup(func() { _ = client.Disconnect(context.Background()) }) // runs first
 ```
 
 ## Errors
 
-A failed start returns no instance, and leaves no container behind. Compare
-its error with `errors.Is`:
+A failed start returns no instance, and leaves no container behind. Check the
+error with `errors.Is` against these values:
 
 | Error | Meaning |
 | --- | --- |
 | `mongotest.ErrNotConnected` | The client could not connect to the server. |
-| `dockerclient.ErrConnectionFailed` | No Docker daemon answered. See [Installation](../getting-started/installation.md#check-the-daemon). |
+| `dockerclient.ErrConnectionFailed` (`github.com/tophergopher/mongotest/dockerclient`) | No Docker daemon answered. See [Installation](../getting-started/installation.md#check-the-daemon). |
 | `mongod.ErrNotReady`, `mongod.ErrContainerExited`, … | The container did not become a usable `mongod`; see the [mongod reference](../reference/mongod.md). |
-| `mongotest.ErrNoContainer` | An instance from `Attach` was asked to run a script or command. |
+| `mongotest.ErrNoContainer` | Returned by the earlier script and command methods for an instance from `Attach`. |

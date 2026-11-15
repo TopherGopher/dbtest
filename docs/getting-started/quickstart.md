@@ -44,21 +44,23 @@ func TestInsertAndFind(t *testing.T) {
 }
 ```
 
-Fetch testify, which the test uses for its assertions, and run it:
+Fetch the dependencies and run the test. It needs Go 1.27 or newer and a
+running Docker daemon:
 
 ```sh
-go get github.com/stretchr/testify
+go get github.com/tophergopher/mongotest github.com/stretchr/testify
 go test -run TestInsertAndFind -v .
 ```
 
 ## What each part does
 
-**`mongotest.Run(t)`** starts a `mongo` container, connects a client to it,
-and removes the container when the test ends, pass or fail. Without a Docker
-daemon it fails the test; it never skips it.
+**`mongotest.Run(t)`** starts a container from the official `mongo` image,
+connects a client to it, and removes the container when the test ends, pass
+or fail. Without a Docker daemon, the test fails; it is not skipped.
 
-**`Database` and `Collection`** are the official driver's own methods: the
-instance `Run` returns embeds a `*mongo.Client`.
+**`Database` and `Collection`** are the official driver's own methods. `Run`
+returns an `*Instance`, which embeds the driver's `*mongo.Client`, so every
+client method works on it.
 
 **The insert and the find** are ordinary driver calls. The database is empty
 when the test starts, so the test can assert on exact contents without

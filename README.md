@@ -4,8 +4,15 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tophergopher/mongotest.svg)](https://pkg.go.dev/github.com/tophergopher/mongotest)
 
 mongotest starts a real MongoDB server in a Docker container for a Go test,
-hands the test a connected client of the official driver (v1), and removes
-the container when the test ends.
+hands the test a connected client of the official MongoDB Go driver (v1), and
+removes the container when the test ends.
+
+```sh
+go get github.com/tophergopher/mongotest
+```
+
+It needs Go 1.27 or newer, and Docker or Podman. Without one, the test fails;
+it is not skipped.
 
 ```go
 func TestOrders(t *testing.T) {
@@ -15,21 +22,21 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-It needs Docker or Podman, and fails the test without one; it never skips
-it. Code written for `NewTestConnection` still compiles; [CHANGELOG.md](CHANGELOG.md)
-says what changed.
+Upgrading? The earlier function names still exist, but code that used the
+easymongo connection must change; [CHANGELOG.md](CHANGELOG.md) shows how.
+For Podman, see the [Podman guide](https://tophergopher.github.io/mongotest/guides/podman/).
 
-# Cleaning up stray containers
+## Cleaning up stray containers
 
 Every container mongotest starts carries the label `mongotest=regression`. If
-a killed test run leaves one behind, this removes them all, with their
-volumes:
+a killed test run leaves containers behind, this command removes them and
+their volumes:
 
 ```shell
 docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ```
 
-# Documentation
+## Documentation
 
 The documentation site lives in [`docs/`](docs/) and is built with MkDocs
 Material. It is published to GitHub Pages from `main` by
