@@ -193,11 +193,17 @@ func (e *StartError) Unwrap() error { return e.Err }
 type pullTimeoutError struct {
 	timeout time.Duration
 	err     error
+	// inStart says the pull happened inside Start, where fetching the image
+	// first with PullImage is a way out.
+	inStart bool
 }
 
 func (e *pullTimeoutError) Error() string {
-	return fmt.Sprintf("the pull did not finish within %s (%v). "+
-		"Allow longer with WithPullTimeout, or fetch the image first with PullImage", e.timeout, e.err)
+	msg := fmt.Sprintf("the pull did not finish within %s (%v). Allow longer with WithPullTimeout", e.timeout, e.err)
+	if e.inStart {
+		msg += ", or fetch the image first with PullImage"
+	}
+	return msg
 }
 
 func (e *pullTimeoutError) Unwrap() []error { return []error{context.DeadlineExceeded, e.err} }
