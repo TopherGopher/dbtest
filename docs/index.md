@@ -12,20 +12,13 @@ hide:
      hero so it gets the same syntax highlighting and copy button as every
      other page. -->
 
-```go title="foo_test.go"
-func TestFoo(t *testing.T) {
-    // Starts mongo in a container on a free port and waits for it.
-    conn, err := mongotest.NewTestConnection(true)
-    if err != nil {
-        t.Fatal(err)
-    }
-    // Removes the container when the test ends, pass or fail.
-    t.Cleanup(func() { _ = conn.KillMongoContainer() })
+```go title="orders_test.go"
+func TestOrders(t *testing.T) {
+    // Starts MongoDB in a container, connects, and removes the container
+    // when the test ends, pass or fail.
+    orders := mongotest.Run(t).Database("shop").Collection("orders")
 
-    coll := conn.D("app").C("heroes")
-    _, err = coll.Insert().One(&hero{Name: "Diana"})
-    if err != nil {
-        t.Fatal(err)
-    }
+    _, err := orders.InsertOne(t.Context(), bson.M{"item": "book"})
+    require.NoError(t, err)
 }
 ```

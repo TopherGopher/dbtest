@@ -57,13 +57,10 @@ as well; see
 
 ## Pull the image once
 
-The first `NewTestConnection(true)` on a machine pulls the image. To keep that
-download out of a test run, pull it first, under the exact name mongotest
-asks for:
-
-```sh
-docker pull registry.hub.docker.com/library/mongo:latest
-```
+The first start on a machine pulls the image. To keep that download out of
+the tests, call `mongod.PullImage` in `TestMain`. It pulls the image a start
+would run, `MONGOTEST_IMAGE` included, and leaves one the daemon already has
+alone; see [Which image](../reference/mongod.md#which-image).
 
 ## Check the installation
 
@@ -71,7 +68,7 @@ Run the [quickstart](quickstart.md) test.
 
 ## Troubleshooting the first run
 
-??? failure "`could not connect to docker daemon`"
+??? failure "`cannot connect to the docker daemon at …`"
     The daemon is not running, or it is listening somewhere mongotest did not
     look. Run `docker version`; if that fails too, start the daemon. If it
     works, your CLI is using a context mongotest cannot see. Set `DOCKER_HOST`
@@ -81,14 +78,8 @@ Run the [quickstart](quickstart.md) test.
     export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')
     ```
 
-??? failure "`no ports are available to bind the docker mongo instance to`"
-    The kernel refused to assign a loopback port, usually because the process
-    has run out of file descriptors. Raise `ulimit -n`, or look for a test
-    that leaks connections.
-
-??? failure "The container starts, but the test fails to ping"
-    The container started but `mongod` never answered. Check the container
-    logs with `docker logs $(docker ps -aq --filter label=mongotest=regression | head -1)`.
-    A common cause is an architecture mismatch: mongotest requests a
-    `linux/amd64` image, and some ARM hosts have emulation disabled. Turn on
-    Rosetta in Docker Desktop, or install QEMU's `binfmt` handlers on Linux.
+??? failure "The container starts, but `mongod` is not ready in time"
+    The error names the step that failed and matches a `mongod` sentinel,
+    such as `mongod.ErrNotReady` or `mongod.ErrContainerExited`, and says
+    what to do. To see what `mongod` itself said, check the container logs
+    with `docker logs $(docker ps -aq --filter label=mongotest=regression | head -1)`.

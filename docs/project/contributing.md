@@ -39,8 +39,6 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
   `git checkout -- go.mod go.sum`.
 - **`mobyclient/go.mod` carries a `replace`** pointing at the repository root
   until a tag contains `dockerclient`. It is annotated in the file.
-- **The old root implementation** still compiles against
-  `github.com/docker/docker v20.10.17`. Do not upgrade that dependency until issue #44.
 
 ## The standard
 

@@ -27,9 +27,8 @@
         </h1>
         <p class="mt-lede">
           mongotest starts a MongoDB container for a Go test, hands you a
-          connection to it, and removes it when you call
-          <code>KillMongoContainer</code>. Each test gets an empty server of
-          its own.
+          connected client, and removes the container when the test ends.
+          Each test gets an empty server of its own.
         </p>
         <div class="mt-actions">
           <a class="md-button md-button--primary mt-btn mt-btn--primary" href="{{ 'getting-started/quickstart/' | url }}">
@@ -75,17 +74,17 @@
         <article class="mt-feature">
           <span class="mt-feature__icon">{% include ".icons/material/broom.svg" %}</span>
           <h3>Cleanup that survives Ctrl+C</h3>
-          <p><code>t.Cleanup</code> removes the container, a signal handler removes it if the run is interrupted, and a label finds anything left.</p>
+          <p><code>Run</code> removes the container when the test ends, a signal handler removes it if the run is interrupted, and a label finds anything left.</p>
         </article>
         <article class="mt-feature">
           <span class="mt-feature__icon">{% include ".icons/material/swap-horizontal.svg" %}</span>
-          <h3>The official driver, or easymongo</h3>
-          <p><code>conn.MongoDriverClient()</code> returns the official <code>*mongo.Client</code>. The connection also embeds easymongo.</p>
+          <h3>The official driver</h3>
+          <p>An instance is a connected <code>*mongo.Client</code> of the official driver, v1. v2 is <a href="https://github.com/TopherGopher/mongotest/issues/42">#42</a>.</p>
         </article>
         <article class="mt-feature">
           <span class="mt-feature__icon">{% include ".icons/material/source-branch.svg" %}</span>
-          <h3>Replica sets, scripts, exports</h3>
-          <p>A single-member replica set for transactions and change streams, commands inside the container, and fixtures exported as JSON.</p>
+          <h3>Replica sets, TLS, scripts</h3>
+          <p>A single-member replica set for transactions and change streams, TLS with a certificate made per container, and scripts and commands inside it.</p>
         </article>
         <article class="mt-feature">
           <span class="mt-feature__icon">{% include ".icons/simple/podman.svg" %}</span>
@@ -110,18 +109,18 @@
         </li>
         <li class="mt-flow__step">
           <span class="mt-flow__num">2</span>
-          <h3>Pick a port, start a container</h3>
-          <p>A free loopback port from the kernel, a container named <code>mongo-&lt;port&gt;</code> and labelled <code>mongotest=regression</code>. The image is pulled on the first run only.</p>
+          <h3>Start a container</h3>
+          <p>On a port Docker chooses, labelled <code>mongotest=regression</code>. The image is pulled on the first run only.</p>
         </li>
         <li class="mt-flow__step">
           <span class="mt-flow__num">3</span>
           <h3>Connect and wait</h3>
-          <p>A direct connection to <code>127.0.0.1:&lt;port&gt;</code>, pinged with a short backoff until <code>mongod</code> answers.</p>
+          <p>mongotest waits until <code>mongod</code> answers, then connects a client.</p>
         </li>
         <li class="mt-flow__step">
           <span class="mt-flow__num">4</span>
           <h3>Remove</h3>
-          <p><code>KillMongoContainer</code> force-removes the container and its volumes. Register it with <code>t.Cleanup</code> and it runs whether the test passes or fails.</p>
+          <p>When the test ends, the container and its volumes are removed, pass or fail.</p>
         </li>
       </ol>
       <p class="mt-section__more">
@@ -144,7 +143,7 @@
         <a class="mt-pkg mt-pkg--root" href="{{ 'guides/' | url }}">
           <code>mongotest</code>
           <h3>The test helpers</h3>
-          <p><code>NewTestConnection</code>, the one-shot helpers, replica sets, scripts and the exporter.</p>
+          <p><code>Run</code>, <code>Start</code> and <code>Attach</code>: a connected driver client for a test.</p>
         </a>
         <a class="mt-pkg" href="{{ 'reference/mongod/' | url }}">
           <code>mongod</code>

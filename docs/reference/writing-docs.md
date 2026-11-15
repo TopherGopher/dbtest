@@ -56,8 +56,8 @@ are obvious; say so when something is elided.
 and pull requests (`"PR #53"`) the page follows. The site renders a banner
 and a nav icon from them. Where a feature has a limit, say so in a
 `!!! warning` block right where the reader would trip over it, with the issue
-number. The [replica sets guide](../guides/replica-sets.md#two-limits-today) is
-the model, and [Keeping the docs current](../project/docs-maintenance.md) has
+number. "Not here yet" in [the mongod package](mongod.md#not-here-yet) is the
+model, and [Keeping the docs current](../project/docs-maintenance.md) has
 the checklist for flipping a badge when something lands.
 
 **Use the theme's blocks.** Admonitions, tabs and code annotations are

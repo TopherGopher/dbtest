@@ -83,8 +83,6 @@ daemon would, and the error is identical.
 
 ## The root package's own errors
 
-The root `mongotest` package predates this scheme and has three sentinels of
-its own: `ErrFailedToConnectToDockerDaemon`, `ErrNoAvailablePorts` and
-`ErrMongoContainerAlreadyRunning`. They are listed in
-[Test connections](../guides/test-connection.md#errors). When the root package
-moves onto `dockerclient`, Docker failures will surface as the sentinels above.
+The root package's `ErrFailedToConnectToDockerDaemon` and
+`ErrMongoContainerAlreadyRunning` are `ErrConnectionFailed` and `ErrConflict`
+under their earlier names.

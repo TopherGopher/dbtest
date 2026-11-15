@@ -1,142 +1,125 @@
 ---
-title: Test connections
-description: NewTestConnection, the TestConnection type, and using it with easymongo or the official driver.
-status: changing
-tracks: ["#40", "#41"]
+title: Starting a server
+description: Run, Start and Attach, and what an instance gives you.
+status: current
 ---
 
-# Test connections
+# Starting a server
 
-`NewTestConnection` is the primary entry point. It returns a `*TestConnection`
-that owns one container and one connection to the server inside it.
+Each entry point returns an `*Instance`: a client of the official driver,
+connected, and the container it started.
+
+## In a test
 
 ```go
-func NewTestConnection(spinupDockerContainer bool) (*TestConnection, error)
+inst := mongotest.Run(t)
+db := inst.Database("app")
 ```
 
-## With a container
+`Run` starts a container, connects, and removes the container when the test
+ends. Any failure, Docker being unreachable included, fails the test; it is
+never skipped. `RunWithOptions` takes [options](../reference/mongod.md#options),
+chained onto `DefaultOptions`:
 
 ```go
-conn, err := mongotest.NewTestConnection(true)
+inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
+```
+
+## Outside a test
+
+`Start` and `StartWithOptions` do the same where there is no test, such as in
+`TestMain`. The caller stops the instance:
+
+```go
+inst, err := mongotest.Start(ctx)
 if err != nil {
-    t.Fatal(err)
+    return err
 }
-t.Cleanup(func() { _ = conn.KillMongoContainer() })
+defer inst.Stop(ctx)
 ```
 
-The connection has already answered a ping. Register the cleanup straight
-after the error check, so a failing assertion still removes the container.
+## A server you already run
 
-mongotest logs each start to stderr through logrus; that cannot be turned off
-yet.
-
-## Without a container
-
-Pass `false` and no Docker call is made. mongotest connects to
-`mongodb://127.0.0.1:27017` and expects a server to be listening there.
+`Attach(ctx, uri)` connects to a server that is already running, such as a CI
+service container, and starts nothing. Its instance has no container, and
+`Stop` only disconnects.
 
 ```go
-conn, err := mongotest.NewTestConnection(false)
+inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
 ```
-
-This is useful when:
-
-- a CI job already runs MongoDB as a service container on the default port;
-- you are iterating locally against a long-lived `mongod` and the second of
-  container start-up per test is in the way;
-- the machine has no Docker daemon at all.
-
-`KillMongoContainer` is safe to call in this mode; with no container recorded
-it returns `nil` immediately. Keep the `t.Cleanup` line in place so the test
-works either way.
 
 !!! warning "Shared server, shared data"
-    Without a container there is no isolation between tests. Use a distinct
-    database name per test and drop it in cleanup:
+    A server you attach to is not emptied between tests. Give each test its
+    own database and drop it in cleanup. Use a fresh context there:
+    `t.Context()` has already ended when cleanups run.
 
     ```go
-    db := conn.D("test_" + t.Name())
-    t.Cleanup(func() { _ = db.Drop() })
+    db := inst.Database("test_" + t.Name())
+    t.Cleanup(func() { _ = db.Drop(context.Background()) })
     ```
 
-## What a TestConnection gives you
+## What an instance gives you
 
-`TestConnection` embeds `*easymongo.Connection`, so every easymongo method is
-promoted onto it. The ones you will reach for most:
-
-| Call | Returns | Use |
-| --- | --- | --- |
-| `conn.D(name)` or `conn.Database(name)` | `*easymongo.Database` | Address a database. It is created on first write. |
-| `db.C(name)` or `db.Collection(name)` | `*easymongo.Collection` | Address a collection. |
-| `coll.Insert().One(v)` / `.Many(vs)` | ids, error | Insert documents. |
-| `coll.Find(filter).One(&v)` / `.All(&vs)` | error | Query. |
-| `coll.Count()` | int, error | Count documents. |
-| `conn.MongoURI()` | string | The URI the connection was opened with. Hand it to code that builds its own client. |
-| `conn.MongoDriverClient()` | `*mongo.Client` | The official driver client underneath. |
-| `conn.Ping()` | error | Round-trip to the server. |
-
-And the methods mongotest adds:
-
-| Call | Use |
+| Field or method | Use |
 | --- | --- |
-| `conn.MongoContainerID()` | The container ID, or `""` when no container was started. |
-| `conn.KillMongoContainer()` | Force-remove the container and its volumes. Idempotent. |
-| `conn.RunMongoScriptOnContainer(js)` | Run a JavaScript file inside the container. See [Scripts and exec](scripts-and-exec.md). |
-| `conn.ExecCommandInMongoContainer(cmd)` | Run any command inside the container. |
-| `conn.DatabaseExporter(db, coll)` | Build a JSON or CSV export. See [Exporting data](exporting-data.md). |
+| The embedded `*mongo.Client` | Every driver method: `inst.Database("app")`, `inst.StartSession()`, … |
+| `inst.Container` | The [`*mongod.Container`](../reference/mongod.md#the-container), for scripts, commands and the TLS configuration. It is nil for an instance from `Attach`. |
+| `inst.URI()` | The connection string. It includes any password, so keep it out of logs. |
+| `inst.Stop(ctx)` | Disconnects, then removes the container. It can be called again, including after a `Stop` that failed. |
+
+`Stop`, not the promoted `Disconnect`, removes the container.
 
 ## Passing the server to code under test
 
-Most application code does not take an easymongo connection; it takes a URI,
-a `*mongo.Client` or a `*mongo.Database`. All three are one call away.
+Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 
 === "URI"
 
     ```go
-    repo, err := NewRepository(conn.MongoURI())
+    repo, err := NewRepository(inst.URI())
     ```
 
-    Code that builds its own client from the URI must disconnect it before
-    the container is removed; see [Order of cleanup](#order-of-cleanup).
+    With `WithTLS`, the URI alone does not connect: the code also needs
+    `inst.Container.TLSConfig()`, which trusts the container's certificate.
+    Code that builds its own client must disconnect it before the container
+    is removed; see [Order of cleanup](#order-of-cleanup).
 
 === "*mongo.Client"
 
     ```go
-    repo := NewRepository(conn.MongoDriverClient())
+    repo := NewRepository(inst.Client)
     ```
 
-    The client is owned by the `TestConnection`; do not call `Disconnect`
-    on it yourself.
+    The instance owns the client; do not call `Disconnect` on it yourself.
 
 === "*mongo.Database"
 
     ```go
-    db := conn.MongoDriverClient().Database("app")
-    svc := NewService(db)
+    svc := NewService(inst.Database("app"))
     ```
 
 ## Order of cleanup
 
-`t.Cleanup` functions run last-registered first. Register the container
-removal first so it runs last:
+`t.Cleanup` functions run last-registered first. `Run` registers the
+container's removal itself, so a client the test makes afterwards is
+disconnected first:
 
 ```go
-conn, err := mongotest.NewTestConnection(true)
-require.NoError(t, err)
-t.Cleanup(func() { _ = conn.KillMongoContainer() }) // runs last
+inst := mongotest.Run(t)
 
-client, err := mongo.Connect(ctx, options.Client().ApplyURI(conn.MongoURI()))
+client, err := mongo.Connect(ctx, options.Client().ApplyURI(inst.URI()))
 require.NoError(t, err)
-t.Cleanup(func() { _ = client.Disconnect(ctx) })      // runs first
+t.Cleanup(func() { _ = client.Disconnect(context.Background()) }) // runs first
 ```
 
 ## Errors
 
+A failed start returns no instance, and leaves no container behind. Compare
+its error with `errors.Is`:
+
 | Error | Meaning |
 | --- | --- |
-| `mongotest.ErrFailedToConnectToDockerDaemon` | No daemon answered. See [Installation](../getting-started/installation.md#check-the-daemon). |
-| `mongotest.ErrNoAvailablePorts` | The kernel would not assign a loopback port. |
-| `mongotest.ErrMongoContainerAlreadyRunning` | An internal guard; a `TestConnection` tried to start a second container. |
-| Anything else | A Docker or driver error. The container may still exist, so call `conn.KillMongoContainer()` before failing the test; it is safe on a connection returned with an error. |
-
-Compare with `errors.Is`; the messages are not stable.
+| `mongotest.ErrNotConnected` | The client could not connect to the server. |
+| `dockerclient.ErrConnectionFailed` | No Docker daemon answered. See [Installation](../getting-started/installation.md#check-the-daemon). |
+| `mongod.ErrNotReady`, `mongod.ErrContainerExited`, … | The container did not become a usable `mongod`; see the [mongod reference](../reference/mongod.md). |
+| `mongotest.ErrNoContainer` | An instance from `Attach` was asked to run a script or command. |

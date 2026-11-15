@@ -16,8 +16,8 @@ explained, and links out for signatures.
 
     ---
 
-    The root package: `TestConnection`, the constructors, the one-shot
-    helpers and the exporter.
+    The root package: `Run`, `Start`, `Attach`, `Instance`, and the earlier
+    names kept as wrappers.
 
 -   :material-code-braces:{ .lg .middle } **[dockerclient](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerclient)** · **[dockerapi](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerapi)** · **[dockermock](https://pkg.go.dev/github.com/tophergopher/mongotest/dockermock)** · **[mobyclient](https://pkg.go.dev/github.com/tophergopher/mongotest/mobyclient)**
 
@@ -29,50 +29,51 @@ explained, and links out for signatures.
 
 ## Root package surface
 
-### Constructors
+### Entry points
 
 | Identifier | Explained in |
 | --- | --- |
-| `NewTestConnection(spinupDockerContainer bool) (*TestConnection, error)` | [Test connections](../guides/test-connection.md) |
-| `NewReplicaSetContainer(rsName string) (*TestConnection, error)` | [Replica sets](../guides/replica-sets.md) |
-| `EasyMongoWithContainer(f func(*easymongo.Connection) error) error` | [One-shot helpers](../guides/one-shot-helpers.md) |
-| `MongoClientWithContainer(f func(*mongo.Client) error) error` | [One-shot helpers](../guides/one-shot-helpers.md) |
+| `Run(tb)`, `RunWithOptions(tb, opts)` | [Starting a server](../guides/test-connection.md#in-a-test) |
+| `Start(ctx)`, `StartWithOptions(ctx, opts)` | [Starting a server](../guides/test-connection.md#outside-a-test) |
+| `Attach(ctx, uri)` | [Starting a server](../guides/test-connection.md#a-server-you-already-run) |
+| `Options` (`mongod.Options`), `DefaultOptions()` | [The mongod package](mongod.md#options) |
 
-### `TestConnection` methods
+### `Instance`
 
-`TestConnection` embeds `*easymongo.Connection`; the methods below are the
-ones mongotest adds.
-
-| Method | Explained in |
+| Field or method | Explained in |
 | --- | --- |
-| `MongoContainerID() string` | [Test connections](../guides/test-connection.md#what-a-testconnection-gives-you) |
-| `KillMongoContainer() error` | [Cleanup and reaping](../guides/cleanup.md) |
-| `RunMongoScriptOnContainer(js string) (string, error)` | [Scripts and exec](../guides/scripts-and-exec.md) |
-| `ExecCommandInMongoContainer(cmd []string) (string, error)` | [Scripts and exec](../guides/scripts-and-exec.md) |
-| `DatabaseExporter(db, coll string) *DatabaseExporter` | [Exporting data](../guides/exporting-data.md) |
-
-### `DatabaseExporter`
-
-| Method | Explained in |
-| --- | --- |
-| `Query`, `Sort`, `Skip`, `Limit`, `Database`, `Collection`, `Filepath` | [Exporting data](../guides/exporting-data.md#builder-methods) |
-| `ToJSONFile(prettify, jsonArray, relaxedJSON, gzip bool) (string, error)` | [Exporting data](../guides/exporting-data.md#terminal-methods) |
-| `CSVFile() (string, error)` | [Exporting data](../guides/exporting-data.md#csvfile) |
-
-### Functions
-
-| Identifier | Explained in |
-| --- | --- |
-| `GetAvailablePort() (int, error)` | [How it works](../getting-started/how-it-works.md#the-lifecycle) |
-| `ReapRunningContainers()` | [Cleanup and reaping](../guides/cleanup.md#2-the-signal-handler) |
-| `GenerateCARoot() (*x509.Certificate, []byte, *rsa.PrivateKey)` | Generates a self-signed CA for the TLS mode under construction. |
+| The embedded `*mongo.Client`, `Container`, `URI()`, `Stop(ctx)` | [Starting a server](../guides/test-connection.md#what-an-instance-gives-you) |
 
 ### Errors
 
-| Identifier | Explained in |
+| Identifier | Meaning |
 | --- | --- |
-| `ErrFailedToConnectToDockerDaemon`, `ErrNoAvailablePorts`, `ErrMongoContainerAlreadyRunning` | [Test connections](../guides/test-connection.md#errors) |
-| `ErrNotImplemented` | Returned, or in one case panicked with, by exporter methods that are not written yet. |
+| `ErrNotConnected` | The client could not connect to the server. |
+| `ErrNoContainer` | An instance from `Attach` was asked to run a script or command. |
+| `ErrCommandFailed` | A command or script run with the earlier methods exited non-zero. |
+
+### Earlier names
+
+Code written against the earlier API still compiles. Each name below is a thin
+wrapper; new code uses the right-hand column.
+
+| Earlier name | New code uses |
+| --- | --- |
+| `TestConnection` | `Instance` |
+| `NewTestConnection(true)` | `Run` or `Start` |
+| `NewTestConnection(false)` | `Attach` |
+| `NewReplicaSetContainer(name)` | `DefaultOptions().WithReplicaSet(name)` |
+| `MongoClientWithContainer(f)` | `Run(t).Client` |
+| `KillMongoContainer()` | `Stop(ctx)` |
+| `MongoContainerID()` | `Container.ID()` |
+| `RunMongoScriptOnContainer(js)` | `Container.RunScript` |
+| `ExecCommandInMongoContainer(cmd)` | `Container.Exec` |
+| `GetAvailablePort()` | Leave the port to Docker. |
+| `ReapRunningContainers()` | `mongod.ReapRunningContainers`, which returns its error |
+| `GenerateCARoot()` | `WithTLS`, which makes a container's certificates itself |
+| `ErrFailedToConnectToDockerDaemon` | `dockerclient.ErrConnectionFailed`, the same value |
+| `ErrMongoContainerAlreadyRunning` | `dockerclient.ErrConflict`, the same value |
+| `ErrNoAvailablePorts` | Returned only by `GetAvailablePort`. |
 
 ## Docker client surface
 

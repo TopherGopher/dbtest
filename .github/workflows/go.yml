@@ -32,15 +32,12 @@ jobs:
 
     - name: Vet
       run: go vet -v ./...
-      # working-directory: ./easymongo
 
     - name: Build
       run: go build -v ./...
-      # working-directory: ./easymongo
 
     # mobyclient is its own module, so the root ./... does not reach it.
-    # It stays a separate step until #44 removes the legacy docker
-    # dependency and a go.work becomes possible; see #45 and #46.
+    # It stays a separate step until #45 adds a go.work; see #46.
     - name: Vet and build mobyclient
       working-directory: ./mobyclient
       run: |

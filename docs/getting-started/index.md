@@ -7,8 +7,8 @@ status: current
 # Getting started
 
 mongotest gives a Go test its own MongoDB server. It starts the official
-`mongo` image in a container on a free port, hands you a connection, and
-removes the container when you call `KillMongoContainer`.
+`mongo` image in a container, connects a client to it, and removes the
+container when the test ends.
 
 <div class="grid cards" markdown>
 
@@ -33,8 +33,8 @@ removes the container when you call `KillMongoContainer`.
 
     ---
 
-    What happens between `NewTestConnection(true)` and the first query, and
-    why each step is there.
+    What happens between `mongotest.Run(t)` and the first query, and why
+    each step is there.
 
     [:octicons-arrow-right-24: How it works](how-it-works.md)
 
@@ -56,10 +56,12 @@ removes the container when you call `KillMongoContainer`.
 | **Go 1.27 or newer** | The module declares `go 1.27`. |
 | **A Docker-compatible daemon** | Docker Engine, Docker Desktop or Podman. mongotest talks to the Engine API; it never shells out to the `docker` binary. |
 | **Network access to Docker Hub on the first run** | The `mongo` image is pulled once and cached by the daemon. Later runs need no network. |
-| **mongo-driver v1** | `MongoDriverClient()` returns a v1 `*mongo.Client`. Support for v2 is tracked in issue [#42](https://github.com/TopherGopher/mongotest/issues/42). |
-| **An image up to `mongo:5.0` for replica sets and script files** | Both use the `mongo` shell, which newer images do not ship. [Replica sets](../guides/replica-sets.md#two-limits-today) shows how to use one. |
+| **mongo-driver v1** | An instance embeds the driver's v1 `*mongo.Client`. Support for v2 is tracked in issue [#42](https://github.com/TopherGopher/mongotest/issues/42). |
 
-!!! tip "No daemon? Use a local server instead"
-    `NewTestConnection(false)` starts no container and connects to a `mongod`
-    already listening on `127.0.0.1:27017`. Queries work the same way; running a
-    script or a command inside the server needs a container. See [Test connections](../guides/test-connection.md#without-a-container).
+Without a daemon, `mongotest.Run` fails the test; it never skips it.
+
+!!! tip "Already running a server?"
+    `mongotest.Attach(ctx, uri)` connects to a server you already run, such
+    as a CI service container, and starts nothing. Its instance has no
+    container, so scripts and commands need `Run` or `Start`. See
+    [Starting a server](../guides/test-connection.md#a-server-you-already-run).

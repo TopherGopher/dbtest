@@ -17,7 +17,9 @@ at the root of the repository and reproduced below.
 
 mongotest runs the official
 [`mongo`](https://hub.docker.com/_/mongo) image, which is distributed under
-MongoDB's own licence terms. The `DatabaseExporter` uses
+MongoDB's own licence terms. The root module depends on the official
+[MongoDB Go driver](https://github.com/mongodb/mongo-go-driver), released
+under the Apache License 2.0. The separate `exporter` module uses
 [mongo-tools](https://github.com/mongodb/mongo-tools), released under the
 Apache License 2.0. The optional `mobyclient` module depends on
 [moby](https://github.com/moby/moby), also Apache License 2.0.

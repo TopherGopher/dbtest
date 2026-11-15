@@ -48,16 +48,14 @@ export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
 go test ./...
 ```
 
-With the new [`dockerapi`](../docker-clients/dockerapi.md) client, even this
-is optional. When nothing is configured it probes, in order, rootless Docker,
-system Docker, rootless Podman and system Podman, and uses the first socket
-that answers. The root package will pick that behaviour up when it moves onto
-`dockerapi`.
+Even this is optional. When nothing is configured, mongotest's
+[`dockerapi`](../docker-clients/dockerapi.md) client probes, in order,
+rootless Docker, system Docker, rootless Podman and system Podman, and uses
+the first socket that answers.
 
 ## API versions
 
-The legacy client the root package uses today works with every supported
-Podman, and so does `dockerapi`.
+`dockerapi` works with every supported Podman.
 
 `dockerapi` also reports which engine answered:
 
@@ -73,7 +71,7 @@ Docker daemon they do not have.
 
 ## Troubleshooting
 
-??? failure "`could not connect to docker daemon`"
+??? failure "`cannot connect to the docker daemon at …`"
     The socket is not running or `DOCKER_HOST` points at the wrong path. Check
     with `podman --remote info` using the same `CONTAINER_HOST` value, or
     `curl --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/_ping`.

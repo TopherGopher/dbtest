@@ -1,79 +1,110 @@
 ---
 title: Exporting data
-description: Turning a populated test database into a JSON fixture with DatabaseExporter.
-status: changing
-tracks: ["#43"]
+description: Writing a collection out as JSON or CSV with the exporter module, for example to keep a test's data as a fixture.
+status: current
 ---
 
 # Exporting data
 
-`DatabaseExporter` writes a collection to a file with `mongoexport`, so a
-test's data can be kept as a fixture.
+The `exporter` module writes a collection to any `io.Writer` as JSON or CSV,
+using `mongoexport` from MongoDB's database tools. It is a module of its own,
+so only code that exports downloads those tools:
 
-```go
-func (tc *TestConnection) DatabaseExporter(dbName, collectionName string) *DatabaseExporter
+```sh
+go get github.com/tophergopher/mongotest/exporter
 ```
 
-The exporter is a builder. Set what you need, then call a terminal method:
+Pass `New` a connection string, a database and a collection, choose which
+documents to export, then call `WriteJSON` or `WriteCSV`. Here `c` is a
+container from `mongod.Start`, and `c.URI()` its connection string:
 
 ```go
-path, err := conn.DatabaseExporter("app", "roster").
+f, err := os.Create("testdata/people.json")
+require.NoError(t, err)
+defer f.Close()
+
+n, err := exporter.New(c.URI(), "app", "people").
     Query(`{"city": "Gotham"}`).
     Sort(`{"name": 1}`).
     Limit(100).
-    ToJSONFile(true, true, false, false)
-require.NoError(t, err)
-t.Cleanup(func() { _ = os.Remove(path) })
-
-data, err := os.ReadFile(path)
+    WriteJSON(f, exporter.JSONOptions{Canonical: true})
 require.NoError(t, err)
 ```
 
-## Builder methods
+`n` is how many documents were written. Each method returns a new exporter
+and leaves the original unchanged, so one exporter can be the base of
+several exports.
+
+## Choosing documents
 
 | Method | Effect |
 | --- | --- |
-| `Query(json)` | A filter, as a JSON string in `mongoexport` syntax. |
-| `Sort(json)` | A sort specification, as JSON. |
-| `Skip(n)` / `Limit(n)` | Paging. |
-| `Database(name)` / `Collection(name)` | Override the names given to `DatabaseExporter`. |
-| `Filepath(path)` | Write here instead of a temporary file. See the note below. |
+| `Query(filter)` | Exports only documents that match the filter, a query document such as `{"age": {"$gt": 30}}`. |
+| `Sort(order)` | Exports documents in this order, a JSON sort document such as `{"age": -1}`. |
+| `Skip(n)` | Leaves out the first `n` documents. |
+| `Limit(n)` | Exports at most `n` documents. Zero means no limit. |
 
-## Terminal methods
+## Formats
 
-### `ToJSONFile(prettify, jsonArray, relaxedJSON, compressToGZIP bool)`
+`WriteJSON(w, opts)` writes
+[MongoDB Extended JSON](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/).
+By default it writes relaxed Extended JSON, one document per line.
+`JSONOptions` changes that:
 
-Writes JSON and returns the path.
+| Field | Effect |
+| --- | --- |
+| `Array` | One JSON array instead of one document per line. |
+| `Pretty` | Indented, for a person to read. |
+| `Canonical` | Canonical Extended JSON, which keeps every BSON type exactly, such as `{"n": {"$numberInt": "1"}}`. Use it for fixtures you will import again. |
 
-| Argument | `true` | `false` |
-| --- | --- | --- |
-| `prettify` | Indented, one field per line | Compact |
-| `jsonArray` | One JSON array | One document per line (JSON Lines) |
-| `relaxedJSON` | Relaxed Extended JSON (`{"n": 1}`) | Canonical Extended JSON (`{"n": {"$numberInt": "1"}}`) |
-| `compressToGZIP` | gzip the output | Plain text |
+`WriteCSV(w, fields)` writes a header naming the fields, then a row for each
+document. It needs at least one field. Name a nested field with dots, such as
+`address.city`.
 
-Canonical JSON round-trips every BSON type exactly and is the right choice
-for fixtures you will import again. Relaxed JSON is easier to read in a diff.
+## Files and compression
 
-### `CSVFile()`
+The exporter writes to any `io.Writer`, so you choose where the output goes.
+To write a compressed temporary file, wrap the file in a gzip writer:
 
-Writes CSV and returns the path. `mongoexport` requires an explicit field list
-for CSV, and the builder does not expose one yet, so this call currently fails
-at export time. Use JSON until the field list is added.
+```go
+f, err := os.CreateTemp("", "people-*.json.gz")
+require.NoError(t, err)
+t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
-## Where the file goes
+compressed := gzip.NewWriter(f)
+_, err = exporter.New(c.URI(), "app", "people").WriteJSON(compressed, exporter.JSONOptions{})
+require.NoError(t, err)
+require.NoError(t, compressed.Close())
+require.NoError(t, f.Close())
+```
 
-With no `Filepath`, the export lands in the system temporary directory with a
-name such as `mongoexport-app-roster-123456.json`. Remove it in `t.Cleanup`
-or move it into your `testdata` directory when you mean to keep it.
+Close the gzip writer before the file, or the file is incomplete.
 
-!!! bug "`Filepath` is unreliable today"
-    The current implementation opens the given path read-only, so writing to
-    it fails. Leave `Filepath` unset, take the temporary path that is
-    returned, and `os.Rename` it where you want it. This is tracked with the
-    exporter's move into its own module ([#43](https://github.com/TopherGopher/mongotest/issues/43)).
+## Errors
 
-## Dependency note
+Every failed export satisfies `errors.Is(err, exporter.ErrExport)`. The
+error names the collection and wraps `mongoexport`'s own error. An export
+fails, rather than writing nothing, when:
 
-The exporter is moving to its own module, issue
-[#43](https://github.com/TopherGopher/mongotest/issues/43).
+- the server cannot be reached;
+- the collection does not exist, which is usually a misspelt name;
+- the connection string, database or collection is empty;
+- the query or sort is not valid JSON;
+- `WriteCSV` is given no fields;
+- the writer returns an error.
+
+## Moving from `DatabaseExporter`
+
+The root package's `DatabaseExporter` is replaced by this module, and is
+removed with the rest of the old implementation
+([#44](https://github.com/TopherGopher/mongotest/issues/44)). The connection
+string the old `conn` used is `conn.URI()`.
+
+| Before | After |
+| --- | --- |
+| `conn.DatabaseExporter(db, coll)` | `exporter.New(conn.URI(), db, coll)` |
+| `Database(name)`, `Collection(name)` | Pass them to `New`. |
+| `ToJSONFile(...)`, which wrote to a temporary file and returned its path | `os.CreateTemp`, then `WriteJSON` into it. |
+| `ToJSONFile`'s `compressToGZIP` argument | Wrap the file in `gzip.NewWriter`. |
+| `CSVFile()`, which could not be given fields | `WriteCSV(w, fields)` |
+| `Filepath(path)` | `os.Create(path)`, then write into it. |

@@ -1,69 +1,61 @@
 ---
 title: Scripts and exec
-description: Running a JavaScript file or any command inside the mongo container.
-status: changing
-tracks: ["#35"]
+description: Running JavaScript or any command inside the mongo container.
+status: current
 ---
 
 # Scripts and exec
 
-`TestConnection` can run a command, or a JavaScript file, inside the
-container.
+The container an instance started can run a script in MongoDB's shell, or
+any command in the image.
 
 ```go
-func (tc *TestConnection) RunMongoScriptOnContainer(mongoScript string) (output string, err error)
-func (tc *TestConnection) ExecCommandInMongoContainer(cmd []string) (output string, err error)
+inst := mongotest.Run(t)
+
+ok, err := inst.Container.RunScript(t.Context(), "db.runCommand({ping: 1}).ok")
+result, err := inst.Container.Exec(t.Context(), "mongod", "--version")
 ```
 
-## Running a command
+An instance from `Attach` has no container: check `inst.Container` for nil
+first.
 
-`ExecCommandInMongoContainer` runs any program that exists in the image and
-returns everything it printed. A non-zero exit code is returned as an error,
-with the output still populated so you can read what went wrong.
+## Running a script
 
-```go
-out, err := conn.ExecCommandInMongoContainer([]string{
-    "mongosh", "--quiet", "--eval", "db.getSiblingDB('app').stats().ok",
-})
-require.NoError(t, err)
-require.Contains(t, out, "1")
-```
-
-Some useful commands:
-
-| Command | What for |
-| --- | --- |
-| `mongosh --quiet --eval '<js>'` | Run a line of JavaScript on MongoDB 6 and newer. |
-| `mongoimport --db app --collection roster --file /tmp/roster.json` | Load a fixture you copied in. |
-| `mongod --version` | Confirm which server version `latest` resolved to. |
-| `cat /proc/meminfo` | Debug a slow or dying container. |
-
-## Running a script file
-
-`RunMongoScriptOnContainer` takes JavaScript source, writes it to a file inside
-the container and runs it with the shell. Multi-line scripts are fine.
+`RunScript` runs JavaScript in the image's shell, `mongosh`, or the legacy
+`mongo` where the image has only that. When the container has credentials,
+the shell logs in as the root user first. It returns what the script printed,
+trimmed, which for a one-line script is the value of its last expression.
+Multi-line scripts are fine:
 
 ```go
-out, err := conn.RunMongoScriptOnContainer(`
-    const db = db.getSiblingDB('app');
-    db.roster.insertMany([
+out, err := inst.Container.RunScript(t.Context(), `
+    const app = db.getSiblingDB('app');
+    app.roster.insertMany([
         { name: 'Diana', city: 'Themyscira' },
         { name: 'Bruce', city: 'Gotham' },
     ]);
-    print(db.roster.countDocuments());
+    app.roster.countDocuments()
 `)
 require.NoError(t, err)
-require.Equal(t, "2", strings.TrimSpace(out))
+require.Equal(t, "2", out)
 ```
 
-!!! warning "Uses the legacy `mongo` shell"
-    The script is executed with `mongo --quiet <file>`. The official image
-    dropped that binary in MongoDB 6.0 in favour of `mongosh`, so against
-    `mongo:latest` this call fails with `executable file not found`. Either
-    [pin an older image](replica-sets.md#two-limits-today) or use
-    `ExecCommandInMongoContainer` with `mongosh` as shown above. Moving this
-    call onto `mongosh` is tracked in
-    [#35](https://github.com/TopherGopher/mongotest/issues/35).
+`db` is the `test` database; use `db.getSiblingDB(name)` for another. Each
+shell formats a document its own way, so end with `JSON.stringify(...)` to
+parse the result. A script that throws returns a `*mongod.ScriptError`, which
+matches `mongod.ErrScriptFailed` and holds everything the shell wrote.
+
+## Running a command
+
+`Exec` runs any program in the image and returns a `dockerclient.ExecResult`
+with `Stdout`, `Stderr` and `ExitCode`. A command that exits non-zero is a
+result, not an error.
+
+| Command | What for |
+| --- | --- |
+| `mongoimport --db app --collection roster --file /tmp/roster.json` | Load a fixture you copied in. |
+| `mongod --version` | Confirm which server version the image runs. |
+| `cat /proc/meminfo` | Debug a slow or dying container. |
 
 ## Seeding from a fixture file
 
@@ -74,18 +66,19 @@ inline:
 docs := `{"name":"Diana","city":"Themyscira"}
 {"name":"Bruce","city":"Gotham"}`
 
-_, err := conn.ExecCommandInMongoContainer([]string{
-    "sh", "-c", "printf '%s' '" + docs + "' | mongoimport --quiet --db app --collection roster",
-})
+result, err := inst.Container.Exec(t.Context(),
+    "sh", "-c", "printf '%s' '"+docs+"' | mongoimport --quiet --db app --collection roster")
 require.NoError(t, err)
+require.Zero(t, result.ExitCode, result.Stderr)
 ```
 
 For anything larger than a few lines, insert through the driver instead; it
 is faster and avoids quoting.
 
-## Output handling
+## The earlier methods
 
-Both calls return the combined stdout and stderr of the process as one string,
-with a trailing newline. Trim before comparing. The container's own log
-(`mongod` output) is separate; read it with `docker logs <id>` using
-`conn.MongoContainerID()`.
+`RunMongoScriptOnContainer` and `ExecCommandInMongoContainer` still work. On
+failure, both return what the process wrote and an error matching
+`mongotest.ErrCommandFailed`; the second returns standard output followed by
+standard error. Both return `mongotest.ErrNoContainer` for an instance from
+`Attach`.
