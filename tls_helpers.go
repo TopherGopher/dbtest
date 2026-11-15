@@ -11,15 +11,18 @@ import (
 	"time"
 )
 
-// GenerateCARoot generates a new CA root PEM file and private key
-// Huge thanks to Mattemagikern for publishing this code in a random gist
+// GenerateCARoot generates a self-signed CA certificate, its PEM encoding and
+// its RSA key. To run mongod with TLS, use WithTLS instead, which makes the
+// certificates itself.
+//
+// It was adapted from a gist by Mattemagikern:
 // https://gist.github.com/Mattemagikern/328cdd650be33bc33105e26db88e487d
 func GenerateCARoot() (rootCert *x509.Certificate, rootPEM []byte, privKey *rsa.PrivateKey) {
 	var rootTemplate = x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
 			Country:      []string{"US"},
-			Organization: []string{"easymongo"},
+			Organization: []string{"mongotest"},
 			CommonName:   "Root CA",
 		},
 		NotBefore:             time.Now().Add(-10 * time.Second),

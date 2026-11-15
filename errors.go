@@ -1,26 +1,26 @@
 package mongotest
 
-import "errors"
+import (
+	"context"
+	"errors"
 
-var (
-	// ErrFailedToConnectToDockerDaemon denotes that we couldn't connect to the docker daemon
-	// running locally on the machine.
-	ErrFailedToConnectToDockerDaemon = errors.New("could not connect to docker daemon")
-	// ErrNoAvailablePorts denotes that no ports were available for binding the docker mongo instance to
-	ErrNoAvailablePorts = errors.New("no ports are available to bind the docker mongo instance to")
-	// ErrMongoContainerAlreadyRunning
-	ErrMongoContainerAlreadyRunning = errors.New("the mongo container is already running - an attempt was made to call it a second time")
+	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/mongod"
 )
 
-type MongoTestError struct {
-	err error
-}
+// Error values from the package's earlier API. The two Docker ones are the
+// dockerclient sentinels a start now returns, so errors.Is matches them.
+var (
+	// ErrFailedToConnectToDockerDaemon: no Docker daemon could be reached.
+	ErrFailedToConnectToDockerDaemon = dockerclient.ErrConnectionFailed
+	// ErrNoAvailablePorts: GetAvailablePort could not listen on a port.
+	ErrNoAvailablePorts = errors.New("mongotest: no port is free to listen on")
+	// ErrMongoContainerAlreadyRunning: a container with the name asked for
+	// already exists. Remove it, or choose another name with WithName.
+	ErrMongoContainerAlreadyRunning = dockerclient.ErrConflict
+)
 
-func NewMongoTestError(err error) *MongoTestError {
-	return &MongoTestError{
-		err: err,
-	}
-}
-func (mte *MongoTestError) Unwrap() error {
-	return mte.err
-}
+// ReapRunningContainers is a convenience wrapper around
+// mongod.ReapRunningContainers that discards its error; new code may prefer
+// that function.
+func ReapRunningContainers() { _ = mongod.ReapRunningContainers(context.Background()) }
