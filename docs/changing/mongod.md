@@ -101,6 +101,20 @@ through a mirror, name the image there:
 mongod.DefaultOptions().WithImage("mirror.corp.example/mongo")
 ```
 
+A start pulls an image the daemon does not have. `PullImage` does that ahead
+of time, for the image a start with the same options would run, and leaves
+alone an image the daemon already has. Call it once in `TestMain`, so that
+tests starting in parallel do not each find the image missing:
+
+```go
+func TestMain(m *testing.M) {
+    if err := mongod.PullImage(context.Background(), mongod.DefaultOptions()); err != nil {
+        log.Fatal(err)
+    }
+    os.Exit(m.Run())
+}
+```
+
 ## The container
 
 | Method | Returns |
@@ -125,6 +139,14 @@ step failed, and matches a sentinel such as `ErrNotReady` or
 the message says which of these happened: nothing answered at the address,
 something answered that is not `mongod`, or `mongod` answered with an error.
 A start that gets no answer from the daemon ends at the start timeout.
+
+## Many containers at once
+
+Containers can be started in parallel, and each is its own server with its
+own data. How many a machine manages at once depends on its CPUs, because
+every `mongod` has to be ready within the start timeout; issue
+[#82](https://github.com/TopherGopher/mongotest/issues/82) will make extra
+starts wait their turn.
 
 ## Who can connect
 
