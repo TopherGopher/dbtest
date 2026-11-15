@@ -6,46 +6,101 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/tophergopher/mongotest/dockerclient"
 )
 
 // initiateScript makes mongod the only member of its replica set, then waits
-// until it is primary, which is when it accepts writes.
-const initiateScript = `rs.initiate(); while (!db.hello().isWritablePrimary) sleep(50)`
+// until it is primary, which is when it accepts writes. It checks the result
+// itself: the legacy shell reports a failure in a value and carries on.
+const initiateScript = `var r = rs.initiate(); if (!r.ok) throw new Error(tojson(r)); ` +
+	`while (!db.hello().isWritablePrimary) sleep(50);`
 
 // authenticateScript logs the shell in as the root user. It reads the
 // credentials from the environment the container was created with, because
-// a command line is visible to every user of the daemon's host.
-var authenticateScript = fmt.Sprintf(`db.getSiblingDB("admin").auth(process.env.%s, process.env.%s); `,
+// a command line is visible to every user of the daemon's host. mongosh
+// reads the environment through process.env and the legacy shell through
+// _getEnv, so the script uses whichever it is given.
+var authenticateScript = fmt.Sprintf(
+	`var env = typeof process === "object" ? function (n) { return process.env[n]; } : _getEnv; `+
+		`if (!db.getSiblingDB("admin").auth(env(%q), env(%q))) throw new Error("authentication failed"); `,
 	rootCredentialEnv[0].username, rootCredentialEnv[0].password)
+
+// shells are the programs that can run the script, the current one first.
+// Images from MongoDB 6.0 have only mongosh, and images before 5.0 only the
+// legacy mongo shell.
+var shells = []string{"mongosh", "mongo"}
+
+// exitNoSuchProgram is the exit code a container runtime reports for a
+// program the image does not have. The wording of its message varies
+// between runtimes, so only the code is trusted.
+const exitNoSuchProgram = 127
+
+// maxShellOutputLen is the most of a shell's own words quoted in an error.
+const maxShellOutputLen = 500
 
 // errNoPrimary is why a start ran out of time during initiation, inside the
 // NotReadyError a caller sees.
 var errNoPrimary = errors.New("the replica set had not accepted writes yet")
 
-// initiateReplicaSet runs initiateScript inside the container. Initiating
-// needs a MongoDB client, and the image's own mongosh is the one that is
-// already there.
+// initiateReplicaSet runs initiateScript inside the container. A flag makes
+// mongod a member of a set, but the set exists only once a client has sent
+// the command that initiates it, and the shell in the image is the client
+// that is already there.
 func (c *Container) initiateReplicaSet(ctx context.Context) error {
-	c.logger.Debug("initiating the replica set", "container", c.name, "replicaSet", c.replicaSet)
-	result, err := c.docker.Exec(ctx, c.id, c.mongosh(initiateScript)...)
-	if err != nil {
-		return c.startError(OpInitiate, fmt.Errorf("%w: %w", ErrNotInitiated, err))
+	c.logger.Debug("Initiating the replica set, so that mongod accepts writes.", "container", c.name, "replicaSet", c.replicaSet)
+	for _, shell := range shells {
+		result, err := c.docker.Exec(ctx, c.id, c.shellCommand(shell, initiateScript)...)
+		switch {
+		case err != nil:
+			return c.startError(OpInitiate, &notInitiatedError{reason: "the daemon could not run a shell inside the container", err: err})
+		case result.ExitCode == 0:
+			return nil
+		case result.ExitCode != exitNoSuchProgram:
+			return c.startError(OpInitiate, shellFailed(shell, result))
+		}
 	}
-	if result.ExitCode != 0 {
-		// The daemon reports a program it could not find on standard output.
-		output := cmp.Or(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout))
-		return c.startError(OpInitiate, fmt.Errorf("%w: mongosh exited with code %d: %s",
-			ErrNotInitiated, result.ExitCode, output))
-	}
-	return nil
+	return c.startError(OpInitiate, &notInitiatedError{reason: reasonNoShell})
 }
 
-// mongosh returns the command that runs a script in the container's shell,
+// reasonNoShell is why an image with no MongoDB shell cannot have a replica
+// set, and what to do about it.
+const reasonNoShell = "the image has neither mongosh nor the legacy mongo shell, and Start runs one of them " +
+	"inside the container to call rs.initiate(). Use an image that has one (every official mongo image from 4.4 does), " +
+	"or leave out WithReplicaSet for a standalone mongod"
+
+// shellFailed reports a shell that ran and exited with an error, in its own
+// words. It writes them to standard error.
+func shellFailed(shell string, result dockerclient.ExecResult) error {
+	output := cmp.Or(strings.TrimSpace(result.Stderr), strings.TrimSpace(result.Stdout))
+	return &notInitiatedError{reason: fmt.Sprintf("%s exited with code %d: %s",
+		shell, result.ExitCode, truncate(output, maxShellOutputLen))}
+}
+
+// notInitiatedError says why a replica set was not initiated. It matches
+// ErrNotInitiated and whatever caused it.
+type notInitiatedError struct {
+	reason string
+	err    error
+}
+
+func (e *notInitiatedError) Error() string {
+	if e.err == nil {
+		return e.reason
+	}
+	return e.reason + ": " + e.err.Error()
+}
+
+func (e *notInitiatedError) Unwrap() error { return e.err }
+
+func (e *notInitiatedError) Is(target error) bool { return target == ErrNotInitiated }
+
+// shellCommand returns the command that runs a script in one of the shells,
 // as the root user when there is one. A mongod with no users refuses an
 // attempt to authenticate, so the script only tries when there is.
-func (c *Container) mongosh(script string) []string {
+func (c *Container) shellCommand(shell, script string) []string {
 	if c.username != "" {
 		script = authenticateScript + script
 	}
-	return []string{"mongosh", "--quiet", "--norc", "--eval", script}
+	return []string{shell, "--quiet", "--norc", "--eval", script}
 }

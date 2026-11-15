@@ -24,6 +24,66 @@ func shell(m *dockermock.Mock, result dockerclient.ExecResult, err error) (comma
 	return commands
 }
 
+// shellsThatAnswer makes a mocked daemon answer each shell program with its
+// own result, and record which programs were tried.
+func shellsThatAnswer(m *dockermock.Mock, results map[string]dockerclient.ExecResult) (tried *[]string) {
+	tried = new([]string)
+	m.ExecFunc = func(_ context.Context, _ string, cmd ...string) (dockerclient.ExecResult, error) {
+		*tried = append(*tried, cmd[0])
+		return results[cmd[0]], nil
+	}
+	return tried
+}
+
+// notInTheImage is what the daemon reports for a program a container lacks.
+var notInTheImage = dockerclient.ExecResult{ExitCode: 127, Stdout: `exec: "mongosh": executable file not found in $PATH`}
+
+func TestTheSetIsInitiatedWithMongoshWhenTheImageHasIt(t *testing.T) {
+	m, _ := readyMock(t)
+	tried := shellsThatAnswer(m, map[string]dockerclient.ExecResult{"mongosh": {}})
+
+	mustStart(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
+
+	assert.Equal(t, []string{"mongosh"}, *tried, "an image with the current shell needs nothing else")
+}
+
+// Images before MongoDB 5.0 ship only the legacy shell, which can initiate a
+// set just as well.
+func TestTheSetIsInitiatedWithTheLegacyShellWhenThatIsAllTheImageHas(t *testing.T) {
+	m, _ := readyMock(t)
+	tried := shellsThatAnswer(m, map[string]dockerclient.ExecResult{"mongosh": notInTheImage, "mongo": {}})
+
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
+
+	require.NoError(t, err, "an older image still gets a replica set")
+	assert.Equal(t, []string{"mongosh", "mongo"}, *tried, "the legacy shell is tried only when the current one is missing")
+}
+
+func TestAnImageWithNoShellCannotHaveAReplicaSet(t *testing.T) {
+	m, _ := readyMock(t)
+	tried := shellsThatAnswer(m, map[string]dockerclient.ExecResult{"mongosh": notInTheImage, "mongo": notInTheImage})
+
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
+
+	require.ErrorIs(t, err, mongod.ErrNotInitiated, "nothing in the image can initiate the set")
+	assert.Equal(t, []string{"mongosh", "mongo"}, *tried, "after both shells were looked for")
+}
+
+// A shell that ran and failed is not a missing shell: trying the other one
+// would hide what it said.
+func TestAShellThatFailsIsReportedAndTheOtherIsNotTried(t *testing.T) {
+	m, _ := readyMock(t)
+	tried := shellsThatAnswer(m, map[string]dockerclient.ExecResult{
+		"mongosh": {ExitCode: 1, Stderr: "MongoServerError: not authorized on admin"},
+	})
+
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
+
+	require.ErrorIs(t, err, mongod.ErrNotInitiated, "the set was not initiated")
+	assert.Equal(t, []string{"mongosh"}, *tried, "the image has a shell, so there is nothing to fall back from")
+	assert.Contains(t, err.Error(), "not authorized on admin", "and what the shell said reaches the caller")
+}
+
 func TestWithReplicaSetStartsMongodAsAMember(t *testing.T) {
 	m, _ := readyMock(t)
 
@@ -65,7 +125,6 @@ func TestAStartFailsWhenTheSetCannotBeInitiated(t *testing.T) {
 		err    error
 	}{
 		{name: "the shell reports a failure", result: dockerclient.ExecResult{ExitCode: 1, Stderr: "MongoServerError: not authorized"}},
-		{name: "the image has no shell to run", result: dockerclient.ExecResult{ExitCode: 127, Stdout: "exec: mongosh: executable file not found"}},
 		{name: "the daemon cannot run anything", err: errors.New("the daemon refused the exec")},
 	}
 	for _, tc := range cases {
