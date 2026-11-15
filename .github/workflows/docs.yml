@@ -1,0 +1,90 @@
+name: Docs
+
+# Builds the documentation site on every change and publishes it to GitHub
+# Pages when the change lands on main. Pull requests get a build check only,
+# so a broken page is caught before it ships.
+#
+# One-time setup: in the repository settings, under Pages, set "Source" to
+# "GitHub Actions". The deploy job cannot do that for you.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time for each branch. A newer push waits for a deployment in
+# flight and replaces one still queued. Pull requests have groups of their
+# own, so their builds can never push a main deployment out of the queue.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to a commit, because a tag can be moved to point
+      # at different code after it has been reviewed. Dependabot keeps the
+      # commits and the version comments current.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The build runs third-party Python, and nothing in it needs to
+          # talk to GitHub, so the token is not left in .git/config for it.
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install MkDocs
+        # Every package is pinned by hash, transitive ones included, so what
+        # builds the published site is exactly what was reviewed.
+        run: pip install --require-hashes -r docs/requirements.txt
+
+      - name: Build
+        # --strict turns warnings (broken links, missing pages in nav) into
+        # failures, so a typo in a link fails the check instead of shipping.
+        run: mkdocs build --strict --verbose
+
+      - name: Upload Pages artifact
+        # Nothing consumes it on a pull request, which only needs the check.
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Only publish from main. Pull requests stop after the build job, and
+    # so does a manual run started from any other branch.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
