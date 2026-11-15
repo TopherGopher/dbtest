@@ -2,6 +2,8 @@ package mongod_test
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -53,6 +55,15 @@ func TestTheImageAStartRuns(t *testing.T) {
 		{name: "a later version replaces an earlier one",
 			opts: mongod.DefaultOptions().WithImage("7.0").WithImage("6.0"),
 			want: "docker.io/library/mongo:6.0"},
+		{name: "a version on a known image replaces one named before it, even the default one",
+			opts: mongod.DefaultOptions().WithImage("7.0").WithMongoImage(mongod.ImageDockerHub.WithVersion("8.0")),
+			want: "docker.io/library/mongo:8.0"},
+		{name: "and is replaced by one named after it",
+			opts: mongod.DefaultOptions().WithMongoImage(mongod.ImageDockerHub.WithVersion("8.0")).WithImage("7.0"),
+			want: "docker.io/library/mongo:7.0"},
+		{name: "Docker Hub's official image is spelled out under any of its names",
+			opts: mongod.DefaultOptions().WithMongoImage(mongod.MongoImage{Registry: "docker.io", Repository: "mongo"}),
+			want: "docker.io/library/mongo:8.0"},
 		{name: "a later image replaces the registry too",
 			opts: mongod.DefaultOptions().WithMongoImage(mongod.ImagePublicECR).WithMongoImage(mongod.ImageDockerHub),
 			want: "docker.io/library/mongo:8.0"},
@@ -66,6 +77,8 @@ func TestTheImageAStartRuns(t *testing.T) {
 			want: "public.ecr.aws/docker/library/mongo:7.0"},
 		{name: "the environment with a version from an option", env: "public.ecr.aws/docker/library/mongo",
 			opts: mongod.DefaultOptions().WithImage("7.0"), want: "public.ecr.aws/docker/library/mongo:7.0"},
+		{name: "a version from an option beats one in the environment", env: "mongo:7.0",
+			opts: mongod.DefaultOptions().WithImage("6.0"), want: "docker.io/library/mongo:6.0"},
 		{name: "an option naming an image ignores the environment", env: "public.ecr.aws/docker/library/mongo:7.0",
 			opts: mongod.DefaultOptions().WithMongoImage(mongod.ImageCommunity),
 			want: "docker.io/mongodb/mongodb-community-server:8.0-ubi9"},
@@ -78,6 +91,30 @@ func TestTheImageAStartRuns(t *testing.T) {
 
 			assert.Equal(t, tc.want, requestFor(t, tc.opts).Image, "the image the daemon is asked for")
 		})
+	}
+}
+
+// WithImage takes a reference as text and WithMongoImage takes it as a value.
+// Which one a caller reaches for must not change the image that runs.
+func TestAReferenceMeansTheSameAsTextAndAsAValue(t *testing.T) {
+	refs := []string{"6.0", "mongo:8.0", "mongo", "public.ecr.aws/docker/library/mongo:8.0", "mongodb/mongodb-community-server:8.0-ubi9"}
+	type setter = func(mongod.Options) mongod.Options
+	orders := map[string]func(set setter) mongod.Options{
+		"on its own":       func(set setter) mongod.Options { return set(mongod.DefaultOptions()) },
+		"after a version":  func(set setter) mongod.Options { return set(mongod.DefaultOptions().WithImage("7.0")) },
+		"before a version": func(set setter) mongod.Options { return set(mongod.DefaultOptions()).WithImage("7.0-ubi9") },
+	}
+	for _, ref := range refs {
+		for order, arrange := range orders {
+			t.Run(ref+" "+order, func(t *testing.T) {
+				asText := arrange(func(o mongod.Options) mongod.Options { return o.WithImage(ref) })
+				asValue := arrange(func(o mongod.Options) mongod.Options {
+					return o.WithMongoImage(mongod.MustParseMongoImage(ref))
+				})
+
+				assert.Equal(t, requestFor(t, asText).Image, requestFor(t, asValue).Image, "the same reference asks the daemon for the same image")
+			})
+		}
 	}
 }
 
@@ -163,6 +200,8 @@ func TestOptionsThatCannotWorkAreRefused(t *testing.T) {
 			opts: mongod.DefaultOptions().WithMongoImage(mongod.ImageEnterprise.WithVersion("8.0")), want: mongod.ErrNoSuchVersion},
 		{name: "a bare version for the community image under its short name",
 			opts: mongod.DefaultOptions().WithImage("mongodb/mongodb-community-server:8"), want: mongod.ErrNoSuchVersion},
+		{name: "a version named for one image that the image chosen after it does not publish",
+			opts: mongod.DefaultOptions().WithImage("mongo:7.0").WithMongoImage(mongod.ImageCommunity), want: mongod.ErrNoSuchVersion},
 		{name: "a replica set for Atlas Local under its full name",
 			opts: mongod.DefaultOptions().WithImage("docker.io/mongodb/mongodb-atlas-local").WithReplicaSet("rs0"), want: mongod.ErrUnsupportedForImage},
 		{name: "a replica set for Atlas Local, which runs its own",
@@ -227,10 +266,14 @@ func TestANilLoggerIsIgnored(t *testing.T) {
 // reads like a failed registry login.
 func TestOptionMistakesAreReportedAsMongodsOwn(t *testing.T) {
 	mistakes := map[string]mongod.Options{
-		"half-set credentials": mongod.DefaultOptions().WithAuth("admin", ""),
-		"a port out of range":  mongod.DefaultOptions().WithPort(70000),
-		"an empty image":       mongod.DefaultOptions().WithImage(""),
-		"a negative timeout":   mongod.DefaultOptions().WithStartTimeout(-time.Second),
+		"half-set credentials":               mongod.DefaultOptions().WithAuth("admin", ""),
+		"a port out of range":                mongod.DefaultOptions().WithPort(70000),
+		"an empty image":                     mongod.DefaultOptions().WithImage(""),
+		"a negative timeout":                 mongod.DefaultOptions().WithStartTimeout(-time.Second),
+		"an image in capitals":               mongod.DefaultOptions().WithImage("Mongo:8"),
+		"an image given as a URL":            mongod.DefaultOptions().WithImage("https://mirror.corp.example/mongo"),
+		"a version that is not a tag":        mongod.DefaultOptions().WithImage("8.0!"),
+		"an image value docker would refuse": mongod.DefaultOptions().WithMongoImage(mongod.MongoImage{Repository: "Mongo"}),
 	}
 	for name, mistake := range mistakes {
 		t.Run(name, func(t *testing.T) {
@@ -259,6 +302,35 @@ func TestAWithMethodLeavesTheOptionsItWasCalledOnAlone(t *testing.T) {
 	assert.Equal(t, "refund", fromDerived.Labels["test"], "the copy has what was added")
 	assert.Equal(t, "checkout", fromDerived.Labels["suite"], "and what the base had")
 	assert.Equal(t, []string{"--quiet", "--notablescan"}, fromDerived.Cmd, "with flags in the order given")
+}
+
+// Two tests that each add a flag to the same base must not find the other's.
+func TestOptionsDerivedFromTheSameBaseDoNotShareFlags(t *testing.T) {
+	base := mongod.DefaultOptions().WithMongodArgs("--quiet", "--nounixsocket", "--noscripting").WithMongodArgs("--notablescan")
+
+	first := base.WithMongodArgs("--profile=1")
+	second := base.WithMongodArgs("--profile=2")
+
+	fromBase := requestFor(t, base).Cmd
+	assert.Equal(t, []string{"--quiet", "--nounixsocket", "--noscripting", "--notablescan"}, fromBase, "the base has neither of the flags added to its copies")
+	assert.Equal(t, append(slices.Clone(fromBase), "--profile=1"), requestFor(t, first).Cmd, "the first copy has its own flag")
+	assert.Equal(t, append(slices.Clone(fromBase), "--profile=2"), requestFor(t, second).Cmd, "and so has the second, which was derived after it")
+}
+
+// A failing test prints its options, and a CI log is read by more people
+// than should know the password.
+func TestPrintingOptionsHidesThePassword(t *testing.T) {
+	const password = "s3cret-keep-out"
+	opts := mongod.DefaultOptions().WithImage("mirror.corp.example/mongo:7.0").WithAuth("admin", password)
+
+	plain := fmt.Sprint(opts)
+
+	assert.NotContains(t, plain, password, "the password is not printed")
+	assert.Contains(t, plain, "mirror.corp.example/mongo:7.0", "while the settings a reader is looking for still are")
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%d"} {
+		assert.Equal(t, plain, fmt.Sprintf(verb, opts), "%s prints the same, so no verb spells the password out in another form", verb)
+		assert.Equal(t, plain, fmt.Sprintf(verb, &opts), "and so does %s of a pointer", verb)
+	}
 }
 
 // Declaring an Options is as good as asking for the default one.

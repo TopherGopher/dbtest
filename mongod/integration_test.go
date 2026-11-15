@@ -106,7 +106,8 @@ func TestIntegrationStartNeedsNoOptions(t *testing.T) {
 	require.NoError(t, err, "mongod integration: the default call must work; is a Docker daemon reachable?")
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
-	assert.Equal(t, mongod.ImageDockerHub.Reference(), c.Image(), "it runs the default image")
+	assert.Equal(t, mongod.ImageDockerHub, c.MongoImage().WithVersion(""), "it runs the default image")
+	assert.NotEmpty(t, c.MongoImage().Version, "at a version the start filled in")
 	assert.NoError(t, askHello(net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))), "and mongod answers at the address it reports")
 }
 
@@ -193,7 +194,8 @@ func TestIntegrationWellKnownImagesStart(t *testing.T) {
 			require.NoError(t, err, "mongod integration: %s must start; a well-known image constant that does not resolve to a runnable image is worse than none", tc.image)
 			t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
-			assert.Equal(t, tc.image.Reference(), c.Image(), "the container runs the image the constant names")
+			assert.Equal(t, tc.image, c.MongoImage().WithVersion(""), "the container runs the image the constant names")
+			assert.NotEmpty(t, c.MongoImage().Version, "at the default version the start filled in, since the constant names none")
 
 			assert.Equal(t, "1", evalIn(t, ctx, docker, c, "db.runCommand({ping:1}).ok"),
 				"the server answers the first command it is sent, with no retry")
@@ -261,9 +263,11 @@ func TestIntegrationAtlasLocalWouldDieIfGivenMongodFlags(t *testing.T) {
 	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithMongoImage(mongod.ImageAtlasLocal).WithMongodArgs("--quiet"))
 	require.ErrorIs(t, err, mongod.ErrUnsupportedForImage, "the combination is refused rather than attempted")
 
-	// What it is protecting against: the same request made directly.
+	// What it is protecting against: the same request made directly. The
+	// version is the one requireImage fetched; with none, the daemon would
+	// go looking for "latest".
 	id, _, err := docker.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
-		Image:  mongod.ImageAtlasLocal.Reference(),
+		Image:  mongod.ImageAtlasLocal.WithVersion("8.0").Reference(),
 		Cmd:    []string{"--quiet"},
 		Labels: map[string]string{key: value},
 	})

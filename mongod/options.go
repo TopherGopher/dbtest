@@ -3,6 +3,8 @@ package mongod
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -88,37 +90,31 @@ func DefaultOptions() Options { return Options{} }
 //	"mirror.corp.example/mongo"              the same image from a mirror
 //	"public.ecr.aws/docker/library/mongo:8"  everything
 func (o Options) WithImage(ref string) Options {
-	parsed, err := ParseMongoImage(ref)
+	parsed, err := parseImage("WithImage", ref)
 	if err != nil {
 		return o.refused(err)
 	}
-	return o.withImageParts(parsed, parsed.Version)
+	return o.WithMongoImage(parsed)
 }
 
-// WithMongoImage sets the image to one of the known ones. A version named
-// with WithImage, before or after, is kept:
+// WithMongoImage sets the image from a value, such as one of the known
+// images. Like WithImage it changes only the parts the value names.
 //
-//	mongod.DefaultOptions().WithMongoImage(mongod.ImagePublicECR).WithImage("7.0")
+// A version named anywhere stays until another is named, even when the image
+// changes after it:
 //
-// The image's own version is used only if it differs from that image's
-// default, as after MongoImage.WithVersion.
+//	mongod.DefaultOptions().WithImage("7.0").WithMongoImage(mongod.ImagePublicECR)   // public ECR's mongo:7.0
+//	mongod.DefaultOptions().WithMongoImage(mongod.ImagePublicECR).WithImage("7.0")   // the same
+//
+// So WithImage("mongo:7.0").WithMongoImage(mongod.ImageCommunity) is refused
+// with a [NoSuchVersionError]: the community image publishes no tag "7.0".
 func (o Options) WithMongoImage(img MongoImage) Options {
-	named := img.Version
-	if named == img.defaultTag() {
-		named = ""
-	}
-	return o.withImageParts(img, named)
-}
-
-// withImageParts takes the repository an image names, if it names one, and
-// the version the caller named, if any.
-func (o Options) withImageParts(img MongoImage, version string) Options {
 	img = img.qualified()
 	if img.Repository != "" {
 		o.image.Registry, o.image.Repository = img.Registry, img.Repository
 	}
-	if version != "" {
-		o.version = version
+	if img.Version != "" {
+		o.version = img.Version
 	}
 	return o
 }
@@ -221,6 +217,19 @@ func (o Options) WithDocker(client dockerclient.Client) Options {
 	return o
 }
 
+// Format prints the options with the password hidden, whatever the verb, so
+// that logging an Options cannot leak it.
+func (o Options) Format(f fmt.State, _ rune) {
+	password := ""
+	if o.password != "" {
+		password = redactedPassword
+	}
+	fmt.Fprintf(f, "mongod.Options{image: %q, name: %q, port: %d, hostIP: %q, replicaSet: %q, username: %q, password: %q, "+
+		"noAuth: %t, mongodArgs: %q, startTimeout: %s, labels: %v}",
+		o.image.WithVersion(o.version).Reference(), o.name, o.port, o.hostIP, o.replicaSet, o.username, password,
+		o.noAuth, o.mongodArgs, o.startTimeout, o.labels)
+}
+
 // refused remembers the first value a With method could not accept.
 func (o Options) refused(err error) Options {
 	if o.err == nil {
@@ -277,8 +286,10 @@ func resolveImage(image MongoImage) (MongoImage, error) {
 	if image.Version == "" {
 		image.Version = image.defaultTag()
 	}
+	// Everything given as text was checked when it was parsed, so only the
+	// fields of an image value can make a reference docker would refuse.
 	if _, err := dockerclient.ParseImageRef(image.Reference()); err != nil {
-		return MongoImage{}, err
+		return MongoImage{}, &imageRefError{source: "WithMongoImage", ref: image.Reference(), reason: errNotAnImage}
 	}
 	return image, nil
 }
@@ -289,11 +300,12 @@ func imageFromEnv() (MongoImage, error) {
 	if ref == "" {
 		return MongoImage{}, nil
 	}
-	image, err := ParseMongoImage(ref)
-	if err != nil {
+	image, err := parseImage(EnvImage, ref)
+	if errors.Is(err, ErrEmptyImage) {
+		// Only spaces. ErrEmptyImage names WithImage, which nobody called.
 		return MongoImage{}, environmentError(EnvImage, ref, err)
 	}
-	return image, nil
+	return image, err
 }
 
 // resolveStartTimeout takes the timeout from the option, then

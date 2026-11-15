@@ -22,6 +22,8 @@ func TestParseMongoImage(t *testing.T) {
 		{"mongo:8.0", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "8.0"}},
 		{"mongodb/mongodb-atlas-local", mongod.MongoImage{Registry: "docker.io", Repository: "mongodb/mongodb-atlas-local"}},
 		{"docker.io/library/mongo:8.0", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "8.0"}},
+		{"docker.io/mongo", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo"}},
+		{"docker.io/mongo:8.0", mongod.MongoImage{Registry: "docker.io", Repository: "library/mongo", Version: "8.0"}},
 		{"mirror.corp.example/mongo", mongod.MongoImage{Registry: "mirror.corp.example", Repository: "mongo"}},
 		{"public.ecr.aws/docker/library/mongo", mongod.MongoImage{Registry: "public.ecr.aws", Repository: "docker/library/mongo"}},
 		{"localhost:5000/team/mongo", mongod.MongoImage{Registry: "localhost:5000", Repository: "team/mongo"}},
@@ -44,7 +46,7 @@ func TestParseMongoImage(t *testing.T) {
 var digest = strings.Repeat("0123456789abcdef", 4)
 
 func TestParseMongoImageRefusesWhatDockerWould(t *testing.T) {
-	for _, ref := range []string{"", "   ", "Mongo:8", "mongo:8:9", "8.0!"} {
+	for _, ref := range []string{"", "   ", "Mongo:8", "Team/mongo", "mongo:8:9", "mongo:", "8.0!", "https://mirror.corp.example/mongo"} {
 		t.Run(ref, func(t *testing.T) {
 			_, err := mongod.ParseMongoImage(ref)
 
@@ -77,18 +79,27 @@ func TestAnImageRendersAsDockerSpellsIt(t *testing.T) {
 }
 
 func TestAnImageCanBeDerivedFromAKnownOne(t *testing.T) {
-	assert.Equal(t, "mirror.corp.example/library/mongo:8.0", mongod.ImageDockerHub.WithRegistry("mirror.corp.example").Reference(),
+	assert.Equal(t, "mirror.corp.example/library/mongo", mongod.ImageDockerHub.WithRegistry("mirror.corp.example").Reference(),
 		"WithRegistry changes where the image is pulled from")
-	assert.Equal(t, "docker.io/team/mongo:8.0", mongod.ImageDockerHub.WithRepository("team/mongo").Reference(),
+	assert.Equal(t, "docker.io/team/mongo", mongod.ImageDockerHub.WithRepository("team/mongo").Reference(),
 		"WithRepository changes which image it is")
 	assert.Equal(t, "docker.io/library/mongo:7.0", mongod.ImageDockerHub.WithVersion("7.0").Reference(),
-		"WithVersion changes the tag")
+		"WithVersion names the tag")
+}
+
+// A known image stands for whatever its default version is, so it must not
+// look as though the caller had named one.
+func TestTheKnownImagesNameNoVersion(t *testing.T) {
+	known := []mongod.MongoImage{mongod.ImageDockerHub, mongod.ImagePublicECR, mongod.ImageCommunity, mongod.ImageEnterprise, mongod.ImageAtlasLocal}
+	for _, image := range known {
+		assert.Empty(t, image.Version, "%s leaves the version for a start to fill in", image.Repository)
+	}
 }
 
 // Whatever ParseMongoImage accepts must render as a reference that parses
 // back to the same image.
 func FuzzParseMongoImage(f *testing.F) {
-	for _, seed := range []string{"8", "mongo", "mongo:8.0", "localhost:5000/team/mongo:8", "mongo@sha256:" + digest, "mongo@sha512:" + digest + digest} {
+	for _, seed := range []string{"8", "mongo", "mongo:8.0", "docker.io/mongo", "Team/mongo", "localhost:5000/team/mongo:8", "mongo@sha256:" + digest, "mongo@sha512:" + digest + digest} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, ref string) {

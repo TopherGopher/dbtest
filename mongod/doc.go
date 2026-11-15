@@ -29,6 +29,8 @@
 //
 // # Images
 //
+// The known images, and what a start runs for each when no version is named:
+//
 //	ImageDockerHub    docker.io/library/mongo:8.0                            the default
 //	ImagePublicECR    public.ecr.aws/docker/library/mongo:8.0                no Docker Hub rate limit
 //	ImageCommunity    docker.io/mongodb/mongodb-community-server:8.0-ubi9    no bare version tags
@@ -38,6 +40,12 @@
 // Every image is named in full, registry included, so nothing depends on a
 // daemon's default registry. A short name such as "mongo:7" is accepted
 // wherever an image is, and is taken to be Docker Hub's.
+//
+// A version and an image can be named apart, in either order. A version
+// stays until another is named, so both of these run public ECR's mongo:7.0:
+//
+//	mongod.DefaultOptions().WithImage("7.0").WithMongoImage(mongod.ImagePublicECR)
+//	mongod.DefaultOptions().WithMongoImage(mongod.ImagePublicECR).WithImage("7.0")
 //
 // A start pulls an image the daemon does not have. [PullImage] does that
 // ahead of time, which is worth calling once in TestMain when tests start

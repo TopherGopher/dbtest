@@ -39,25 +39,26 @@ const (
 	defaultVersionUBI = "8.0-ubi9"
 )
 
-// The known images. Derive from one with its With methods, which return a
-// copy; do not assign to their fields.
+// The known images. Each names no version, so a start runs the image's
+// default. Derive from one with its With methods, which return a copy; do
+// not assign to their fields.
 //
 //	mongod.ImageCommunity.WithVersion("8.0-ubi8")
 var (
 	// ImageDockerHub is the Docker official image, and the default.
-	ImageDockerHub = MongoImage{Registry: registryDockerHub, Repository: repositoryOfficial, Version: defaultVersion}
+	ImageDockerHub = MongoImage{Registry: registryDockerHub, Repository: repositoryOfficial}
 	// ImagePublicECR is the same image from public ECR.
-	ImagePublicECR = MongoImage{Registry: registryPublicECR, Repository: repositoryPublicECRMirror, Version: defaultVersion}
+	ImagePublicECR = MongoImage{Registry: registryPublicECR, Repository: repositoryPublicECRMirror}
 	// ImageCommunity is MongoDB's community server. It has no bare version
 	// tags: "8" does not exist, "8.0-ubi9" does.
-	ImageCommunity = MongoImage{Registry: registryDockerHub, Repository: repositoryCommunity, Version: defaultVersionUBI}
+	ImageCommunity = MongoImage{Registry: registryDockerHub, Repository: repositoryCommunity}
 	// ImageEnterprise is MongoDB's enterprise server, tagged like community.
-	ImageEnterprise = MongoImage{Registry: registryDockerHub, Repository: repositoryEnterprise, Version: defaultVersionUBI}
+	ImageEnterprise = MongoImage{Registry: registryDockerHub, Repository: repositoryEnterprise}
 	// ImageAtlasLocal is Atlas Local, for Atlas Search and Vector Search.
 	//
 	// It runs its own single-node replica set and takes no mongod flags, so
 	// WithReplicaSet and WithMongodArgs are refused for it.
-	ImageAtlasLocal = MongoImage{Registry: registryDockerHub, Repository: repositoryAtlasLocal, Version: defaultVersion}
+	ImageAtlasLocal = MongoImage{Registry: registryDockerHub, Repository: repositoryAtlasLocal}
 )
 
 // MongoImage is an image in three parts, so one can change without restating
@@ -176,35 +177,66 @@ func (m MongoImage) is(repository string) bool {
 //
 // A lone word is a version if it starts with a digit or is "latest".
 func ParseMongoImage(ref string) (MongoImage, error) {
+	return parseImage("ParseMongoImage", ref)
+}
+
+// parseImage is ParseMongoImage for a reference that an option or a variable
+// gave. source names it, for the error a refused reference gets.
+func parseImage(source, ref string) (MongoImage, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return MongoImage{}, ErrEmptyImage
 	}
-	if isLoneVersion(ref) {
-		if err := checkVersion(ref); err != nil {
-			return MongoImage{}, err
-		}
-		return MongoImage{Version: ref}, nil
+	image, reason := splitReference(ref)
+	if reason != nil {
+		return MongoImage{}, &imageRefError{source: source, ref: ref, reason: reason}
 	}
-	// Everything else is a docker reference, parsed by the same rules the
-	// client validates with.
-	parsed, err := dockerclient.ParseImageRef(ref)
-	if err != nil {
-		return MongoImage{}, err
-	}
-	registry, repository := splitRegistry(parsed.Name)
-	image := MongoImage{Registry: registry, Repository: repository, Version: versionOf(ref, parsed)}
-	return image.qualified(), nil
+	return image, nil
 }
 
-// qualified spells out what Docker assumes for a name with no registry:
-// Docker Hub, and "library/" before an official image's one-word name.
+// splitReference splits a reference into its parts, or says why it is not
+// one. The reason is mongod's own: the Docker client's is written for a
+// reference in full, and blames the case of one that is wrong another way.
+func splitReference(ref string) (MongoImage, error) {
+	switch {
+	case strings.Contains(ref, "://"):
+		return MongoImage{}, errImageHasScheme
+	case isLoneVersion(ref):
+		return loneVersion(ref)
+	}
+	parsed, err := dockerclient.ParseImageRef(ref)
+	if err != nil {
+		return MongoImage{}, errNotAnImage
+	}
+	registry, repository := splitRegistry(parsed.Name)
+	image := MongoImage{Registry: registry, Repository: repository, Version: versionOf(ref, parsed)}.qualified()
+	// Checked again in full: capitals are allowed in a registry's name only,
+	// and a first element such as "Team" has turned out not to be one.
+	if _, err := dockerclient.ParseImageRef(image.Reference()); err != nil {
+		return MongoImage{}, errNotAnImage
+	}
+	return image, nil
+}
+
+// loneVersion returns an image that is only a version, if docker could use
+// the version as a tag.
+func loneVersion(version string) (MongoImage, error) {
+	if _, err := dockerclient.ParseImageRef(repositoryOfficial + ":" + version); err != nil {
+		return MongoImage{}, errNotAVersion
+	}
+	return MongoImage{Version: version}, nil
+}
+
+// qualified spells out what Docker assumes: Docker Hub for a name with no
+// registry, and "library/" before the one-word name of an official image.
 func (m MongoImage) qualified() MongoImage {
-	if m.Repository == "" || m.Registry != "" {
+	if m.Repository == "" {
 		return m
 	}
-	m.Registry = registryDockerHub
-	if !strings.Contains(m.Repository, "/") {
+	if m.Registry == "" {
+		m.Registry = registryDockerHub
+	}
+	if m.Registry == registryDockerHub && !strings.Contains(m.Repository, "/") {
 		m.Repository = officialNamespace + m.Repository
 	}
 	return m
@@ -245,14 +277,4 @@ func splitRegistry(name string) (registry, repository string) {
 		return first, rest
 	}
 	return "", name
-}
-
-// checkVersion rejects a version that could not be a docker tag.
-func checkVersion(version string) error {
-	if _, err := dockerclient.ParseImageRef(repositoryOfficial + ":" + version); err != nil {
-		return dockerclient.InvalidArgument("image version", version,
-			"it is not a valid docker tag",
-			`pass a tag such as "8", "8.0.30" or "8.0-ubi9"`)
-	}
-	return nil
 }

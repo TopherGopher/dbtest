@@ -89,6 +89,33 @@ func (e *optionError) Error() string {
 
 func (e *optionError) Is(target error) bool { return target == dockerclient.ErrInvalidArgument }
 
+// Why a reference cannot name an image, inside the error that says where
+// the reference came from.
+var (
+	errImageHasScheme = errors.New("it starts with a scheme, which an image reference does not have. " +
+		`Leave the scheme out, as in "mirror.corp.example/mongo:8"`)
+	errNotAnImage = errors.New("it is not an image reference. Write [registry/]repository[:tag] in lower case, " +
+		`such as "mongo:8" or "mirror.corp.example/mongo:8", or only a version such as "8.0"`)
+	errNotAVersion = errors.New("it is not a version docker can use as a tag. " +
+		`Write one such as "8", "8.0.30" or "8.0-ubi9"`)
+)
+
+// imageRefError reports a reference that cannot name an image. It matches
+// its reason and dockerclient.ErrInvalidArgument.
+type imageRefError struct {
+	source string // what gave the reference: an option, or a variable's name
+	ref    string
+	reason error
+}
+
+func (e *imageRefError) Error() string {
+	return fmt.Sprintf("mongod: %s: %q cannot be used: %v", e.source, e.ref, e.reason)
+}
+
+func (e *imageRefError) Unwrap() error { return e.reason }
+
+func (e *imageRefError) Is(target error) bool { return target == dockerclient.ErrInvalidArgument }
+
 // errNotADuration is why a MONGOTEST_START_TIMEOUT value is refused.
 var errNotADuration = errors.New(`it is not a positive duration such as "90s" or "2m"`)
 
@@ -110,23 +137,19 @@ func invalidStartTimeout(d time.Duration) error {
 }
 
 // environmentError reports an unusable value in an environment variable. A
-// cause that is itself an invalid argument gives only its problem, so the
-// advice is not said twice.
+// cause written for an option gives only its problem, so the advice for the
+// option is not passed on to someone who set a variable.
 func environmentError(name, value string, cause error) error {
 	return &optionError{option: name, problem: fmt.Sprintf("%q cannot be used: %s", value, problemOf(cause)),
 		fix: "Correct the variable, or unset it to use the default"}
 }
 
 // problemOf returns what is wrong with a value, without the advice an
-// invalid-argument error carries for the option it was written for.
+// option's error carries.
 func problemOf(cause error) string {
-	var fromDocker *dockerclient.InvalidArgumentError
-	var own *optionError
-	switch {
-	case errors.As(cause, &fromDocker):
-		return fromDocker.Problem
-	case errors.As(cause, &own):
-		return own.problem
+	var forOption *optionError
+	if errors.As(cause, &forOption) {
+		return forOption.problem
 	}
 	return cause.Error()
 }
