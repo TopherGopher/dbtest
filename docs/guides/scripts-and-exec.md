@@ -45,8 +45,9 @@ require.Equal(t, "2", out)
 shell formats documents differently. To get output you can parse in Go, end
 the script with `JSON.stringify(...)`.
 
-A script that throws returns a `*mongod.ScriptError`. It holds everything the
-shell wrote, and `errors.Is(err, mongod.ErrScriptFailed)` is true.
+A script that throws returns an error holding a `*mongod.ScriptError`; get it
+with `errors.As`. It holds everything the shell wrote, and
+`errors.Is(err, mongod.ErrScriptFailed)` is true.
 
 ## Running a command
 
@@ -80,7 +81,7 @@ is faster and avoids quoting.
 ## The earlier methods
 
 `RunMongoScriptOnContainer` and `ExecCommandInMongoContainer` are kept for
-existing code; new code uses `RunScript` and `Exec`. On failure, both return
+existing code; new code uses `RunScript` and `Exec`. On a non-zero exit, both return
 what the process wrote and an error matching `mongotest.ErrCommandFailed`.
 `ExecCommandInMongoContainer` always returns standard output followed by
 standard error. Both return `mongotest.ErrNoContainer` for an instance from

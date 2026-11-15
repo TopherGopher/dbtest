@@ -54,15 +54,15 @@ explained, and links out for signatures.
 
 ### Earlier names
 
-Code written against the earlier API still compiles. Each name below is a thin
-wrapper; new code uses the right-hand column.
+The earlier names below still compile; calls through the easymongo
+connection do not (see CHANGELOG.md). New code uses the right-hand column.
 
 | Earlier name | New code uses |
 | --- | --- |
 | `TestConnection` | `Instance` |
 | `NewTestConnection(true)` | `Run` or `Start` |
 | `NewTestConnection(false)` | `Attach` |
-| `NewReplicaSetContainer(name)` | `DefaultOptions().WithReplicaSet(name)` |
+| `NewReplicaSetContainer(name)` | `StartWithOptions(ctx, DefaultOptions().WithReplicaSet(name))` |
 | `MongoClientWithContainer(f)` | `Run(t).Client` |
 | `KillMongoContainer()` | `Stop(ctx)` |
 | `MongoContainerID()` | `Container.ID()` |

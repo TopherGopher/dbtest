@@ -59,7 +59,7 @@ else fails, this lets you find and remove stray containers with one command:
 docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ```
 
-`--volumes` also removes each container's anonymous volumes, which otherwise
+`-v` also removes each container's anonymous volumes, which otherwise
 stay on disk. With nothing to remove, `docker rm` reports a missing argument,
 which is harmless. To look before removing:
 

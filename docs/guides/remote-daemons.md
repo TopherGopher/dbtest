@@ -8,8 +8,8 @@ tracks: ["#52"]
 # Remote and nested daemons
 
 `mongotest.Run` and `mongod.Start` work out an address that reaches the
-container, so the setups below need no configuration. Loopback works only
-when the test process and the daemon share a network.
+container. Loopback works only when the test process and the daemon share a
+network.
 
 ## The four setups
 
@@ -48,7 +48,7 @@ user and a random password, which `URI()` includes; see
 
 ## Using it
 
-With `mongod.Start` these setups need no configuration, apart from a socket
+With `mongotest.Run` or `mongod.Start` these setups need no configuration, apart from a socket
 proxy that refuses a call. If the address is wrong, set it:
 
 ```sh

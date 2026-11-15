@@ -7,7 +7,7 @@ status: current
 # Starting a server
 
 `Run`, `Start` and `Attach` each return an `*Instance`. It holds a connected
-client of the official driver and the container it started.
+client of the official driver and the container, if it started one.
 
 ## In a test
 

@@ -788,13 +788,6 @@
   .mt-install { display: block; font-size: .62rem; }
 }
 
-/* ---- Announcement bar ---------------------------------------------------- */
-
-.md-banner { background: #060912; color: #c6cde0; }
-.md-banner__inner { font-size: .66rem; padding: .35rem .8rem; }
-.mt-announce a { color: var(--mt-teal-soft); font-weight: 600; margin-left: .3rem; }
-.mt-announce strong { color: #fff; }
-
 /* ---- Page status banner -------------------------------------------------- */
 
 .mt-status {
@@ -862,15 +855,6 @@
   background-color: #8b95b3;
 }
 
-/* Status legend used on the "What's changing" page and the maintenance page */
-.md-typeset .mt-legend { display: grid; gap: .5rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1rem 0 1.5rem; }
-@media screen and (max-width: 44.9375em) { .md-typeset .mt-legend { grid-template-columns: 1fr; } }
-.md-typeset .mt-legend > div { display: flex; gap: .6rem; align-items: flex-start; padding: .6rem .8rem; border: 1px solid var(--mt-border); border-radius: var(--mt-radius-sm); background: var(--mt-surface); font-size: .7rem; }
-.md-typeset .mt-legend .mt-status__badge { margin-top: .15rem; }
-.md-typeset .mt-legend .mt-status__badge.current { background: #10b981; }
-.md-typeset .mt-legend .mt-status__badge.changing { background: #d97706; }
-.md-typeset .mt-legend .mt-status__badge.landing { background: #6366f1; }
-.md-typeset .mt-legend .mt-status__badge.planned { background: #64748b; }
 .mt-pkg__tag {
   display: inline-block;
   margin-left: .3rem;

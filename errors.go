@@ -1,11 +1,9 @@
 package mongotest
 
 import (
-	"context"
 	"errors"
 
 	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/mongod"
 )
 
 // Sentinels to match with errors.Is. A start's other errors come from the
@@ -16,7 +14,8 @@ var (
 	ErrNotConnected = errors.New("mongotest: cannot connect to the server")
 	// ErrNoContainer: an instance from Attach was asked to do something only
 	// a container it started can do, such as run a script.
-	ErrNoContainer = errors.New("mongotest: the instance was attached to a running server and has no container")
+	ErrNoContainer = errors.New("mongotest: the instance was attached to a running server and has no container; " +
+		"start one with Run or Start to run scripts and commands")
 	// ErrCommandFailed: a command or script run with
 	// ExecCommandInMongoContainer or RunMongoScriptOnContainer exited
 	// non-zero. The error gives the exit code.
@@ -35,8 +34,3 @@ var (
 	// container, or choose another name.
 	ErrMongoContainerAlreadyRunning = dockerclient.ErrConflict
 )
-
-// ReapRunningContainers is a convenience wrapper around
-// mongod.ReapRunningContainers that discards its error; new code may prefer
-// that function.
-func ReapRunningContainers() { _ = mongod.ReapRunningContainers(context.Background()) }

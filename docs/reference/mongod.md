@@ -149,8 +149,8 @@ step failed, and matches a sentinel such as `ErrNotReady` or
 the message says which of these happened: nothing answered at the address,
 something answered that is not `mongod`, or `mongod` answered with an error.
 A start that gets no answer from the daemon ends at the start timeout, unless
-it is pulling an image: the start timeout does not cover a pull, which is
-bounded only by the context you pass in.
+it is pulling an image: the start timeout does not cover a pull, which has
+its own limit, ten minutes by default; see `WithPullTimeout`.
 
 ## Many containers at once
 

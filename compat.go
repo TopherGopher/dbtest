@@ -121,3 +121,8 @@ func (inst *Instance) ExecCommandInMongoContainer(cmd []string) (string, error) 
 	}
 	return output, nil
 }
+
+// ReapRunningContainers is a convenience wrapper around
+// mongod.ReapRunningContainers that discards its error; new code may prefer
+// that function.
+func ReapRunningContainers() { _ = mongod.ReapRunningContainers(context.Background()) }

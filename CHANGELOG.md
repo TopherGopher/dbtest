@@ -16,7 +16,8 @@ what to do if it affects you.
   and `NewTestConnection`, `NewReplicaSetContainer`, `MongoClientWithContainer`,
   `KillMongoContainer`, `MongoContainerID`, `RunMongoScriptOnContainer`,
   `ExecCommandInMongoContainer`, `GetAvailablePort`, `ReapRunningContainers`
-  and `GenerateCARoot` are thin wrappers. The
+  and `GenerateCARoot` still compile: most are thin wrappers, and
+  `GetAvailablePort` and `GenerateCARoot` are kept as they were. The
   [reference](https://tophergopher.github.io/mongotest/reference/#earlier-names)
   lists what new code uses instead.
 - **easymongo is gone.** `TestConnection` embedded an easymongo connection;
@@ -27,7 +28,7 @@ what to do if it affects you.
 - **`DatabaseExporter` is removed.** It moves to its own module,
   `github.com/tophergopher/mongotest/exporter`, which writes to any
   `io.Writer`; its [guide](https://tophergopher.github.io/mongotest/guides/exporting-data/#moving-from-databaseexporter)
-  has a table for migrating. `ErrNotImplemented` and `MongoTestError` go with
+  has a table for migrating. `ErrNotImplemented`, `MongoTestError` and `NewMongoTestError` go with
   it.
 - **The default image is `mongo:8.0`,** not `mongo:latest`. Set
   `MONGOTEST_IMAGE` or `WithImage` to run another.
