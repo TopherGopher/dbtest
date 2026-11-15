@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -95,32 +96,40 @@ func Names() []string {
 	return names
 }
 
-// Reap runs every registered teardown, newest first, and empties the
-// registry. It needs no signal: call it at the end of a TestMain.
+// Reap runs every registered teardown and empties the registry. It needs
+// no signal: call it at the end of a TestMain.
 //
-// Every teardown runs even if one fails. The error is a [ReapError] naming
-// each failure. A failed teardown is not kept for a second attempt.
+// The teardowns run at the same time, so one that is stuck cannot use up the
+// time the others need. The error is a [ReapError] naming each failure. A
+// failed teardown is not kept for a second attempt.
 func Reap(ctx context.Context) error {
 	entries := takeEntries()
-	if len(entries) == 0 {
+	failures := make([]*TeardownError, len(entries))
+	var wg sync.WaitGroup
+	for i, e := range entries {
+		wg.Go(func() { failures[i] = tearDown(ctx, e) })
+	}
+	wg.Wait()
+	failures = slices.DeleteFunc(failures, func(f *TeardownError) bool { return f == nil })
+	if len(failures) == 0 {
 		return nil
 	}
-	var errs []error
-	for _, e := range slices.Backward(entries) {
-		err := e.tear(ctx)
-		finishOne()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("reaper: cannot tear down %s: %w", e.name, err))
-		}
+	return &ReapError{Failures: failures}
+}
+
+// tearDown runs one teardown that takeEntries handed out, and returns its
+// failure, or nil.
+func tearDown(ctx context.Context, e entry) *TeardownError {
+	defer finishOne()
+	if err := e.tear(ctx); err != nil {
+		return &TeardownError{Name: e.name, Err: err}
 	}
-	if len(errs) == 0 {
-		return nil
-	}
-	return &ReapError{Errs: errs}
+	return nil
 }
 
 // takeEntries empties the registry and returns what was in it, counting
-// each entry as running until finishOne is called for it.
+// each entry as running until finishOne is called for it. The registry keeps
+// no reference to the slice, so the caller owns it.
 func takeEntries() []entry {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -145,20 +154,48 @@ func outstanding() (registered, running int) {
 	return len(registry.entries), registry.running
 }
 
+// TeardownError names one thing a reap could not tear down, and why.
+type TeardownError struct {
+	Name string // what was registered: a container's name or id
+	Err  error
+}
+
+func (e *TeardownError) Error() string {
+	return fmt.Sprintf("%s could not be removed and may still be running: %v", e.Name, e.Err)
+}
+
+func (e *TeardownError) Unwrap() error { return e.Err }
+
 // ReapError reports that at least one teardown failed. It matches ErrReap
 // and each individual failure.
 type ReapError struct {
-	Errs []error // one per failed teardown, each naming what it was
+	Failures []*TeardownError // in the order they were registered
 }
 
 func (e *ReapError) Error() string {
-	if len(e.Errs) == 1 {
-		return e.Errs[0].Error()
+	lines := make([]string, 0, len(e.Failures))
+	for _, failed := range e.Failures {
+		lines = append(lines, failed.Error())
 	}
-	return fmt.Sprintf("reaper: %d teardowns failed:\n%v", len(e.Errs), errors.Join(e.Errs...))
+	return "mongotest: " + strings.Join(lines, "\n") + "\nRemove what is left with: docker rm -fv " + names(e.Failures)
 }
 
-func (e *ReapError) Unwrap() []error { return e.Errs }
+// names returns what failed, as arguments for a docker command.
+func names(failures []*TeardownError) string {
+	all := make([]string, 0, len(failures))
+	for _, failed := range failures {
+		all = append(all, failed.Name)
+	}
+	return strings.Join(all, " ")
+}
+
+func (e *ReapError) Unwrap() []error {
+	errs := make([]error, 0, len(e.Failures))
+	for _, failed := range e.Failures {
+		errs = append(errs, failed)
+	}
+	return errs
+}
 
 func (e *ReapError) Is(target error) bool { return target == ErrReap }
 
@@ -210,28 +247,39 @@ func reapOnSignal(ch chan os.Signal) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultReapTimeout)
 	defer cancel()
-	if err := reapUntilEmpty(ctx); err != nil {
+	if failures := reapUntilEmpty(ctx); len(failures) > 0 {
 		// The process is about to die, so stderr is the only place left.
-		fmt.Fprintf(os.Stderr, "reaper: %v\n", err)
+		fmt.Fprintln(os.Stderr, leftBehind(sig, failures))
 	}
 	reRaise(sig)
 }
 
+// leftBehind is what a dying process says about the containers it could not
+// remove: which they are, why, and the command that removes them.
+func leftBehind(sig os.Signal, failures []*TeardownError) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "mongotest: stopped by %v, but %d container(s) could not be removed within %s and may still be running:\n",
+		sig, len(failures), DefaultReapTimeout)
+	for _, failed := range failures {
+		fmt.Fprintf(&b, "  %s: %v\n", failed.Name, failed.Err)
+	}
+	b.WriteString("Remove them with: docker rm -fv " + names(failures))
+	return b.String()
+}
+
 // reapUntilEmpty reaps until nothing is registered and no teardown is still
-// running, or the context ends.
+// running, or the context ends. It returns every teardown that failed.
 //
 // One pass is not enough. A signal does not stop the rest of the process: a
 // parallel test can register a new container while the first pass removes
 // others, and a Reap that a TestMain started may still be part-way through.
-func reapUntilEmpty(ctx context.Context) error {
-	var errs []error
+func reapUntilEmpty(ctx context.Context) []*TeardownError {
+	var failures []*TeardownError
 	for ctx.Err() == nil {
 		registered, running := outstanding()
 		switch {
 		case registered > 0:
-			if err := Reap(ctx); err != nil {
-				errs = append(errs, err)
-			}
+			failures = append(failures, failuresOf(Reap(ctx))...)
 		case running > 0:
 			// Someone else's Reap holds what is left. Wait for it.
 			select {
@@ -239,10 +287,19 @@ func reapUntilEmpty(ctx context.Context) error {
 			case <-time.After(runningPoll):
 			}
 		default:
-			return errors.Join(errs...)
+			return failures
 		}
 	}
-	return errors.Join(errs...)
+	return failures
+}
+
+// failuresOf returns the teardowns a Reap reported as failed.
+func failuresOf(err error) []*TeardownError {
+	var reap *ReapError
+	if errors.As(err, &reap) {
+		return reap.Failures
+	}
+	return nil
 }
 
 // reRaise sends the signal to this process again, now that nothing handles

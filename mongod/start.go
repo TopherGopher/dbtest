@@ -66,8 +66,9 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 //		os.Exit(code)
 //	}
 //
-// Every removal is attempted even if one fails. The error matches ErrReap
-// and names each container that is still there.
+// Every removal is attempted, all at the same time, even if one fails. The
+// error matches ErrReap and is a [ReapError] naming each container that is
+// still there.
 func ReapRunningContainers(ctx context.Context) error { return reaper.Reap(ctx) }
 
 // defaultClient finds the daemon the way the docker CLI does, once for the

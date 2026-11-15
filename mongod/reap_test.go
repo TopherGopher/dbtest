@@ -67,3 +67,20 @@ func TestReapRunningContainersReportsWhatItCouldNotRemove(t *testing.T) {
 	assert.ErrorIs(t, err, mongod.ErrReap, "a container left running is reported")
 	assert.ErrorIs(t, err, refused, "with the daemon's own error")
 }
+
+func TestAFailedReapNamesTheContainerLeftRunning(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerRemoveFunc = func(context.Context, string, dockerclient.RemoveOptions) error {
+		return errors.New("the daemon refused")
+	}
+	c := mustStart(t, m, mongod.DefaultOptions())
+
+	err := mongod.ReapRunningContainers(context.Background())
+
+	var failed *mongod.TeardownError
+	require.ErrorAs(t, err, &failed, "each container left behind is a value a caller can read")
+	assert.Equal(t, c.Name(), failed.Name, "and it carries the name to pass to docker rm")
+	var all *mongod.ReapError
+	require.ErrorAs(t, err, &all, "the whole report is readable too")
+	assert.Len(t, all.Failures, 1, "with one entry for each container")
+}

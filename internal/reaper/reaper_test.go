@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -41,8 +43,7 @@ func TestReapRunsEveryTeardown(t *testing.T) {
 
 	require.NoError(t, Reap(context.Background()), "every teardown succeeds, so the reap does")
 
-	assert.Equal(t, []string{"third", "second", "first"}, torn,
-		"teardown runs in reverse registration order, because later things are more likely to depend on earlier ones")
+	assert.ElementsMatch(t, []string{"first", "second", "third"}, torn, "every registration is torn down, in no promised order")
 	assert.Empty(t, Names(), "a reaped registration is gone; leaving it would tear the same container down twice")
 }
 
@@ -50,18 +51,18 @@ func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
 	resetForTest(t)
 	first := errors.New("first cannot be removed")
 	second := errors.New("second cannot be removed")
-	ran := 0
-	Register("ok-before", func(context.Context) error { ran++; return nil })
-	Register("fails-one", func(context.Context) error { ran++; return first })
-	Register("ok-between", func(context.Context) error { ran++; return nil })
-	Register("fails-two", func(context.Context) error { ran++; return second })
+	var ran atomic.Int32
+	Register("ok-before", func(context.Context) error { ran.Add(1); return nil })
+	Register("fails-one", func(context.Context) error { ran.Add(1); return first })
+	Register("ok-between", func(context.Context) error { ran.Add(1); return nil })
+	Register("fails-two", func(context.Context) error { ran.Add(1); return second })
 
 	err := Reap(context.Background())
 
 	require.Error(t, err, "two teardowns failed, so the reap did")
 	assert.ErrorIs(t, err, first, "the first failure is reported")
 	assert.ErrorIs(t, err, second, "and so is the second; a reaper that stopped at the first would leak everything after it")
-	assert.Equal(t, 4, ran, "every teardown runs regardless, because the containers left behind are the thing being prevented")
+	assert.EqualValues(t, 4, ran.Load(), "every teardown runs regardless, because the containers left behind are the thing being prevented")
 }
 
 func TestReapNamesWhatFailed(t *testing.T) {
@@ -72,8 +73,63 @@ func TestReapNamesWhatFailed(t *testing.T) {
 	err := Reap(context.Background())
 
 	require.ErrorIs(t, err, busy, "the teardown's own error is kept, so a caller can tell why")
-	assert.Contains(t, err.Error(), "mongotest-1a2b3c4d",
-		"a reap happens while a process is dying, so the message is all the reader gets; it has to say which registration failed")
+	var failed *TeardownError
+	require.ErrorAs(t, err, &failed, "each failure is a value a caller can read")
+	assert.Equal(t, "mongotest-1a2b3c4d", failed.Name, "and it names what is still running, so it can be removed by hand")
+}
+
+func TestReapListsFailuresInRegistrationOrder(t *testing.T) {
+	resetForTest(t)
+	failure := errors.New("cannot be removed")
+	for _, name := range []string{"first", "second", "third"} {
+		Register(name, func(context.Context) error { return failure })
+	}
+
+	err := Reap(context.Background())
+
+	var reap *ReapError
+	require.ErrorAs(t, err, &reap, "the reap reports what failed")
+	var names []string
+	for _, failed := range reap.Failures {
+		names = append(names, failed.Name)
+	}
+	assert.Equal(t, []string{"first", "second", "third"}, names, "teardowns run together, so the report is in the order things were started")
+}
+
+// One removal that never returns must not cost every other container: on a
+// signal there is one deadline for the lot.
+func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
+	resetForTest(t)
+	var removed atomic.Int32
+	Register("stuck", func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() })
+	for range 4 {
+		Register("fine", func(ctx context.Context) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			removed.Add(1)
+			return nil
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := Reap(ctx)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the stuck one is reported")
+	assert.EqualValues(t, 4, removed.Load(), "and the rest were removed while it was stuck")
+}
+
+func TestTheSignalReportNamesWhatIsStillRunning(t *testing.T) {
+	failures := []*TeardownError{
+		{Name: "mongotest-1a2b3c4d", Err: context.DeadlineExceeded},
+		{Name: "mongotest-5e6f7a8b", Err: context.DeadlineExceeded},
+	}
+
+	report := leftBehind(syscall.SIGINT, failures)
+
+	assert.Contains(t, report, "mongotest-1a2b3c4d", "the process is dying, so this text is all the reader gets")
+	assert.Contains(t, report, "mongotest-5e6f7a8b", "and it has to name every container to remove by hand")
 }
 
 func TestReapStopsAtTheContextDeadline(t *testing.T) {
@@ -190,7 +246,7 @@ func TestReapUntilEmptyTearsDownWhatRegistersWhileItRuns(t *testing.T) {
 		return nil
 	})
 
-	require.NoError(t, reapUntilEmpty(context.Background()), "both teardowns succeed")
+	require.Empty(t, reapUntilEmpty(context.Background()), "both teardowns succeed")
 
 	assert.True(t, late, "a signal does not stop the rest of the process, so something registered during the reap is still this process's to remove before it dies")
 	assert.Empty(t, Names(), "nothing is left registered when the signal is re-raised")
@@ -210,9 +266,10 @@ func TestReapUntilEmptyGivesUpAtItsDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	err := reapUntilEmpty(ctx)
+	failures := reapUntilEmpty(ctx)
 
-	require.ErrorIs(t, err, failure, "what went wrong on the way is still reported")
+	require.NotEmpty(t, failures, "what went wrong on the way is still reported")
+	assert.ErrorIs(t, failures[0], failure, "with its cause")
 	assert.Greater(t, attempts, 1, "it does go round again while there is time")
 	assert.NotEmpty(t, Names(), "and stops at the deadline rather than holding a dying process open for something that never drains")
 }

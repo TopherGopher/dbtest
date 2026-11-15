@@ -5,9 +5,9 @@
 //	handle := reaper.Register("mongotest-1a2b3c4d", container.Stop)
 //	defer reaper.Unregister(handle)
 //
-// [Reap] runs every registered teardown, newest first, and needs no signal.
-// Every teardown runs even if one fails, and the failures come back together
-// as a [ReapError].
+// [Reap] runs every registered teardown at the same time, and needs no
+// signal. Every teardown runs even if one fails or is stuck, and the failures
+// come back together as a [ReapError] that names each one.
 //
 // The first [Register] installs a handler for SIGINT and SIGTERM. Importing
 // the package installs nothing, and a signal the process was started with

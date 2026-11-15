@@ -45,6 +45,14 @@ var (
 	ErrUnsupportedForImage = errors.New("the image does not support an option that was set")
 )
 
+// ReapError is what ReapRunningContainers returns when a container could not
+// be removed, and TeardownError is its entry for one container: read Name
+// for the container to remove by hand.
+type (
+	ReapError     = reaper.ReapError
+	TeardownError = reaper.TeardownError
+)
+
 // Errors for an option value that is empty or contradicts another. Each also
 // matches dockerclient.ErrInvalidArgument.
 var (
