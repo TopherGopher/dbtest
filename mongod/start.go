@@ -52,7 +52,8 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	}
 	// The logged URI hides the password: logs are shared more widely than
 	// access to the daemon.
-	c.logger.Info("mongod is running", "container", c.name, "id", shortID(c.id), "uri", c.uri(redactedPassword))
+	c.logger.Info("MongoDB is ready. The password is hidden in the URI shown here; Container.URI() returns the real one.",
+		"container", c.name, "id", shortID(c.id), "uri", c.uri(redactedPassword))
 	return c, nil
 }
 
@@ -143,7 +144,8 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 	deadline := time.Now().Add(cfg.startTimeout)
 	warnings, err := c.createOnce(ctx, deadline, request)
 	if dockerclient.IsNotFound(err) {
-		c.logger.Debug("image is not present locally, pulling it", "image", image)
+		c.logger.Debug("The Docker daemon does not have this image yet, so it is being pulled. That happens once and can take a few minutes.",
+			"image", image)
 		if err := c.docker.ImagePull(ctx, image); err != nil {
 			return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: image, Err: err}
 		}
@@ -154,7 +156,7 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 		return deadline, &StartError{Op: OpCreate, Name: c.name, Image: image, Err: err}
 	}
 	for _, warning := range warnings {
-		c.logger.Warn("the daemon warned about the container it created", "container", c.name, "warning", warning)
+		c.logger.Warn("The Docker daemon created the container, but warned about it.", "container", c.name, "warning", warning)
 	}
 	return deadline, nil
 }
@@ -236,7 +238,7 @@ func (c *Container) run(ctx context.Context, cfg config) (dockerclient.Container
 			return dockerclient.ContainerInspect{}, c.startError(OpCopyKeyFile, err)
 		}
 	}
-	c.logger.Debug("starting container", "container", c.name, "image", c.Image())
+	c.logger.Debug("Starting the MongoDB container.", "container", c.name, "image", c.Image())
 	if err := c.docker.ContainerStart(ctx, c.id); err != nil {
 		return dockerclient.ContainerInspect{}, c.startError(OpStart, err)
 	}
@@ -264,7 +266,9 @@ func (c *Container) removeAfterFailedStart(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
 	if err := c.Stop(ctx); err != nil {
-		c.logger.Error("cannot remove the container a failed start created", "container", c.name, "error", err)
+		c.logger.Error("A container failed to start and then could not be removed, so it may still be running. "+
+			"Remove it by hand: docker rm -fv followed by the container name.",
+			"container", c.name, "error", err)
 	}
 }
 

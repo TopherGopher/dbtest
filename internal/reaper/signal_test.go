@@ -92,8 +92,8 @@ func containerFromHelper(t *testing.T, stdout interface{ Read([]byte) (int, erro
 	// Generous: the first run of the day may be pulling the image.
 	text := firstLine(t, stdout, 4*time.Minute)
 	fields := strings.Fields(text)
-	require.Len(t, fields, 3, "the helper prints \"container <id> <name>\"; got %q", text)
-	return fields[1], fields[2]
+	require.Len(t, fields, 4, "the helper prints \"reaphelper: container <id> <name>\"; got %q", text)
+	return fields[2], fields[3]
 }
 
 // firstLine reads one line from a helper's stdout, or fails rather than

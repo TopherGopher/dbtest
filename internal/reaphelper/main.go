@@ -1,9 +1,13 @@
-// Command reaphelper starts a MongoDB container and waits to be signalled.
-// The reaper's integration test runs it to check that a signalled process
-// removes its container and still dies of the signal, which only a parent
-// process can observe.
+// Command reaphelper is a test helper, never part of the library: the
+// reaper's integration test builds it and runs it as a subprocess, and no
+// program that uses mongotest ever starts it or sees what it prints.
 //
-// It prints "container <id> <name>" once the container is up.
+// It starts a MongoDB container and waits to be signalled, so the test can
+// check that a signalled process removes its container and still dies of
+// the signal, which only a parent process can observe.
+//
+// It prints "reaphelper: container <id> <name>" once the container is up,
+// for the test to read.
 package main
 
 import (
@@ -25,7 +29,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "reaphelper: cannot start a container:", err)
 		os.Exit(2)
 	}
-	fmt.Printf("container %s %s\n", c.ID(), c.Name())
+	fmt.Printf("reaphelper: container %s %s\n", c.ID(), c.Name())
 
 	// Getting past this means no signal arrived, which is a failure.
 	time.Sleep(5 * time.Minute)

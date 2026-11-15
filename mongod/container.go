@@ -198,7 +198,7 @@ func (c *Container) stop(ctx context.Context) error {
 	}
 	c.stopped = true
 	reaper.Unregister(c.reaperHandle)
-	c.logger.Debug("container removed", "container", c.name, "id", shortID(c.id))
+	c.logger.Debug("Removed the MongoDB container and its anonymous volumes.", "container", c.name, "id", shortID(c.id))
 	return nil
 }
 

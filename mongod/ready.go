@@ -98,7 +98,8 @@ func (p readyProbe) check(ctx context.Context) (ready bool, err error) {
 	if err := p.healthy(ctx); err != nil {
 		return false, err
 	}
-	p.logger.Debug("mongod answers on the published port", "container", p.name, "address", addr(p.host, p.port))
+	p.logger.Debug("mongod answered a command at the address tests will connect to, so it is ready.",
+		"container", p.name, "address", addr(p.host, p.port))
 	return true, nil
 }
 

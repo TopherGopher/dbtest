@@ -90,11 +90,13 @@ func (c config) announceExposure(host string) {
 		return
 	}
 	if c.noAuth {
-		c.logger.Warn("mongod is published on every interface without authentication, so anyone who can reach this host can use it",
+		c.logger.Warn("This mongod has no password, and its port is open on every network interface of the Docker host. "+
+			"Anyone who can reach that host can read and change its data. Leave out WithoutAuth unless you trust the network.",
 			"container", c.name)
 		return
 	}
-	c.logger.Info("mongod is published on every interface, where other machines can reach it; the container's URI carries its credentials",
+	c.logger.Info("This mongod's port is open on every network interface of the Docker host, because it is reached from another machine or container. "+
+		"It asks for a username and password, which Container.URI() includes.",
 		"container", c.name, "username", c.username)
 }
 
