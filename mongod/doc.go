@@ -49,7 +49,9 @@
 //
 // A start pulls an image the daemon does not have. [PullImage] does that
 // ahead of time, which is worth calling once in TestMain when tests start
-// containers in parallel.
+// containers in parallel. A pull may take up to ten minutes, which
+// [Options.WithPullTimeout] changes, and does not count against the wait
+// for mongod.
 //
 // Two mistakes are refused up front, because the containers they produce
 // fail without naming the cause: a bare version such as "8.0" for

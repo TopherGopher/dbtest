@@ -98,10 +98,25 @@ func PullImage(ctx context.Context, opts Options) error {
 		return nil
 	}
 	cfg.logger.Info(pullingMessage, "image", image)
-	if err := docker.ImagePull(ctx, image); err != nil {
+	if err := pullWithin(ctx, docker, image, cfg.pullTimeout); err != nil {
 		return &StartError{Op: OpPullImage, Image: image, Err: err}
 	}
 	return nil
+}
+
+// pullWithin pulls an image inside the pull timeout. A pull the timeout cut
+// short, rather than the caller's context, says how to allow longer.
+func pullWithin(ctx context.Context, docker dockerclient.Client, image string, timeout time.Duration) error {
+	bounded, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := docker.ImagePull(bounded, image)
+	if err == nil || ctx.Err() != nil {
+		return err
+	}
+	if bounded.Err() == nil {
+		return err
+	}
+	return &pullTimeoutError{timeout: timeout, err: err}
 }
 
 // ReapRunningContainers removes every container Start created in this
@@ -187,8 +202,8 @@ func (c *Container) create(ctx context.Context, cfg config, host string) (time.T
 // createOrPull creates the container, pulling the image only if the daemon
 // does not have it, which keeps the usual case to one call.
 //
-// A pull can take minutes and is not counted against the start timeout,
-// which begins again after one.
+// A pull has the pull timeout to itself, and the start timeout begins again
+// after one.
 func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (time.Time, error) {
 	request := cfg.containerConfig(host)
 	deadline, err := c.createWithin(ctx, cfg, request)
@@ -196,7 +211,7 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 		return deadline, err
 	}
 	c.logger.Info(pullingMessage, "image", request.Image)
-	if err := c.docker.ImagePull(ctx, request.Image); err != nil {
+	if err := pullWithin(ctx, c.docker, request.Image, cfg.pullTimeout); err != nil {
 		return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: request.Image, Err: err}
 	}
 	return c.createWithin(ctx, cfg, request)

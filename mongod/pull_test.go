@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,4 +69,87 @@ func TestPullImageRefusesOptionsAStartWouldRefuse(t *testing.T) {
 
 	require.ErrorIs(t, err, mongod.ErrEmptyImage, "a mistake in the options is reported")
 	assert.Empty(t, m.Calls(), "before the daemon is asked anything")
+}
+
+// missingUntilPulled makes a mocked daemon refuse the first container it is
+// asked for, as it does when it lacks the image, so that a start pulls.
+func missingUntilPulled(m *dockermock.Mock) {
+	creates := 0
+	m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+		creates++
+		if creates == 1 {
+			return "", nil, dockerclient.ErrNotFound
+		}
+		return containerID, nil, nil
+	}
+}
+
+// pullUntilCancelled is a pull that never finishes by itself, like one from a
+// registry that has stopped sending.
+func pullUntilCancelled(ctx context.Context, _ string) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestAPullThatOutlastsThePullTimeoutFails(t *testing.T) {
+	opts := mongod.DefaultOptions().WithPullTimeout(50 * time.Millisecond)
+	pulls := map[string]func(*dockermock.Mock) error{
+		"by a start": func(m *dockermock.Mock) error {
+			missingUntilPulled(m)
+			_, err := start(t, m, opts)
+			return err
+		},
+		"by PullImage": func(m *dockermock.Mock) error {
+			missingImage(m)
+			return mongod.PullImage(context.Background(), opts.WithDocker(m))
+		},
+	}
+	for name, pull := range pulls {
+		t.Run(name, func(t *testing.T) {
+			m, _ := readyMock(t)
+			m.ImagePullFunc = pullUntilCancelled
+
+			err := pull(m)
+
+			var failed *mongod.StartError
+			require.ErrorAs(t, err, &failed, "a pull that runs out of time is reported like any failed pull")
+			assert.Equal(t, mongod.OpPullImage, failed.Op, "it says the pull is what failed")
+			assert.ErrorIs(t, err, context.DeadlineExceeded, "because it ran out of time")
+			assert.LessOrEqual(t, len(m.CallsTo("ContainerCreate")), 1, "no container is asked for once the pull has failed")
+			assert.Empty(t, m.CallsTo("ContainerStart"), "and nothing is started")
+		})
+	}
+}
+
+func TestAPullWithinThePullTimeoutMayOutlastTheStartTimeout(t *testing.T) {
+	const startTimeout = 200 * time.Millisecond
+	m, _ := readyMock(t)
+	missingUntilPulled(m)
+	m.ImagePullFunc = func(ctx context.Context, _ string) error {
+		select {
+		case <-time.After(2 * startTimeout):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(startTimeout).WithPullTimeout(time.Minute))
+
+	assert.NoError(t, err, "the pull has its own bound, and the start timeout begins again once the image is there")
+}
+
+func TestTheCallersContextEndsAPullBeforeThePullTimeout(t *testing.T) {
+	m, _ := readyMock(t)
+	missingUntilPulled(m)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.ImagePullFunc = func(pullCtx context.Context, image string) error {
+		cancel()
+		return pullUntilCancelled(pullCtx, image)
+	}
+
+	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(m).WithPullTimeout(time.Hour))
+
+	require.ErrorIs(t, err, context.Canceled, "the caller cancelling ends the pull at once")
+	assert.NotErrorIs(t, err, context.DeadlineExceeded, "and it is not reported as the pull timeout running out")
 }

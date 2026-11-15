@@ -33,3 +33,5 @@ what to do if it affects you.
 - `mongod.PullImage` fetches the image before the tests need it, and leaves
   an image the daemon already has alone. Call it once in `TestMain`, so tests
   that start in parallel do not each find the image missing.
+- `Options.WithPullTimeout` bounds a pull of a missing image, ten minutes by
+  default, separately from the wait for mongod.

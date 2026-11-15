@@ -28,6 +28,8 @@ const (
 const (
 	// DefaultStartTimeout is how long a start waits for mongod.
 	DefaultStartTimeout = 60 * time.Second
+	// DefaultPullTimeout is how long a pull of a missing image may take.
+	DefaultPullTimeout = 10 * time.Minute
 	// DefaultUsername is the root user when credentials are generated.
 	DefaultUsername = "mongotest"
 	// RequiredLabelKey and RequiredLabelValue mark every container this
@@ -70,6 +72,7 @@ type Options struct {
 	noAuth       bool
 	mongodArgs   []string
 	startTimeout time.Duration
+	pullTimeout  time.Duration
 	labels       map[string]string
 	logger       dockerclient.Logger
 	docker       dockerclient.Client
@@ -187,9 +190,17 @@ func (o Options) WithMongodArgs(args ...string) Options {
 	return o
 }
 
-// WithStartTimeout sets how long a start waits for mongod.
+// WithStartTimeout sets how long a start waits for mongod. A pull of a
+// missing image is not counted: the wait begins again once the image is there.
 func (o Options) WithStartTimeout(d time.Duration) Options {
 	o.startTimeout = d
+	return o
+}
+
+// WithPullTimeout sets how long a pull of a missing image may take, by a
+// start or by PullImage. Zero means DefaultPullTimeout.
+func (o Options) WithPullTimeout(d time.Duration) Options {
+	o.pullTimeout = d
 	return o
 }
 
@@ -225,9 +236,9 @@ func (o Options) Format(f fmt.State, _ rune) {
 		password = redactedPassword
 	}
 	fmt.Fprintf(f, "mongod.Options{image: %q, name: %q, port: %d, hostIP: %q, replicaSet: %q, username: %q, password: %q, "+
-		"noAuth: %t, mongodArgs: %q, startTimeout: %s, labels: %v}",
+		"noAuth: %t, mongodArgs: %q, startTimeout: %s, pullTimeout: %s, labels: %v}",
 		o.image.WithVersion(o.version).Reference(), o.name, o.port, o.hostIP, o.replicaSet, o.username, password,
-		o.noAuth, o.mongodArgs, o.startTimeout, o.labels)
+		o.noAuth, o.mongodArgs, o.startTimeout, o.pullTimeout, o.labels)
 }
 
 // refused remembers the first value a With method could not accept.
@@ -270,6 +281,9 @@ func newConfig(opts Options) (config, error) {
 	}
 	if c.startTimeout, err = resolveStartTimeout(c.startTimeout); err != nil {
 		return config{}, err
+	}
+	if c.pullTimeout == 0 {
+		c.pullTimeout = DefaultPullTimeout
 	}
 	return c, c.validate()
 }
@@ -342,6 +356,8 @@ func (c config) validate() error {
 		return invalidPort(c.port)
 	case c.startTimeout < 0:
 		return invalidStartTimeout(c.startTimeout)
+	case c.pullTimeout < 0:
+		return invalidPullTimeout(c.pullTimeout)
 	case hasUsername != hasPassword:
 		return ErrIncompleteCredentials
 	case !creatable(c.username) || !creatable(c.password):

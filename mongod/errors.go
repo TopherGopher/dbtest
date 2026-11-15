@@ -1,6 +1,7 @@
 package mongod
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -136,6 +137,11 @@ func invalidStartTimeout(d time.Duration) error {
 		fix: "Pass a positive duration such as WithStartTimeout(90*time.Second), or leave the option out"}
 }
 
+func invalidPullTimeout(d time.Duration) error {
+	return &optionError{option: "WithPullTimeout", problem: d.String() + " is negative",
+		fix: "Pass a positive duration such as WithPullTimeout(20*time.Minute), or leave the option out"}
+}
+
 // environmentError reports an unusable value in an environment variable. A
 // cause written for an option gives only its problem, so the advice for the
 // option is not passed on to someone who set a variable.
@@ -181,6 +187,20 @@ func (e *StartError) Error() string {
 }
 
 func (e *StartError) Unwrap() error { return e.Err }
+
+// pullTimeoutError is a pull the pull timeout cut short. It matches
+// context.DeadlineExceeded and the daemon's own error.
+type pullTimeoutError struct {
+	timeout time.Duration
+	err     error
+}
+
+func (e *pullTimeoutError) Error() string {
+	return fmt.Sprintf("the pull did not finish within %s (%v). "+
+		"Allow longer with WithPullTimeout, or fetch the image first with PullImage", e.timeout, e.err)
+}
+
+func (e *pullTimeoutError) Unwrap() []error { return []error{context.DeadlineExceeded, e.err} }
 
 // UnpublishedPortError names a container port with no host port. It matches
 // ErrNoPublishedPort.

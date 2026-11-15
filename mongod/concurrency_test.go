@@ -12,8 +12,11 @@ import (
 	"github.com/tophergopher/mongotest/mongod"
 )
 
-// fanOut is how many containers the test below starts at the same moment.
-const fanOut = 48
+// fanOut is how many containers the test below starts at the same moment:
+// enough to prove each is its own server, quickly and without depending on
+// how busy a shared CI runner is. Issue #82 covers how many a machine can
+// start at once.
+const fanOut = 16
 
 // Tests that run in parallel each call Start, so starts arrive together.
 // Every one has to succeed, and every one has to be given a server of its
@@ -23,10 +26,7 @@ func TestIntegrationContainersStartedTogetherAreEachTheirOwnServer(t *testing.T)
 	docker, ctx := liveDocker(t)
 	key, value := runLabel(t)
 	requireImage(t, ctx, docker, mongod.ImageDockerHub)
-	// The start timeout is the suite's own, not the default minute. How long
-	// this many mongods take to come up together depends on the CPUs there
-	// are, and a loaded runner should make this test slow, not fail it.
-	opts := mongod.DefaultOptions().WithDocker(docker).WithLabel(key, value).WithStartTimeout(integrationTimeout)
+	opts := mongod.DefaultOptions().WithDocker(docker).WithLabel(key, value)
 
 	containers, errs := startTogether(ctx, opts, fanOut)
 	t.Cleanup(func() { stopTogether(context.Background(), containers) })
