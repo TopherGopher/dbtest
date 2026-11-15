@@ -197,10 +197,20 @@ func (e *NotReadyError) Error() string {
 			where, e.Cause, e.lastFailure())
 	}
 	msg := fmt.Sprintf("mongod: %s was not ready within %s%s", where, e.Timeout, e.lastFailure())
+	if !e.addressInDoubt() {
+		return msg + ". Allow longer with WithStartTimeout"
+	}
 	if e.HostSource != "" {
 		msg += ". The address came from " + e.HostSource
 	}
 	return msg + ". Allow longer with WithStartTimeout, or correct the address with WithHostIP or " + EnvHostIP
+}
+
+// addressInDoubt reports whether the last attempt failed in a way a wrong
+// address would explain: nothing answered there, or something that is not
+// mongod did. Advice about the address would mislead after any other failure.
+func (e *NotReadyError) addressInDoubt() bool {
+	return errors.Is(e.LastErr, errNoReply) || errors.Is(e.LastErr, errNotMongod)
 }
 
 // lastFailure is what the last attempt found, ready to follow a message.

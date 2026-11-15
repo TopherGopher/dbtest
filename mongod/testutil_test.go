@@ -63,13 +63,48 @@ func acceptAll(ln net.Listener, handle func(net.Conn)) {
 	}
 }
 
-// answerCommand replies to one MongoDB command the way mongod does: with a
-// message of the same kind, addressed to the request, holding {ok: 1}. It
-// hangs up on a command whose document is malformed.
-func answerCommand(conn net.Conn) {
+// Fields of a reply, in BSON: ok as a double, and a string.
+const (
+	okField    = "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+	notOKField = "\x01ok\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+)
+
+// stringField is a BSON string element.
+func stringField(name, value string) string {
+	length := binary.LittleEndian.AppendUint32(nil, uint32(len(value)+1))
+	return "\x02" + name + "\x00" + string(length) + value + "\x00"
+}
+
+// answerCommand replies to one MongoDB command the way mongod does when all
+// is well: with {ok: 1}.
+func answerCommand(conn net.Conn) { answerWith(okField)(conn) }
+
+// answerWithError replies the way mongod does when it refuses a command:
+// with ok 0, a message and the name of the error.
+func answerWithError(codeName, message string) func(net.Conn) {
+	return answerWith(notOKField + stringField("errmsg", message) + stringField("codeName", codeName))
+}
+
+// answerWithGarbage reads the command and replies with bytes that are not a
+// MongoDB message, as another service on the port, or a broken one, would.
+func answerWithGarbage(conn net.Conn) {
+	defer conn.Close()
+	_, _ = io.CopyN(io.Discard, conn, 16)
+	_, _ = conn.Write([]byte("\x8f\x02\x93\x11 not a mongod \x00\xff\xfe\x00\x01\x02\x03\x04\x05\x06"))
+}
+
+// answerWith returns a stand-in for mongod that replies to one command with
+// a message of the same kind, addressed to the request, holding a document
+// of the given fields. It hangs up on a command whose document is malformed.
+func answerWith(fields string) func(net.Conn) {
+	return func(conn net.Conn) { answer(conn, fields) }
+}
+
+// answer reads one command and writes the reply.
+func answer(conn net.Conn, fields string) {
 	defer conn.Close()
 	const headerLen, opMsg = 16, 2013
-	const okDocument = "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f\x00"
+	okDocument := fields + "\x00"
 
 	var header [headerLen]byte
 	if _, err := io.ReadFull(conn, header[:]); err != nil {

@@ -29,7 +29,7 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 			[]string{"orders-db", "mongo:8.0", "no space left"}},
 		{"no published port", &mongod.UnpublishedPortError{Port: "27017/tcp", Name: "orders-db", ID: containerID},
 			[]string{"orders-db", "27017/tcp"}},
-		{"not ready in time", &notReady, []string{"orders-db", "172.17.0.1:32768", "WithHostIP"}},
+		{"not ready in time", &notReady, []string{"orders-db", "172.17.0.1:32768"}},
 		{"not ready, with what the wait last saw", &stuck, []string{"orders-db", "172.17.0.1:32768", mongod.ErrLoopbackOnly.Error()}},
 		{"not ready because the caller's context ended", &ended, []string{"orders-db", "172.17.0.1:32768"}},
 		{"an address that cannot be worked out",

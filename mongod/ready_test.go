@@ -2,6 +2,7 @@ package mongod_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math"
 	"net"
@@ -272,7 +273,82 @@ func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
-	assert.ErrorIs(t, err, mongod.ErrNotReady, "a reply that is not mongod's does not make the address a mongod")
+	require.ErrorIs(t, err, mongod.ErrNotReady, "a reply that is not mongod's does not make the address a mongod")
+	assert.Contains(t, err.Error(), mongod.EnvHostIP, "the address may be the wrong one, so the error says how to correct it")
+}
+
+func TestAPortThatAnswersWithGarbageIsNotReady(t *testing.T) {
+	m, _ := readyMock(t)
+	port := serve(t, answerWithGarbage)
+	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+		return running(port), nil
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
+
+	assert.ErrorIs(t, err, mongod.ErrNotReady, "bytes that are not a MongoDB reply do not count as one")
+}
+
+// A mongod that is shutting down still answers, with an error.
+func TestAMongodThatAnswersWithAnErrorIsNotReady(t *testing.T) {
+	m, _ := readyMock(t)
+	port := serve(t, answerWithError("InterruptedAtShutdown", "interrupted at shutdown"))
+	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+		return running(port), nil
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "a server that refuses commands is not ready for a test's")
+	assert.Contains(t, err.Error(), "InterruptedAtShutdown", "the server's own reason reaches the caller")
+	assert.NotContains(t, err.Error(), mongod.EnvHostIP, "a mongod answered, so the address is right and advice about it would mislead")
+}
+
+// A server from before the hello command says it does not know it, which
+// only a serving mongod can do.
+func TestAMongodTooOldToKnowTheCommandIsStillReady(t *testing.T) {
+	m, _ := readyMock(t)
+	port := serve(t, answerWithError("CommandNotFound", "no such command: 'hello'"))
+	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+		return running(port), nil
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions())
+
+	assert.NoError(t, err, "an old server is still a server")
+}
+
+func TestAFailureToAskTheDaemonIsNotBlamedOnTheAddress(t *testing.T) {
+	refused := errors.New("EOF")
+	failures := map[string]func(*dockermock.Mock, int){
+		"listing the processes": func(m *dockermock.Mock, _ int) {
+			m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return dockerclient.Top{}, refused }
+		},
+		"reading the health check": func(m *dockermock.Mock, port int) {
+			inspections := 0
+			m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+				inspections++
+				if inspections > 1 {
+					return dockerclient.ContainerInspect{}, refused
+				}
+				info := running(port)
+				info.State.Health.Status = "starting"
+				return info, nil
+			}
+		},
+	}
+	for name, fail := range failures {
+		t.Run(name, func(t *testing.T) {
+			m, port := readyMock(t)
+			fail(m, port)
+
+			_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
+
+			require.ErrorIs(t, err, mongod.ErrNotReady, "the start runs out of time")
+			assert.ErrorIs(t, err, refused, "the daemon's own error is kept")
+			assert.NotContains(t, err.Error(), mongod.EnvHostIP, "the daemon failed, not the address, so advice about the address would mislead")
+		})
+	}
 }
 
 func TestAPortThatNeverAnswersDoesNotHoldTheStartPastItsTimeout(t *testing.T) {

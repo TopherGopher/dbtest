@@ -3,6 +3,7 @@ package mongod
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
@@ -81,7 +82,7 @@ func (p readyProbe) check(ctx context.Context) (ready bool, err error) {
 		if exited := p.exitedError(ctx, err); exited != nil {
 			return false, exited
 		}
-		return false, err
+		return false, fmt.Errorf("%w: %w", errProcessesUnknown, err)
 	}
 	switch state {
 	case notRunning:
@@ -101,9 +102,13 @@ func (p readyProbe) check(ctx context.Context) (ready bool, err error) {
 	return true, nil
 }
 
-// errNotHealthy is why a wait on a health check failed, inside the
-// NotReadyError a caller sees.
-var errNotHealthy = errors.New("the image's own health check has not passed")
+// Why a check could not say mongod was ready, inside the NotReadyError a
+// caller sees. None of them puts the address in doubt.
+var (
+	errNotHealthy       = errors.New("the image's own health check has not passed")
+	errHealthUnknown    = errors.New("the daemon could not report the container's health check")
+	errProcessesUnknown = errors.New("the daemon could not list the container's processes")
+)
 
 // healthy waits on the health check an image declares, and passes at once
 // for an image that declares none.
@@ -113,7 +118,7 @@ func (p readyProbe) healthy(ctx context.Context) error {
 	}
 	info, err := p.docker.ContainerInspect(ctx, p.id)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errHealthUnknown, err)
 	}
 	if info.State.Health.Status != healthStatusHealthy {
 		return errNotHealthy
