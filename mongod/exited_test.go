@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,8 +41,12 @@ func exitsAfterStarting(m *dockermock.Mock, port int) {
 // returns err.
 func writing(stdout, stderr string, err error) func(context.Context, string, io.Writer, io.Writer) error {
 	return func(_ context.Context, _ string, out, errOut io.Writer) error {
-		_, _ = io.WriteString(out, stdout)
-		_, _ = io.WriteString(errOut, stderr)
+		if out != nil {
+			_, _ = io.WriteString(out, stdout)
+		}
+		if errOut != nil {
+			_, _ = io.WriteString(errOut, stderr)
+		}
 		return err
 	}
 }
@@ -68,15 +73,42 @@ func TestAContainerThatExitsReportsWhatItWrote(t *testing.T) {
 }
 
 func TestTheOutputOfAnExitedContainerKeepsItsEnd(t *testing.T) {
+	const reason = "Fatal assertion: the reason mongod stopped\n"
+	earlier := strings.Repeat("an earlier log line\n", 2000)
+	cases := map[string]func(context.Context, string, io.Writer, io.Writer) error{
+		// A client writes one frame at a time, which is usually one line.
+		"a line at a time": func(_ context.Context, _ string, out, _ io.Writer) error {
+			for line := range strings.Lines(earlier + reason) {
+				_, _ = io.WriteString(out, line)
+			}
+			return nil
+		},
+		"in one write": writing(earlier+reason, "", nil),
+	}
+	for name, logs := range cases {
+		t.Run(name, func(t *testing.T) {
+			m, port := readyMock(t)
+			exitsAfterStarting(m, port)
+			m.ContainerLogsToFunc = logs
+
+			exited := startUntilExited(t, m, mongod.DefaultOptions())
+
+			assert.True(t, strings.HasSuffix(exited.Output, reason), "the reason mongod stopped comes last, so the end of the output is kept")
+			assert.True(t, strings.HasPrefix(exited.Output, "an earlier log line\n"), "starting at a whole line")
+			assert.LessOrEqual(t, len(exited.Output), mongod.ExitOutputLimit, "and no more than the limit, so the error stays readable")
+		})
+	}
+}
+
+func TestTheOutputOfAnExitedContainerStartsAtAWholeCharacter(t *testing.T) {
 	m, port := readyMock(t)
 	exitsAfterStarting(m, port)
-	const reason = "Fatal assertion: the reason mongod stopped\n"
-	m.ContainerLogsToFunc = writing(strings.Repeat("an earlier log line\n", 2000)+reason, "", nil)
+	// One long line of three-byte characters, with no line break to cut at.
+	m.ContainerLogsToFunc = writing("x"+strings.Repeat("日", mongod.ExitOutputLimit), "", nil)
 
 	exited := startUntilExited(t, m, mongod.DefaultOptions())
 
-	assert.True(t, strings.HasSuffix(exited.Output, reason), "the reason mongod stopped comes last, so the end of the output is kept")
-	assert.LessOrEqual(t, len(exited.Output), mongod.ExitOutputLimit, "and no more than the limit, so the error stays readable")
+	assert.True(t, utf8.ValidString(exited.Output), "a cut output is still valid text, so it prints and encodes cleanly")
 }
 
 func TestStderrIsPartOfTheOutput(t *testing.T) {
@@ -132,9 +164,14 @@ func TestARemovedContainerHasNoLogToRead(t *testing.T) {
 func TestReadingTheLogEndsWithTheStartTimeout(t *testing.T) {
 	m, port := readyMock(t)
 	exitsAfterStarting(m, port)
-	m.ContainerLogsToFunc = func(ctx context.Context, _ string, _, _ io.Writer) error {
-		<-ctx.Done() // a daemon that never finishes sending the log
-		return ctx.Err()
+	m.ContainerLogsToFunc = func(ctx context.Context, _ string, out, _ io.Writer) error {
+		select { // a daemon that never finishes sending the log
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+			_, _ = io.WriteString(out, "the read outlived the start timeout")
+			return nil
+		}
 	}
 	started := time.Now()
 

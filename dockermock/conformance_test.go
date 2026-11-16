@@ -14,7 +14,8 @@ import (
 func TestFakeConformance(t *testing.T) {
 	dockerclienttest.Conformance(t, func(t *testing.T) dockerclient.Client {
 		f := dockermock.NewFake()
-		f.ImageUser, f.Health, f.Log = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth, dockerclienttest.TestContainerLog
+		f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
+		f.Log, f.ErrLog = dockerclienttest.TestContainerLog, dockerclienttest.TestContainerErrLog
 		return f
 	})
 }

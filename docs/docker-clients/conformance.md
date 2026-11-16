@@ -40,7 +40,8 @@ func newConformanceClient(tb testing.TB) dockerclient.Client {
     tb.Cleanup(d.Close)
     f := dockermock.NewFake()
     // What the suite expects of its test image, which it cannot set itself.
-    f.ImageUser, f.Health, f.Log = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth, dockerclienttest.TestContainerLog
+    f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
+    f.Log, f.ErrLog = dockerclienttest.TestContainerLog, dockerclienttest.TestContainerErrLog
     d.ServeFake(f)
 
     c, err := myclient.New(myclient.WithHost(d.Host()))
@@ -79,7 +80,7 @@ says what the expectation protects. The image it works with is
 | **Runs a command and reports its output** | `Exec` returns stdout and stderr separately and a non-zero exit code as data; `ExecCreate`, `ExecStartTo` and `ExecInspect` compose to the same result. |
 | **Reports the user an image declares** | `ImageInspect` passes on the user the image runs as. |
 | **Reports the health check of a running container** | `ContainerInspect` passes on the health a running container reports. |
-| **Reads what a container wrote** | `ContainerLogsTo` returns what the container wrote to stdout, and nothing on stderr. |
+| **Reads what a container wrote** | `ContainerLogsTo` returns what the container wrote to stdout and to stderr, each to its own writer. |
 
 Behaviour that depends on the wire, such as the exact request shape, pull
 progress parsing, exec frame demultiplexing across split reads and the

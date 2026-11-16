@@ -19,7 +19,8 @@ func newConformanceClient(tb testing.TB) dockerclient.Client {
 	d := dockermock.NewDaemon()
 	tb.Cleanup(d.Close)
 	f := dockermock.NewFake()
-	f.ImageUser, f.Health, f.Log = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth, dockerclienttest.TestContainerLog
+	f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
+	f.Log, f.ErrLog = dockerclienttest.TestContainerLog, dockerclienttest.TestContainerErrLog
 	d.ServeFake(f)
 	c, err := dockerapi.New(dockerapi.WithHost(d.Host()))
 	require.NoError(tb, err, "a client against the fake daemon must construct")

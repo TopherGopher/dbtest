@@ -31,6 +31,9 @@ const (
 	// where mongod writes its log. A dockermock.Fake takes it in its Log
 	// field.
 	TestContainerLog = "Waiting for connections\n"
+	// TestContainerErrLog is what a container of TestImage writes to
+	// stderr. A dockermock.Fake takes it in its ErrLog field.
+	TestContainerErrLog = "about to fork child process\n"
 )
 
 // Conformance runs every behaviour assertion against one implementation.
@@ -74,8 +77,9 @@ func conformanceLogs(t *testing.T, c dockerclient.Client) {
 			"cannot say why mongod stopped. Split the daemon's log stream into stdout and stderr; a dockermock.Fake "+
 			"needs its Log set to TestContainerLog", TestContainerLog, stdout.String())
 	}
-	if stderr.Len() != 0 {
-		t.Errorf("what was written to stdout must not arrive as stderr, got %q", stderr.String())
+	if stderr.String() != TestContainerErrLog {
+		t.Errorf("the log must hold what the container wrote to stderr, apart from stdout: want %q, got %q. "+
+			"A dockermock.Fake needs its ErrLog set to TestContainerErrLog", TestContainerErrLog, stderr.String())
 	}
 }
 
