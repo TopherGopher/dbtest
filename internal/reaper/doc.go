@@ -11,7 +11,6 @@
 //
 // The first [Register] installs a handler for SIGINT and SIGTERM. Importing
 // the package installs nothing, and a signal the process was started with
-// ignored stays ignored. On a signal the handler reaps, for at most
-// [DefaultReapTimeout], and then re-raises the signal so the process still
-// dies of it. A second signal during the reap kills the process at once.
+// ignored stays ignored. On a signal the handler reaps for at most 30
+// seconds, then re-raises the signal so the process still dies of it. A second signal during the reap kills the process at once.
 package reaper

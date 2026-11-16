@@ -154,13 +154,13 @@ func TestATeardownThatPanicsIsReportedAndTheRestStillRun(t *testing.T) {
 
 // The process is dying, so what it writes is all the reader gets: it has to
 // account for every container that may be left.
-func TestWhatIsLeftBehindIsEveryFailureAndEverythingNeverTried(t *testing.T) {
+func TestWhatIsLeftBehindIsEveryFailureAndEverythingUnfinished(t *testing.T) {
 	left := leftBehind{
 		failed: []*TeardownError{
 			{Name: "mongotest-1a2b3c4d", Err: context.DeadlineExceeded},
 			{Name: "mongotest-5e6f7a8b", Err: context.DeadlineExceeded},
 		},
-		untried: []string{"mongotest-9c0d1e2f"},
+		unfinished: []string{"mongotest-9c0d1e2f"},
 	}
 
 	assert.Equal(t, []string{"mongotest-1a2b3c4d", "mongotest-5e6f7a8b", "mongotest-9c0d1e2f"}, left.names(),
@@ -199,24 +199,28 @@ func TestReapStopsAtTheContextDeadline(t *testing.T) {
 	resetForTest(t)
 	released := make(chan struct{})
 	t.Cleanup(func() { close(released) })
-	Register("hangs", func(ctx context.Context) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-released:
-			return nil
-		}
+	// The teardown ignores its context, as a removal stuck in a system call
+	// would.
+	Register("hangs", func(context.Context) error {
+		<-released
+		return nil
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	started := time.Now()
-	err := Reap(ctx)
+	reaped := make(chan error, 1)
+	go func() { reaped <- Reap(ctx) }()
+	var err error
+	select {
+	case err = <-reaped:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "Reap did not return when its context ended: one stuck teardown must not hang the reaper")
+	}
 
-	require.Error(t, err, "the teardown never finished, so the reap reports it rather than pretending")
-	assert.ErrorIs(t, err, context.DeadlineExceeded, "the budget is what ended it")
-	assert.Less(t, time.Since(started), 5*time.Second,
-		"a reaper that can be hung by one stuck container is worse than none: the signal path gives it a deadline for exactly this reason")
+	var failed *TeardownError
+	require.ErrorAs(t, err, &failed, "the teardown never finished, so the reap reports it rather than pretending")
+	assert.Equal(t, "hangs", failed.Name, "the error names the container that may be left")
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "the context deadline is what ended it")
 }
 
 func TestUnregisterKeepsAReapFromTouchingIt(t *testing.T) {
@@ -374,4 +378,58 @@ func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		assert.Fail(t, "the signal path must return once the running teardown has finished")
 	}
+}
+
+// Reap promises not to keep a failed teardown for a second attempt: a
+// second Reap would only fail the same way, and Names would keep reporting
+// a container as leaked after its failure was already reported.
+func TestAFailedTeardownIsNotKept(t *testing.T) {
+	resetForTest(t)
+	Register("mongotest-1a2b3c4d", func(context.Context) error { return errors.New("the daemon refused") })
+
+	require.ErrorIs(t, Reap(context.Background()), ErrReap, "the failure is reported")
+
+	assert.Empty(t, Names(), "a failed teardown is removed from the registry")
+}
+
+// A signal can arrive while a TestMain's Reap is still removing containers.
+// If the signal's reap times out before that Reap finishes, the report has
+// to name its containers too: the process is about to die, so the other Reap
+// will never report them.
+func TestWhatIsLeftBehindIncludesARemovalAnotherReapHasNotFinished(t *testing.T) {
+	resetForTest(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	Register("mongotest-1a2b3c4d", func(context.Context) error {
+		close(started)
+		<-release
+		return nil
+	})
+	go func() { _ = Reap(context.Background()) }()
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	left := reapLeavingBehind(ctx)
+
+	assert.Equal(t, []string{"mongotest-1a2b3c4d"}, left.names(), "the container whose removal had not finished may still be running")
+}
+
+// On a signal, a removal that ignores its context is reported as failed and
+// is still running. It must be named once, or the docker rm command the
+// report prints fails on the second copy.
+func TestAStuckRemovalIsNamedOnce(t *testing.T) {
+	resetForTest(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	Register("mongotest-1a2b3c4d", func(context.Context) error {
+		<-release
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	left := reapLeavingBehind(ctx)
+
+	assert.Equal(t, []string{"mongotest-1a2b3c4d"}, left.names(), "a stuck removal is named once, so the docker rm command it prints works")
 }

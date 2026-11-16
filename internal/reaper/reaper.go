@@ -14,9 +14,10 @@ import (
 	"time"
 )
 
-// DefaultReapTimeout bounds the reap a signal triggers, so one container
-// that will not remove cannot keep a dying process alive.
-const DefaultReapTimeout = 30 * time.Second
+// reapTimeout bounds the reap a signal triggers, so one container that cannot
+// be removed cannot keep a dying process alive. Only tests change it, and
+// doc.go states its value.
+var reapTimeout = 30 * time.Second
 
 // reRaiseGrace is how long to wait for a re-raised signal to end the
 // process before exiting directly.
@@ -47,8 +48,8 @@ type entry struct {
 var registry struct {
 	mu      sync.Mutex
 	entries []entry // in registration order
-	// running counts teardowns a Reap has taken and not yet finished.
-	running int
+	// running holds teardowns a Reap has taken and that have not returned.
+	running []entry
 	next    Handle
 	// handler is non-nil once a signal handler is installed.
 	handler chan os.Signal
@@ -103,17 +104,18 @@ func Names() []string {
 // Reap runs every registered teardown and empties the registry. It needs
 // no signal: call it at the end of a TestMain.
 //
-// The teardowns run at the same time, so one that is stuck cannot use up the
-// time the others need. The error is a [ReapError] naming each failure, a
-// panic included. A failed teardown is not kept for a second attempt.
+// The teardowns run at the same time, so a stuck one cannot use up the time
+// the others need. Reap returns when ctx ends, even if a teardown ignores
+// ctx; that teardown keeps running in the background. The error is a
+// [ReapError] naming each failure, including a panic and a teardown that had
+// not finished. A failed teardown is not kept for a second attempt.
 func Reap(ctx context.Context) error {
 	entries := takeEntries()
-	failures := make([]*TeardownError, len(entries))
-	var wg sync.WaitGroup
+	outcomes := make(chan outcome, len(entries))
 	for i, e := range entries {
-		wg.Go(func() { failures[i] = tearDown(ctx, e) })
+		go func() { outcomes <- outcome{i, tearDown(ctx, e)} }()
 	}
-	wg.Wait()
+	failures := collect(ctx, entries, outcomes)
 	failures = slices.DeleteFunc(failures, func(f *TeardownError) bool { return f == nil })
 	if len(failures) == 0 {
 		return nil
@@ -121,12 +123,57 @@ func Reap(ctx context.Context) error {
 	return &ReapError{Failures: failures}
 }
 
+// outcome is the result of one teardown in a Reap: its failure, or nil.
+type outcome struct {
+	index  int // position in the entries the Reap took
+	failed *TeardownError
+}
+
+// collect returns each teardown's failure, or nil, by its position in
+// entries. It waits until every teardown has returned or ctx ends. A
+// teardown still running when ctx ends is reported as failed with the
+// context's cause, because its container may still be there.
+func collect(ctx context.Context, entries []entry, outcomes <-chan outcome) []*TeardownError {
+	failures := make([]*TeardownError, len(entries))
+	finished := make([]bool, len(entries))
+	record := func(o outcome) { failures[o.index], finished[o.index] = o.failed, true }
+	for range entries {
+		select {
+		case o := <-outcomes:
+			record(o)
+		case <-ctx.Done():
+			// select picks at random among ready cases, so outcomes may be
+			// waiting that would otherwise be reported as unfinished.
+			drain(outcomes, record)
+			for i, e := range entries {
+				if !finished[i] {
+					failures[i] = &TeardownError{Name: e.name, Err: context.Cause(ctx), handle: e.handle}
+				}
+			}
+			return failures
+		}
+	}
+	return failures
+}
+
+// drain records every outcome already sent, without waiting for more.
+func drain(outcomes <-chan outcome, record func(outcome)) {
+	for {
+		select {
+		case o := <-outcomes:
+			record(o)
+		default:
+			return
+		}
+	}
+}
+
 // tearDown runs one teardown that takeEntries handed out, and returns its
 // failure, or nil.
 func tearDown(ctx context.Context, e entry) *TeardownError {
-	defer finishOne()
+	defer finishOne(e.handle)
 	if err := recovering(ctx, e.tear); err != nil {
-		return &TeardownError{Name: e.name, Err: err}
+		return &TeardownError{Name: e.name, Err: err, handle: e.handle}
 	}
 	return nil
 }
@@ -143,23 +190,23 @@ func recovering(ctx context.Context, tear func(context.Context) error) (err erro
 	return tear(ctx)
 }
 
-// takeEntries empties the registry and returns what was in it, counting
+// takeEntries empties the registry and returns what was in it, and records
 // each entry as running until finishOne is called for it. The registry keeps
-// no reference to the slice, so the caller owns it.
+// no reference to the returned slice, so the caller owns it.
 func takeEntries() []entry {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	entries := registry.entries
 	registry.entries = nil
-	registry.running += len(entries)
+	registry.running = append(registry.running, entries...)
 	return entries
 }
 
 // finishOne records that a teardown taken by takeEntries has returned.
-func finishOne() {
+func finishOne(h Handle) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	registry.running--
+	registry.running = slices.DeleteFunc(registry.running, func(e entry) bool { return e.handle == h })
 }
 
 // outstanding returns how many teardowns are registered, and how many a
@@ -167,13 +214,33 @@ func finishOne() {
 func outstanding() (registered, running int) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	return len(registry.entries), registry.running
+	return len(registry.entries), len(registry.running)
+}
+
+// unfinished returns the names of teardowns still registered or still
+// running in a Reap, except those already in reported.
+func unfinished(reported []*TeardownError) []string {
+	seen := make(map[Handle]bool, len(reported))
+	for _, failed := range reported {
+		seen[failed.handle] = true
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	var left []string
+	for _, e := range slices.Concat(registry.entries, registry.running) {
+		if !seen[e.handle] {
+			left = append(left, e.name)
+		}
+	}
+	return left
 }
 
 // TeardownError names one thing a reap could not tear down, and why.
 type TeardownError struct {
 	Name string // what was registered: a container's name or id
 	Err  error
+	// handle tells apart two registrations with the same name.
+	handle Handle
 }
 
 func (e *TeardownError) Error() string {
@@ -261,7 +328,7 @@ func reapOnSignal(ch chan os.Signal) {
 	signal.Stop(ch)
 	signal.Reset(sig)
 
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultReapTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), reapTimeout)
 	defer cancel()
 	// The process is about to die, so stderr is the only place left.
 	reapAndReport(ctx, sig, os.Stderr)
@@ -271,22 +338,31 @@ func reapOnSignal(ch chan os.Signal) {
 // reapAndReport reaps until nothing is left or ctx ends, and then writes
 // which containers it could not remove, if any.
 func reapAndReport(ctx context.Context, sig os.Signal, w io.Writer) {
-	left := leftBehind{failed: reapUntilEmpty(ctx), untried: Names()}
+	left := reapLeavingBehind(ctx)
 	if len(left.names()) > 0 {
 		fmt.Fprintln(w, left.report(sig))
 	}
 }
 
+// reapLeavingBehind reaps until nothing is left or ctx ends, and returns
+// the containers that may still be running.
+func reapLeavingBehind(ctx context.Context) leftBehind {
+	failed := reapUntilEmpty(ctx)
+	return leftBehind{failed: failed, unfinished: unfinished(failed)}
+}
+
 // leftBehind is what a dying process could not remove: the teardowns that
-// failed, and those still registered when its time ran out.
+// failed, and those that had not finished when its time ran out. An
+// unfinished teardown either never started or is still running in another
+// Reap.
 type leftBehind struct {
-	failed  []*TeardownError
-	untried []string
+	failed     []*TeardownError
+	unfinished []string
 }
 
 // names returns every container that may still be running.
 func (l leftBehind) names() []string {
-	return append(names(l.failed), l.untried...)
+	return append(names(l.failed), l.unfinished...)
 }
 
 // report says which containers are left, why, and the command that removes
@@ -294,12 +370,12 @@ func (l leftBehind) names() []string {
 func (l leftBehind) report(sig os.Signal) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "mongotest: stopped by %v, but %d container(s) could not be removed within %s and may still be running:\n",
-		sig, len(l.names()), DefaultReapTimeout)
+		sig, len(l.names()), reapTimeout)
 	for _, failed := range l.failed {
 		fmt.Fprintf(&b, "  %s: %v\n", failed.Name, failed.Err)
 	}
-	for _, name := range l.untried {
-		fmt.Fprintf(&b, "  %s: the time ran out before it could be removed\n", name)
+	for _, name := range l.unfinished {
+		fmt.Fprintf(&b, "  %s: the time ran out before its removal finished\n", name)
 	}
 	b.WriteString("Remove them with: docker rm -fv " + strings.Join(l.names(), " "))
 	return b.String()
@@ -368,7 +444,7 @@ func stopForTest() {
 	ch := registry.handler
 	registry.handler = nil
 	registry.entries = nil
-	registry.running = 0
+	registry.running = nil
 	registry.mu.Unlock()
 	if ch != nil {
 		signal.Stop(ch)
