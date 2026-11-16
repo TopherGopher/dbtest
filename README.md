@@ -2,6 +2,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-tophergopher.github.io%2Fmongotest-0e8f7a)](https://tophergopher.github.io/mongotest/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/tophergopher/mongotest.svg)](https://pkg.go.dev/github.com/tophergopher/mongotest)
+[![Coverage](https://coveralls.io/repos/github/TopherGopher/mongotest/badge.svg?branch=main)](https://coveralls.io/github/TopherGopher/mongotest?branch=main)
 
 mongotest starts a real MongoDB server in a Docker container for a Go test,
 hands the test a connected client of the official MongoDB Go driver (v1), and

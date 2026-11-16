@@ -43,6 +43,14 @@ jobs:
       run: |
         go vet -v ./...
         go build -v ./...
+
+    # The exporter is its own module, so that only callers who export pay
+    # for mongo-tools.
+    - name: Vet and build exporter
+      working-directory: ./exporter
+      run: |
+        go vet -v ./...
+        go build -v ./...
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -66,6 +74,10 @@ jobs:
     # benchmark suites are the same ones dockerapi runs.
     - name: Test mobyclient
       working-directory: ./mobyclient
+      run: go test -v -race ./...
+
+    - name: Test exporter
+      working-directory: ./exporter
       run: go test -v -race ./...
 
     - name: Upload code coverage to Coveralls for package
