@@ -85,5 +85,8 @@ what to do if it affects you.
   because of its rate limit, from `dockerapi` or `mobyclient`. A rate limit
   is reported at once, not retried, and for the official image the error
   suggests `mongod.ImagePublicECR`.
+- `mobyclient` reports a daemon's 429, 500 and 503 as a `StatusError` with
+  that code, as `dockerapi` does, so they no longer match
+  `ErrDaemonResponse`. Match `ErrRateLimited`, or read `StatusError.StatusCode`.
 - `Options.WithPullTimeout` bounds a pull of a missing image, ten minutes by
   default, separately from the wait for mongod.
