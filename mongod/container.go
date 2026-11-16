@@ -25,6 +25,7 @@ type Container struct {
 	password   string
 	host       string
 	port       int
+	certs      *certificates // nil without WithTLS
 	docker     dockerclient.Client
 	logger     dockerclient.Logger
 
@@ -91,16 +92,15 @@ func (c *Container) Username() string { return c.username }
 func (c *Container) Password() string { return c.password }
 
 // Port returns the host port mongod is published on. A connection string
-// built from Host and Port by hand carries no credentials, so use URI when
-// the container has them.
+// built from Host and Port by hand carries no credentials and no TLS, so use
+// URI.
 //
 //	32768
 func (c *Container) Port() int { return c.port }
 
 // Host returns the address mongod is reachable at from this process. It is
 // not always loopback; see [Options.WithHostIP]. A connection string built from Host
-// and Port by hand carries no credentials, so use URI when the container has
-// them.
+// and Port by hand carries no credentials and no TLS, so use URI.
 //
 //	127.0.0.1    // local daemon
 //	172.17.0.1   // this process is in a sibling container
@@ -112,6 +112,10 @@ func (c *Container) Host() string { return c.host }
 //
 //	mongodb://127.0.0.1:32768/?directConnection=true
 //	mongodb://admin:secret@127.0.0.1:32768/?directConnection=true   // WithAuth
+//	mongodb://127.0.0.1:32768/?directConnection=true&tls=true       // WithTLS
+//
+// With WithTLS the driver also needs [Container.TLSConfig], which trusts the
+// container's certificate.
 //
 // directConnection makes a driver use this address. Without it a driver
 // switches to the address a replica set member advertises, which only works
@@ -131,6 +135,9 @@ func (c *Container) uri(password string) string {
 	}
 	b.WriteString(addr(c.host, c.Port()))
 	b.WriteString("/?directConnection=true")
+	if c.certs != nil {
+		b.WriteString("&tls=true")
+	}
 	return b.String()
 }
 

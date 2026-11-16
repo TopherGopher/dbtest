@@ -70,6 +70,7 @@ type Options struct {
 	username     string
 	password     string
 	noAuth       bool
+	tls          bool
 	mongodArgs   []string
 	startTimeout time.Duration
 	pullTimeout  time.Duration
@@ -184,6 +185,16 @@ func (o Options) WithoutAuth() Options {
 	return o
 }
 
+// WithTLS makes mongod accept only TLS connections, with a certificate made
+// for this container. Connect with [Container.URI] and give the driver
+// [Container.TLSConfig], which trusts that certificate. An image that takes
+// no mongod flags, such as Atlas Local, refuses it with
+// [ErrUnsupportedForImage].
+func (o Options) WithTLS() Options {
+	o.tls = true
+	return o
+}
+
 // WithMongodArgs passes extra flags to mongod, after any given before.
 func (o Options) WithMongodArgs(args ...string) Options {
 	o.mongodArgs = append(slices.Clone(o.mongodArgs), args...)
@@ -236,9 +247,9 @@ func (o Options) Format(f fmt.State, _ rune) {
 		password = redactedPassword
 	}
 	fmt.Fprintf(f, "mongod.Options{image: %q, name: %q, port: %d, hostIP: %q, replicaSet: %q, username: %q, password: %q, "+
-		"noAuth: %t, mongodArgs: %q, startTimeout: %s, pullTimeout: %s, labels: %v}",
+		"noAuth: %t, tls: %t, mongodArgs: %q, startTimeout: %s, pullTimeout: %s, labels: %v}",
 		o.image.WithVersion(o.version).Reference(), o.name, o.port, o.hostIP, o.replicaSet, o.username, password,
-		o.noAuth, o.mongodArgs, o.startTimeout, o.pullTimeout, o.labels)
+		o.noAuth, o.tls, o.mongodArgs, o.startTimeout, o.pullTimeout, o.labels)
 }
 
 // refused remembers the first value a With method could not accept.
@@ -368,6 +379,8 @@ func (c config) validate() error {
 		return &UnsupportedForImageError{Image: c.image, Option: "WithReplicaSet", Reason: reasonPreconfiguredReplicaSet}
 	case len(c.mongodArgs) > 0 && !c.image.acceptsMongodArgs():
 		return &UnsupportedForImageError{Image: c.image, Option: "WithMongodArgs", Reason: reasonCommandIsEntrypoint}
+	case c.tls && !c.image.acceptsMongodArgs():
+		return &UnsupportedForImageError{Image: c.image, Option: "WithTLS", Reason: reasonNoTLSFlags}
 	}
 	return nil
 }

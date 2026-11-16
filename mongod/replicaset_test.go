@@ -3,6 +3,7 @@ package mongod_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,7 +74,24 @@ func TestAnImageWithNoShellCannotHaveAReplicaSet(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
 
 	require.ErrorIs(t, err, mongod.ErrNotInitiated, "nothing in the image can initiate the set")
+	assert.ErrorIs(t, err, mongod.ErrNoShell, "because it has no shell, which RunScript reports the same way")
 	assert.Equal(t, []string{"mongosh", "mongo"}, *tried, "after both shells were looked for")
+}
+
+func TestWhatAShellThatFailedToInitiateSaidReachesTheCaller(t *testing.T) {
+	const said = "MongoServerError: not authorized on admin"
+	m, _ := readyMock(t)
+	shell(m, dockerclient.ExecResult{ExitCode: 1, Stderr: "\n" + said + "\n", Stdout: "Current Mongosh Log ID: 1a2b"}, nil)
+
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
+
+	require.ErrorIs(t, err, mongod.ErrNotInitiated, "the set was not initiated")
+	assert.ErrorIs(t, err, mongod.ErrScriptFailed, "because the shell ran and failed")
+	var failed *mongod.ScriptError
+	require.ErrorAs(t, err, &failed, "and the error holds what the shell said")
+	assert.Equal(t, "mongosh", failed.Shell, "which shell")
+	assert.Equal(t, 1, failed.ExitCode, "how it exited")
+	assert.Equal(t, said, strings.TrimSpace(failed.Stderr), "and what it wrote to standard error, which is where mongosh explains itself")
 }
 
 // A shell that ran and failed is not a missing shell: trying the other one

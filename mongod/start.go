@@ -42,7 +42,11 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	cfg.hostSource = address.Source
 	cfg.announceExposure(host)
 
-	c := newContainer(host, cfg, docker)
+	certs, err := cfg.certificatesFor(host)
+	if err != nil {
+		return nil, err
+	}
+	c := newContainer(host, cfg, docker, certs)
 	deadline, err := c.create(ctx, cfg, host)
 	if err != nil {
 		return nil, err
@@ -168,11 +172,11 @@ func (c config) client() (dockerclient.Client, error) {
 // It registers before the daemon is asked, because a signal between the
 // daemon creating the container and this process hearing of it would
 // otherwise leave the container behind. See createOnce.
-func newContainer(host string, cfg config, docker dockerclient.Client) *Container {
+func newContainer(host string, cfg config, docker dockerclient.Client, certs *certificates) *Container {
 	c := &Container{
 		name: cfg.name, image: cfg.image, replicaSet: cfg.replicaSet,
 		username: cfg.username, password: cfg.password,
-		host: host, docker: docker, logger: cfg.logger,
+		host: host, certs: certs, docker: docker, logger: cfg.logger,
 	}
 	// Locked because the reaper may call Stop, which reads the handle, the
 	// moment Register returns.
@@ -325,6 +329,7 @@ func (c *Container) start(ctx context.Context, cfg config, deadline time.Time) e
 		docker: c.docker, logger: c.logger,
 		id: c.id, name: c.name, host: c.host, port: c.port,
 		requireAuth:    cfg.username != "",
+		tlsConfig:      c.probeTLSConfig(),
 		hasHealthCheck: declaresHealthCheck(info.State.Health.Status),
 		notReady:       notReady,
 	}
@@ -351,6 +356,11 @@ func (c *Container) run(ctx context.Context, cfg config) (dockerclient.Container
 	if cfg.needsKeyFile() {
 		if err := copyKeyFile(ctx, c.docker, c.id, c.Image()); err != nil {
 			return dockerclient.ContainerInspect{}, c.startError(OpCopyKeyFile, err)
+		}
+	}
+	if c.certs != nil {
+		if err := c.certs.copyInto(ctx, c.docker, c.id); err != nil {
+			return dockerclient.ContainerInspect{}, c.startError(OpTLSCertificate, err)
 		}
 	}
 	c.logger.Debug("Starting the MongoDB container.", "container", c.name, "image", c.Image())
