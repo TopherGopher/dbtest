@@ -406,15 +406,16 @@ func (e *ContainerExitedError) Error() string {
 	if e.Status == "dead" {
 		verb = "died"
 	}
-	return fmt.Sprintf("mongod: container %s (%s) %s with code %d before mongod was ready. "+
-		"The usual cause is a flag or replica set name mongod rejects. %s",
-		e.Name, shortID(e.ID), verb, e.ExitCode, e.outputSummary())
+	return fmt.Sprintf("mongod: container %s (%s) %s with code %d before mongod was ready. %s",
+		e.Name, shortID(e.ID), verb, e.ExitCode, e.why())
 }
 
-// outputSummary shows the end of what the container wrote.
-func (e *ContainerExitedError) outputSummary() string {
+// why shows the end of what the container wrote, which usually says why it
+// stopped, or the usual cause when there is nothing to show.
+func (e *ContainerExitedError) why() string {
 	if e.Output == "" {
-		return "Its log could not be read, so run the image by hand with the same flags to see why"
+		return "The usual cause is a flag or replica set name mongod rejects. " +
+			"Its log was empty or could not be read, so run the image by hand with the same flags to see why"
 	}
 	return "The end of what mongod wrote:\n" + strings.TrimRight(e.Output, "\n")
 }

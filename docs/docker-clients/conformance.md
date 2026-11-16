@@ -38,7 +38,10 @@ func newConformanceClient(tb testing.TB) dockerclient.Client {
     tb.Helper()
     d := dockermock.NewDaemon()
     tb.Cleanup(d.Close)
-    d.ServeFake(dockermock.NewFake())
+    f := dockermock.NewFake()
+    // What the suite expects of its test image, which it cannot set itself.
+    f.ImageUser, f.Health, f.Log = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth, dockerclienttest.TestContainerLog
+    d.ServeFake(f)
 
     c, err := myclient.New(myclient.WithHost(d.Host()))
     require.NoError(tb, err, "a client against the fake daemon must construct")
@@ -63,7 +66,7 @@ A `dockerclient.Client` that is itself a double can be passed straight in;
 
 ## What is checked
 
-The suite is five groups of subtests, each assertion carrying a message that
+The suite is eight groups of subtests, each assertion carrying a message that
 says what the expectation protects. The image it works with is
 `dockerclienttest.TestImage` (`mongo:8`); nothing is downloaded.
 
@@ -74,6 +77,9 @@ says what the expectation protects. The image it works with is
 | **Runs a container lifecycle** | Pull, create, start, inspect (running, with a published host port), top, remove, and remove-again-is-not-found, in order. |
 | **Copies files into a container** | `CopyToContainer` and `CopyArchiveToContainer` place the given files with their modes, including into a container that is created but not yet started. |
 | **Runs a command and reports its output** | `Exec` returns stdout and stderr separately and a non-zero exit code as data; `ExecCreate`, `ExecStartTo` and `ExecInspect` compose to the same result. |
+| **Reports the user an image declares** | `ImageInspect` passes on the user the image runs as. |
+| **Reports the health check of a running container** | `ContainerInspect` passes on the health a running container reports. |
+| **Reads what a container wrote** | `ContainerLogsTo` returns what the container wrote to stdout, and nothing on stderr. |
 
 Behaviour that depends on the wire, such as the exact request shape, pull
 progress parsing, exec frame demultiplexing across split reads and the

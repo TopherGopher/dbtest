@@ -137,18 +137,11 @@ func (c *Client) ContainerLogsTo(ctx context.Context, id string, stdout, stderr 
 	default:
 		return unexpectedStatus(http.MethodGet, path, resp.StatusCode)
 	}
-	// A container with a TTY has one raw stream; the daemon says so in the
-	// content type. Without a TTY, stdout and stderr arrive mixed together
-	// in frames.
-	if resp.Header.Get("Content-Type") == rawStream {
-		_, err = io.Copy(stdout, resp.Body)
+	if err := demux(resp.Body, stdout, stderr); err != nil {
 		return ctxErr(ctx, err)
 	}
-	return ctxErr(ctx, demux(resp.Body, stdout, stderr))
+	return nil
 }
-
-// rawStream is the content type of a log the daemon sends unframed.
-const rawStream = "application/vnd.docker.raw-stream"
 
 // ContainerTop lists the processes running inside a container.
 func (c *Client) ContainerTop(ctx context.Context, id string) (Top, error) {

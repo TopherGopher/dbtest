@@ -78,7 +78,7 @@ Run the [quickstart](quickstart.md) test.
     export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')
     ```
 
-??? failure "The container starts, but `mongod` is not ready in time"
+??? failure "The container starts, but `mongod` exits or is not ready in time"
     The error names the step that failed and matches a `mongod` sentinel,
     such as `mongod.ErrNotReady` or `mongod.ErrContainerExited`, and says
     what to do. When the container exits, the error ends with what `mongod`

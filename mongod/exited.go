@@ -41,22 +41,34 @@ type tail struct {
 }
 
 func (t *tail) Write(p []byte) (int, error) {
+	n := len(p)
+	if n > t.limit {
+		p, t.cut = p[n-t.limit:], true
+	}
 	t.buf = append(t.buf, p...)
 	if over := len(t.buf) - t.limit; over > 0 {
 		t.buf, t.cut = t.buf[over:], true
 	}
-	return len(p), nil
+	return n, nil
 }
 
 // String returns what was kept. If the front was cut, it starts at the next
 // whole line, or at least at a whole character.
 func (t *tail) String() string {
 	b := t.buf
-	if i := bytes.IndexByte(b, '\n'); t.cut && i >= 0 && i < len(b)-1 {
-		return string(b[i+1:])
+	if t.cut {
+		b = fromNextLine(b)
 	}
 	for len(b) > 0 && !utf8.RuneStart(b[0]) {
 		b = b[1:]
 	}
 	return string(b)
+}
+
+// fromNextLine drops b's first, partial line, unless it is the only line.
+func fromNextLine(b []byte) []byte {
+	if i := bytes.IndexByte(b, '\n'); i >= 0 && i < len(b)-1 {
+		return b[i+1:]
+	}
+	return b
 }

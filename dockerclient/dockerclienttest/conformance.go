@@ -27,10 +27,10 @@ const (
 	// TestImageHealth is the health a running container of TestImage
 	// reports, as one from an image with a health check does.
 	TestImageHealth = "healthy"
-	// TestContainerOutput is what a container of TestImage writes to stdout,
-	// where mongod writes its log. A dockermock.Fake takes it in its Output
+	// TestContainerLog is what a container of TestImage writes to stdout,
+	// where mongod writes its log. A dockermock.Fake takes it in its Log
 	// field.
-	TestContainerOutput = "Waiting for connections\n"
+	TestContainerLog = "Waiting for connections\n"
 )
 
 // Conformance runs every behaviour assertion against one implementation.
@@ -69,8 +69,10 @@ func conformanceLogs(t *testing.T, c dockerclient.Client) {
 	if err := c.ContainerLogsTo(context.Background(), id, &stdout, &stderr); err != nil {
 		t.Fatalf("reading the log of %s: %v", id, err)
 	}
-	if stdout.String() != TestContainerOutput {
-		t.Errorf("the log must hold what the container wrote to stdout: want %q, got %q", TestContainerOutput, stdout.String())
+	if stdout.String() != TestContainerLog {
+		t.Errorf("the log must hold what the container wrote to stdout: want %q, got %q. Without it a failed start "+
+			"cannot say why mongod stopped. Split the daemon's log stream into stdout and stderr; a dockermock.Fake "+
+			"needs its Log set to TestContainerLog", TestContainerLog, stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("what was written to stdout must not arrive as stderr, got %q", stderr.String())

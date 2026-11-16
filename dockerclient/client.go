@@ -48,7 +48,8 @@ type Client interface {
 
 	// ContainerLogsTo copies what a container has written so far, stdout
 	// and stderr each to its own writer, and returns. It does not wait for
-	// more output. Either writer may be nil to discard that stream.
+	// more output. Either writer may be nil to discard that stream. It is
+	// for a container created without a TTY, as mongotest creates them.
 	ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error
 
 	// ContainerTop lists the processes running inside a container. It is the

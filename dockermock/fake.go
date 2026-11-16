@@ -50,9 +50,9 @@ type Fake struct {
 	// image with a HEALTHCHECK does: "starting", "healthy" or "unhealthy".
 	// The default, "", is an image that declares no check.
 	Health string
-	// Output is what every container writes to stdout, where mongod writes
-	// its log. The default, "", is a container that writes nothing.
-	Output string
+	// Log is what every container writes to stdout, where mongod writes its
+	// log. The default, "", is a container that writes nothing.
+	Log string
 }
 
 // ContainerState is what the Fake knows about one container, passed to the
@@ -301,7 +301,7 @@ func (f *Fake) ContainerLogsTo(ctx context.Context, id string, stdout, stderr io
 	if stdout == nil {
 		stdout = io.Discard
 	}
-	if _, err := io.WriteString(stdout, f.Output); err != nil {
+	if _, err := io.WriteString(stdout, f.Log); err != nil {
 		return &dockerclient.StreamError{Problem: "writing a container's log", Err: err}
 	}
 	return nil

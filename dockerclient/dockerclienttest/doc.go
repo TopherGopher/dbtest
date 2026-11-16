@@ -26,7 +26,7 @@
 //
 //	func conformanceFake() *dockermock.Fake {
 //		f := dockermock.NewFake()
-//		f.ImageUser, f.Health, f.Output = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth, dockerclienttest.TestContainerOutput
+//		f.ImageUser, f.Health, f.Log = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth, dockerclienttest.TestContainerLog
 //		return f
 //	}
 //

@@ -48,8 +48,8 @@ const (
 	DefaultImageID = "sha256:41c3b7abb48e"
 	// DefaultExecOutput is what an exec started against it writes on stdout.
 	DefaultExecOutput = "1\n"
-	// DefaultContainerOutput is what every container writes to stdout.
-	DefaultContainerOutput = "Waiting for connections\n"
+	// DefaultContainerLog is what every container writes to stdout.
+	DefaultContainerLog = "Waiting for connections\n"
 )
 
 // Daemon is a fake Docker daemon that speaks the Engine API over HTTP, so a
@@ -324,7 +324,7 @@ func (d *Daemon) ServeDefaults() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/vnd.docker.multiplexed-stream")
-		writeFrames(w, DefaultContainerOutput, "")
+		writeFrames(w, DefaultContainerLog, "")
 	})
 	d.Handle("PUT", "/containers/{id}/archive", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)

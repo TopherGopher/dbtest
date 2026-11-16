@@ -84,5 +84,3 @@ what to do if it affects you.
 - When a container exits before mongod is ready, the error now ends with the
   last of what mongod wrote, which usually says why.
   `ContainerExitedError.Output` holds the same text.
-- `dockerclient.Client` gains `ContainerLogsTo`, which reads what a container
-  has written. An implementation outside this module must add the method.
