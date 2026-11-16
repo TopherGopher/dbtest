@@ -44,6 +44,10 @@ var (
 	// ErrPull is matched when the daemon reports a failure inside an image
 	// pull progress stream.
 	ErrPull = errors.New("image pull failed")
+	// ErrRateLimited is matched when a registry refused a pull because too
+	// many came from this address or account. Docker Hub limits anonymous
+	// pulls this way.
+	ErrRateLimited = errors.New("the registry's pull rate limit was reached")
 	// ErrExecUnfinished is matched when an exec process is still reported
 	// running well after its output stream closed.
 	ErrExecUnfinished = errors.New("exec process did not finish")
@@ -106,7 +110,9 @@ func (e *InvalidArgumentError) Error() string {
 func (e *InvalidArgumentError) Is(target error) bool { return target == ErrInvalidArgument }
 
 // StatusError is returned for any non-2xx daemon response. It matches
-// ErrNotFound, ErrConflict or ErrUnauthorized according to the status code.
+// ErrNotFound, ErrConflict or ErrUnauthorized according to the status code,
+// and ErrRateLimited for a 429 or a message that names a registry's rate
+// limit.
 type StatusError struct {
 	StatusCode int
 	// Message is the daemon's own message for the failure.
@@ -125,6 +131,9 @@ func (e *StatusError) Error() string {
 
 // Hint suggests what to do about the status code. Error includes it.
 func (e *StatusError) Hint() string {
+	if e.Is(ErrRateLimited) {
+		return rateLimitHint
+	}
 	switch e.StatusCode {
 	case http.StatusBadRequest:
 		return "The daemon considered the request malformed; the message names the field to fix"
@@ -135,7 +144,7 @@ func (e *StatusError) Hint() string {
 	case http.StatusConflict:
 		return "Another operation on this object is in progress or its name is taken; retry shortly, pick another name, or remove with Force"
 	case http.StatusInternalServerError:
-		return "The daemon hit an internal error; check its logs (journalctl -u docker, or Docker Desktop's Troubleshoot view) and retry"
+		return "The daemon, or a registry it asked, failed; retry, and if it persists check the daemon's logs (journalctl -u docker, or Docker Desktop's Troubleshoot view)"
 	case http.StatusServiceUnavailable:
 		return "The daemon is not ready yet; wait a moment and retry"
 	}
@@ -151,6 +160,24 @@ func (e *StatusError) Is(target error) bool {
 		return e.StatusCode == http.StatusConflict
 	case ErrUnauthorized:
 		return e.StatusCode == http.StatusUnauthorized || e.StatusCode == http.StatusForbidden
+	case ErrRateLimited:
+		return e.StatusCode == http.StatusTooManyRequests || rateLimited(e.Message)
+	}
+	return false
+}
+
+// rateLimitHint is what to do about a registry's rate limit.
+const rateLimitHint = "The registry's pull rate limit was reached; wait for it to reset, or log in with `docker login` for a higher limit"
+
+// rateLimited reports whether a daemon's message is a registry's rate limit.
+// Only the text tells: the daemon reports the registry's 429 as a 500 or
+// inside the pull's stream, and the registry's own code does not survive.
+func rateLimited(msg string) bool {
+	msg = strings.ToLower(msg)
+	for _, mark := range []string{"429 too many requests", "toomanyrequests", "pull rate limit"} {
+		if strings.Contains(msg, mark) {
+			return true
+		}
 	}
 	return false
 }
@@ -425,8 +452,16 @@ func (e *PullError) Error() string {
 	if e.Err != nil {
 		msg += ": " + e.Err.Error()
 	}
+	if rateLimited(e.Message) {
+		return msg + ". " + rateLimitHint
+	}
 	return msg + ". Check the image name and tag exist on the registry and that this host can reach it"
 }
 
-func (e *PullError) Unwrap() error        { return e.Err }
-func (e *PullError) Is(target error) bool { return target == ErrPull }
+func (e *PullError) Unwrap() error { return e.Err }
+
+// Is matches ErrPull, and ErrRateLimited when the registry refused the pull
+// for its rate limit.
+func (e *PullError) Is(target error) bool {
+	return target == ErrPull || (target == ErrRateLimited && rateLimited(e.Message))
+}

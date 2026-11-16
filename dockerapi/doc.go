@@ -167,6 +167,9 @@
 //   - ErrStream (StreamError), ErrPull (PullError): an exec stream or a pull
 //     progress stream reported a problem.
 //
+//   - ErrRateLimited (StatusError or PullError): a registry refused a pull
+//     because too many came from this address or account.
+//
 //     if dockerapi.IsNotFound(err) { /* pull, then retry */ }
 //     var ia *dockerapi.InvalidArgumentError
 //     if errors.As(err, &ia) { fmt.Println(ia.Argument, ia.Fix) }

@@ -1,5 +1,11 @@
 package mongod
 
+import (
+	"context"
+	"errors"
+	"time"
+)
+
 // This file is compiled only into the tests. It lets a test outside the
 // package assert on a private error or decision, where it would otherwise
 // have to read the wording of a message.
@@ -13,3 +19,22 @@ var (
 
 // AddressInDoubt reports whether the error advises correcting the address.
 func (e *NotReadyError) AddressInDoubt() bool { return e.addressInDoubt() }
+
+// PullWaiters reports how many callers are waiting on the pull of image from
+// the daemon at host, so a test can tell when every caller has joined it.
+func PullWaiters(host, image string) int { return pullWaiters(host, image) }
+
+// SetPullWait replaces the wait between pull attempts until the test ends,
+// so a test of the retry does not sleep for real.
+func SetPullWait(t interface{ Cleanup(func()) }, wait func(ctx context.Context, d time.Duration) error) {
+	saved := pullWait
+	pullWait = wait
+	t.Cleanup(func() { pullWait = saved })
+}
+
+// SuggestsPublicECR reports whether err advises pulling from Amazon ECR
+// Public instead.
+func SuggestsPublicECR(err error) bool {
+	var advice *publicECRAdvice
+	return errors.As(err, &advice)
+}

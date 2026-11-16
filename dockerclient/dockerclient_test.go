@@ -148,3 +148,33 @@ func TestResponseErrorMessage(t *testing.T) {
 	assert.Contains(t, err.Error(), "DOCKER_API_VERSION", "the message points at the version pin as the likely cause")
 	assert.Contains(t, dockerclient.UnexpectedStatus("POST", "/x", 202).Error(), "unexpected status 202", "unexpected statuses are named")
 }
+
+// Daemons report a registry's rate limit in three ways: as a 429 status, as
+// a 500 whose message carries the registry's 429, or as the last message in
+// the pull's stream. A caller must be able to tell it from other failures
+// without reading the message itself.
+func TestARateLimitMatchesErrRateLimitedHoweverItArrives(t *testing.T) {
+	limited := map[string]error{
+		"a 429 status": &dockerclient.StatusError{StatusCode: 429, Message: "rate limited"},
+		"the registry's 429 when resolving the tag": &dockerclient.StatusError{StatusCode: 500,
+			Message: `unknown: failed to resolve reference "docker.io/library/mongo:8.0": unexpected status from HEAD request to https://registry-1.docker.io/v2/library/mongo/manifests/8.0: 429 Too Many Requests`},
+		"in the stream": &dockerclient.PullError{Ref: "mongo:8.0",
+			Message: "error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit"},
+		"in the stream, from an older daemon": &dockerclient.PullError{Ref: "mongo:8.0",
+			Message: "toomanyrequests: You have reached your pull rate limit. You may increase the limit by authenticating and upgrading"},
+	}
+	for name, err := range limited {
+		assert.ErrorIs(t, err, dockerclient.ErrRateLimited, "%s is a rate limit", name)
+	}
+	assert.ErrorIs(t, limited["in the stream"], dockerclient.ErrPull, "a rate-limited pull still matches ErrPull")
+
+	notLimited := map[string]error{
+		"access denied": &dockerclient.StatusError{StatusCode: 500,
+			Message: "pull access denied, repository does not exist or may require authorization: authorization failed: no basic auth credentials"},
+		"a missing tag":      &dockerclient.StatusError{StatusCode: 404, Message: "manifest for mongo:0.1 not found"},
+		"a dropped download": &dockerclient.PullError{Ref: "mongo:8.0", Message: "short read: expected 100 bytes but got 50: unexpected EOF"},
+	}
+	for name, err := range notLimited {
+		assert.NotErrorIs(t, err, dockerclient.ErrRateLimited, "%s is not a rate limit", name)
+	}
+}

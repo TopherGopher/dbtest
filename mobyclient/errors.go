@@ -51,6 +51,15 @@ func mapError(host, method, path string, err error) error {
 		return statusError(http.StatusForbidden, method, path, err)
 	case cerrdefs.IsInvalidArgument(err):
 		return statusError(http.StatusBadRequest, method, path, err)
+	case cerrdefs.IsResourceExhausted(err):
+		return statusError(http.StatusTooManyRequests, method, path, err)
+	case cerrdefs.IsUnavailable(err):
+		return statusError(http.StatusServiceUnavailable, method, path, err)
+	case cerrdefs.IsInternal(err):
+		// The daemon reports a registry's failure, a rate limit included,
+		// as a 500 whose message is the registry's answer. Kept a
+		// StatusError, as dockerapi does, so that message can be read.
+		return statusError(http.StatusInternalServerError, method, path, err)
 	}
 	// Not a classified daemon response: it may be that the daemon could not
 	// be reached at all. WrapConnectionError inspects the error chain
