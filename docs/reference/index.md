@@ -19,6 +19,13 @@ explained, and links out for signatures.
     The root package: `Run`, `Start`, `Attach`, `Instance`, and the earlier
     names kept as wrappers.
 
+-   :material-database-export:{ .lg .middle } **[exporter on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/mongotest/exporter)**
+
+    ---
+
+    Writes a collection out as JSON or CSV; see
+    [Exporting data](../guides/exporting-data.md).
+
 -   :material-code-braces:{ .lg .middle } **[dockerclient](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerclient)** · **[dockerapi](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerapi)** · **[dockermock](https://pkg.go.dev/github.com/tophergopher/mongotest/dockermock)** · **[mobyclient](https://pkg.go.dev/github.com/tophergopher/mongotest/mobyclient)**
 
     ---
@@ -71,6 +78,7 @@ connection do not (see CHANGELOG.md). New code uses the right-hand column.
 | `GetAvailablePort()` | Leave the port to Docker. |
 | `ReapRunningContainers()` | `mongod.ReapRunningContainers`, which returns its error |
 | `GenerateCARoot()` | `WithTLS`, which makes a container's certificates itself |
+| `DatabaseExporter(db, coll)` | The `exporter` module; see [Moving from `DatabaseExporter`](../guides/exporting-data.md#moving-from-databaseexporter) |
 | `ErrFailedToConnectToDockerDaemon` | `dockerclient.ErrConnectionFailed`, the same value |
 | `ErrMongoContainerAlreadyRunning` | `dockerclient.ErrConflict`, the same value |
 | `ErrNoAvailablePorts` | Returned only by `GetAvailablePort`. |
