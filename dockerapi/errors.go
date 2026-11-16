@@ -23,10 +23,11 @@ type errorResponse struct {
 // an unbounded amount into an error message.
 const maxErrorBody = 1 << 20
 
-// maxErrorMessage bounds the daemon message carried on a StatusError, in
-// bytes. Long enough for any real message, short enough that a stray HTML
-// page does not fill a log line.
-const maxErrorMessage = 200
+// maxErrorMessage caps, in bytes, the daemon message carried on a
+// StatusError. The daemon often puts the cause last, after ids and endpoint
+// names, so the cap keeps any real message whole. It is still short enough
+// that an HTML error page from a proxy does not fill a screen.
+const maxErrorMessage = 1000
 
 // ellipsis marks a message that was cut, so a reader can tell the difference
 // between a truncated message and a daemon that stopped mid-sentence.
