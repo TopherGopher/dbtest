@@ -16,8 +16,15 @@ explained, and links out for signatures.
 
     ---
 
-    The root package: `TestConnection`, the constructors, the one-shot
-    helpers and the exporter.
+    The root package: `TestConnection`, the constructors and the one-shot
+    helpers.
+
+-   :material-database-export:{ .lg .middle } **[exporter on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/mongotest/exporter)**
+
+    ---
+
+    Writes a collection out as JSON or CSV; see
+    [Exporting data](../guides/exporting-data.md).
 
 -   :material-code-braces:{ .lg .middle } **[dockerclient](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerclient)** · **[dockerapi](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerapi)** · **[dockermock](https://pkg.go.dev/github.com/tophergopher/mongotest/dockermock)** · **[mobyclient](https://pkg.go.dev/github.com/tophergopher/mongotest/mobyclient)**
 
@@ -53,11 +60,8 @@ ones mongotest adds.
 
 ### `DatabaseExporter`
 
-| Method | Explained in |
-| --- | --- |
-| `Query`, `Sort`, `Skip`, `Limit`, `Database`, `Collection`, `Filepath` | [Exporting data](../guides/exporting-data.md#builder-methods) |
-| `ToJSONFile(prettify, jsonArray, relaxedJSON, gzip bool) (string, error)` | [Exporting data](../guides/exporting-data.md#terminal-methods) |
-| `CSVFile() (string, error)` | [Exporting data](../guides/exporting-data.md#csvfile) |
+Replaced by the `exporter` module; see
+[Moving from `DatabaseExporter`](../guides/exporting-data.md#moving-from-databaseexporter).
 
 ### Functions
 
