@@ -371,6 +371,12 @@ func (c *Container) run(ctx context.Context, cfg config) (dockerclient.Container
 	if err != nil {
 		return dockerclient.ContainerInspect{}, c.startError(OpInspect, err)
 	}
+	// A mongod that rejects its flags can exit before this inspect. Report
+	// the exit here: a stopped container publishes no port, so the port
+	// check below would blame the wrong thing.
+	if hasExited(info.State) {
+		return dockerclient.ContainerInspect{}, newExitedError(ctx, c.docker, c.name, c.id, info.State, nil)
+	}
 	port, published := hostPort(info)
 	if !published {
 		return dockerclient.ContainerInspect{}, &UnpublishedPortError{Port: mongoPort, Name: c.name, ID: c.id}

@@ -26,6 +26,7 @@ type Mock struct {
 	CopyArchiveToContainerFunc func(ctx context.Context, id, destDir string, archive io.Reader) error
 	ExecCreateFunc             func(ctx context.Context, containerID string, cfg dockerclient.ExecConfig) (string, error)
 	ExecStartToFunc            func(ctx context.Context, execID string, stdout, stderr io.Writer) error
+	ContainerLogsToFunc        func(ctx context.Context, id string, stdout, stderr io.Writer) error
 	ExecInspectFunc            func(ctx context.Context, execID string) (dockerclient.ExecInspect, error)
 	ExecFunc                   func(ctx context.Context, containerID string, cmd ...string) (dockerclient.ExecResult, error)
 
@@ -171,6 +172,14 @@ func (m *Mock) ExecCreate(ctx context.Context, containerID string, cfg dockercli
 		return m.ExecCreateFunc(ctx, containerID, cfg)
 	}
 	return "", nil
+}
+
+func (m *Mock) ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	m.record("ContainerLogsTo", id)
+	if m.ContainerLogsToFunc != nil {
+		return m.ContainerLogsToFunc(ctx, id, stdout, stderr)
+	}
+	return nil
 }
 
 func (m *Mock) ExecStartTo(ctx context.Context, execID string, stdout, stderr io.Writer) error {

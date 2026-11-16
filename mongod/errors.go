@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
@@ -374,6 +375,10 @@ func (e *AuthNotEnforcedError) Error() string {
 
 func (e *AuthNotEnforcedError) Is(target error) bool { return target == ErrAuthNotEnforced }
 
+// exitOutputLimit is the most bytes of an exited container's output that
+// ContainerExitedError keeps, enough for mongod's last several log lines.
+const exitOutputLimit = 8 << 10
+
 // ContainerExitedError reports that the container stopped, or was removed,
 // before mongod was ready. It matches ErrContainerExited.
 type ContainerExitedError struct {
@@ -384,7 +389,12 @@ type ContainerExitedError struct {
 	// ExitCode is meaningful only when HasExitCode is true.
 	ExitCode    int
 	HasExitCode bool
-	Err         error
+	// Output is the end of what the container wrote to stdout and stderr,
+	// at most 8 KiB, starting at a whole line. It usually says why mongod
+	// stopped. It is empty if the container was removed or its log could
+	// not be read.
+	Output string
+	Err    error
 }
 
 func (e *ContainerExitedError) Error() string {
@@ -397,9 +407,16 @@ func (e *ContainerExitedError) Error() string {
 		verb = "died"
 	}
 	return fmt.Sprintf("mongod: container %s (%s) %s with code %d before mongod was ready. "+
-		"The usual cause is a flag or replica set name mongod rejects. "+
-		"The container and its log are gone, so run the image by hand with the same flags to see why",
-		e.Name, shortID(e.ID), verb, e.ExitCode)
+		"The usual cause is a flag or replica set name mongod rejects. %s",
+		e.Name, shortID(e.ID), verb, e.ExitCode, e.outputSummary())
+}
+
+// outputSummary shows the end of what the container wrote.
+func (e *ContainerExitedError) outputSummary() string {
+	if e.Output == "" {
+		return "Its log could not be read, so run the image by hand with the same flags to see why"
+	}
+	return "The end of what mongod wrote:\n" + strings.TrimRight(e.Output, "\n")
 }
 
 func (e *ContainerExitedError) Unwrap() error { return e.Err }

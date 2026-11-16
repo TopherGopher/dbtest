@@ -3,6 +3,7 @@ package dockerapi
 import (
 	"context"
 	"encoding/json/v2"
+	"io"
 	"net/http"
 	"net/url"
 )
@@ -108,6 +109,46 @@ func (c *Client) ContainerInspect(ctx context.Context, id string) (ContainerInsp
 	err = c.getJSON(ctx, "/containers/"+id+"/json", &out)
 	return out, err
 }
+
+// ContainerLogsTo copies what a container has written so far, stdout and
+// stderr each to its own writer, and returns. It does not wait for more
+// output. Either writer may be nil to discard that stream.
+func (c *Client) ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	id, err := checkID("container", id)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	path := "/containers/" + id + "/logs"
+	resp, err := c.do(ctx, http.MethodGet, path, url.Values{"stdout": {"1"}, "stderr": {"1"}}, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusOK:
+	case resp.StatusCode >= 400:
+		return newStatusError(resp, http.MethodGet, path)
+	default:
+		return unexpectedStatus(http.MethodGet, path, resp.StatusCode)
+	}
+	// A container with a TTY has one raw stream; the daemon says so in the
+	// content type. Without a TTY, stdout and stderr arrive mixed together
+	// in frames.
+	if resp.Header.Get("Content-Type") == rawStream {
+		_, err = io.Copy(stdout, resp.Body)
+		return ctxErr(ctx, err)
+	}
+	return ctxErr(ctx, demux(resp.Body, stdout, stderr))
+}
+
+// rawStream is the content type of a log the daemon sends unframed.
+const rawStream = "application/vnd.docker.raw-stream"
 
 // ContainerTop lists the processes running inside a container.
 func (c *Client) ContainerTop(ctx context.Context, id string) (Top, error) {

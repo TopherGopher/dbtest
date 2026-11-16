@@ -20,13 +20,13 @@
 //		dockerclienttest.Benchmarks(b, func(b *testing.B) dockerclient.Client { ... })
 //	}
 //
-// The daemon behind the client must report the user and the health check
-// the suite expects of its test image, which a dockermock.Fake does once
-// told:
+// The daemon behind the client must report the user, the health check and
+// the output the suite expects of its test image, which a dockermock.Fake
+// does once told:
 //
 //	func conformanceFake() *dockermock.Fake {
 //		f := dockermock.NewFake()
-//		f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
+//		f.ImageUser, f.Health, f.Output = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth, dockerclienttest.TestContainerOutput
 //		return f
 //	}
 //

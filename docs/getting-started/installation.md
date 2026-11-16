@@ -81,5 +81,6 @@ Run the [quickstart](quickstart.md) test.
 ??? failure "The container starts, but `mongod` is not ready in time"
     The error names the step that failed and matches a `mongod` sentinel,
     such as `mongod.ErrNotReady` or `mongod.ErrContainerExited`, and says
-    what to do. The container is removed by then, so to see what `mongod`
-    itself said, run the image by hand with the same flags.
+    what to do. When the container exits, the error ends with what `mongod`
+    wrote last, which usually says why. If it shows nothing, run the image by
+    hand with the same flags.

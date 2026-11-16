@@ -2,9 +2,11 @@ package mobyclient
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/netip"
 
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
@@ -75,6 +77,34 @@ func (c *Client) ContainerInspect(ctx context.Context, id string) (dockerclient.
 		return dockerclient.ContainerInspect{}, c.mapErr(http.MethodGet, "/containers/"+id+"/json", err)
 	}
 	return toDockerclientInspect(res.Container), nil
+}
+
+// ContainerLogsTo copies what a container has written so far, stdout and
+// stderr each to its own writer, and returns. It does not wait for more
+// output. Either writer may be nil to discard that stream.
+func (c *Client) ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	id, err := dockerclient.CheckID("container", id)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	logs, err := c.cli.ContainerLogs(ctx, id, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	if err != nil {
+		return c.mapErr(http.MethodGet, "/containers/"+id+"/logs", err)
+	}
+	defer logs.Close()
+	// Without a TTY, as mongotest's containers are, stdout and stderr arrive
+	// mixed together in frames. The log of a container with a TTY is one
+	// raw stream, which this reports as a StreamError.
+	if _, err := stdcopy.StdCopy(stdout, stderr, logs); err != nil {
+		return &dockerclient.StreamError{Problem: "reading a container's log", Err: err}
+	}
+	return nil
 }
 
 // ContainerTop lists the processes running inside a container.
