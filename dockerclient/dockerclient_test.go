@@ -162,6 +162,8 @@ func TestARateLimitMatchesErrRateLimitedHoweverItArrives(t *testing.T) {
 			Message: "error from registry: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit"},
 		"in the stream, from an older daemon": &dockerclient.PullError{Ref: "mongo:8.0",
 			Message: "toomanyrequests: You have reached your pull rate limit. You may increase the limit by authenticating and upgrading"},
+		"in the stream, as only the registry's code": &dockerclient.PullError{Ref: "public.ecr.aws/docker/library/mongo:8.0",
+			Message: "toomanyrequests: Rate exceeded"},
 	}
 	for name, err := range limited {
 		assert.ErrorIs(t, err, dockerclient.ErrRateLimited, "%s is a rate limit", name)

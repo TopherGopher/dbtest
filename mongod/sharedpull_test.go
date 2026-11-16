@@ -3,6 +3,7 @@ package mongod_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,13 +25,28 @@ type heldPull struct {
 	release chan struct{} // closing it lets every pull finish
 	result  error         // what a released pull returns
 	pulled  atomic.Bool
+	once    sync.Once
+}
+
+// letGo lets every pull finish. It may be called more than once.
+func (h *heldPull) letGo() { h.once.Do(func() { close(h.release) }) }
+
+// pullMock is a mocked daemon whose address is the test's own. Pulls in
+// progress are shared across the process by daemon address, so this keeps
+// a pull one test leaves behind from being joined by the next.
+func pullMock(t *testing.T) *dockermock.Mock {
+	return &dockermock.Mock{HostFunc: t.Name}
 }
 
 // holdPulls makes m's pulls wait for the test, and its image missing until
 // one succeeds, so that a caller arriving late finds the image and pulls
-// nothing.
-func holdPulls(m *dockermock.Mock) *heldPull {
+// nothing. The pulls are let go when the test ends, if not before.
+func holdPulls(t *testing.T, m *dockermock.Mock) *heldPull {
+	if m.HostFunc == nil {
+		m.HostFunc = t.Name
+	}
 	h := &heldPull{started: make(chan string, 16), release: make(chan struct{})}
+	t.Cleanup(h.letGo)
 	create := m.ContainerCreateFunc
 	m.ContainerCreateFunc = func(ctx context.Context, name string, cfg dockerclient.ContainerConfig) (string, []string, error) {
 		if !h.pulled.Load() {
@@ -89,7 +105,7 @@ func receive(t *testing.T, done <-chan error) error {
 
 func TestStartsAndPullImageThatNeedTheSameImageShareOnePull(t *testing.T) {
 	m, _ := readyMock(t)
-	held := holdPulls(m)
+	held := holdPulls(t, m)
 	opts := mongod.DefaultOptions().WithDocker(m)
 	const callers = 6
 	done := make(chan error, callers)
@@ -108,7 +124,7 @@ func TestStartsAndPullImageThatNeedTheSameImageShareOnePull(t *testing.T) {
 	}
 
 	waitForWaiters(t, m, defaultImage, callers)
-	close(held.release)
+	held.letGo()
 
 	for range callers {
 		assert.NoError(t, receive(t, done), "every caller gets the image")
@@ -117,13 +133,13 @@ func TestStartsAndPullImageThatNeedTheSameImageShareOnePull(t *testing.T) {
 }
 
 func TestTheSameImageNamedTwoWaysSharesOnePull(t *testing.T) {
-	m := &dockermock.Mock{}
-	held := holdPulls(m)
+	m := pullMock(t)
+	held := holdPulls(t, m)
 
 	short := pullInBackground(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage("mongo:8.0"))
 	long := pullInBackground(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage("docker.io/library/mongo:8.0"))
 	waitForWaiters(t, m, defaultImage, 2)
-	close(held.release)
+	held.letGo()
 
 	assert.NoError(t, receive(t, short), "the short name gets the image")
 	assert.NoError(t, receive(t, long), "and so does the full one")
@@ -131,44 +147,44 @@ func TestTheSameImageNamedTwoWaysSharesOnePull(t *testing.T) {
 }
 
 func TestPullsOfDifferentImagesRunTogether(t *testing.T) {
-	m := &dockermock.Mock{}
-	held := holdPulls(m)
+	m := pullMock(t)
+	held := holdPulls(t, m)
 	opts := mongod.DefaultOptions().WithDocker(m)
 
 	older := pullInBackground(context.Background(), opts.WithImage("7.0"))
 	newer := pullInBackground(context.Background(), opts.WithImage("8.0"))
 	waitForPulls(t, held, 2)
-	close(held.release)
+	held.letGo()
 
 	assert.NoError(t, receive(t, older), "one image is pulled")
 	assert.NoError(t, receive(t, newer), "and the other, while the first was still pulling")
 }
 
 func TestCallersUsingDifferentDaemonsEachPull(t *testing.T) {
-	local, remote := &dockermock.Mock{}, &dockermock.Mock{HostFunc: func() string { return "tcp://build-host:2376" }}
-	heldLocal, heldRemote := holdPulls(local), holdPulls(remote)
+	local, remote := pullMock(t), &dockermock.Mock{HostFunc: func() string { return t.Name() + "-remote" }}
+	heldLocal, heldRemote := holdPulls(t, local), holdPulls(t, remote)
 
 	fromLocal := pullInBackground(context.Background(), mongod.DefaultOptions().WithDocker(local))
 	fromRemote := pullInBackground(context.Background(), mongod.DefaultOptions().WithDocker(remote))
 	waitForPulls(t, heldLocal, 1)
 	waitForPulls(t, heldRemote, 1)
-	close(heldLocal.release)
-	close(heldRemote.release)
+	heldLocal.letGo()
+	heldRemote.letGo()
 
 	assert.NoError(t, receive(t, fromLocal), "each daemon gets the image")
 	assert.NoError(t, receive(t, fromRemote), "a pull on one daemon does not put the image on another")
 }
 
 func TestCallersWaitingOnAFailedPullGetItsErrorAndALaterCallerPullsAgain(t *testing.T) {
-	m := &dockermock.Mock{}
-	held := holdPulls(m)
+	m := pullMock(t)
+	held := holdPulls(t, m)
 	held.result = errors.New("the registry is down")
 	opts := mongod.DefaultOptions().WithDocker(m)
 
 	first := pullInBackground(context.Background(), opts)
 	second := pullInBackground(context.Background(), opts)
 	waitForWaiters(t, m, defaultImage, 2)
-	close(held.release)
+	held.letGo()
 
 	assert.ErrorIs(t, receive(t, first), held.result, "the caller that started the pull gets its error")
 	assert.ErrorIs(t, receive(t, second), held.result, "and so does the one that joined it")
@@ -178,37 +194,67 @@ func TestCallersWaitingOnAFailedPullGetItsErrorAndALaterCallerPullsAgain(t *test
 }
 
 func TestAWaitingCallerLeavesWhenItsOwnTimeRunsOut(t *testing.T) {
-	cancelled, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	cases := map[string]struct {
-		ctx  context.Context
-		opts mongod.Options
-		want error
+		opts   mongod.Options
+		cancel bool
+		want   error
 	}{
-		"its context ends":      {cancelled, mongod.DefaultOptions(), context.Canceled},
-		"its pull timeout ends": {context.Background(), mongod.DefaultOptions().WithPullTimeout(time.Millisecond), context.DeadlineExceeded},
+		"its context ends":      {mongod.DefaultOptions(), true, context.Canceled},
+		"its pull timeout ends": {mongod.DefaultOptions().WithPullTimeout(time.Millisecond), false, context.DeadlineExceeded},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			m := &dockermock.Mock{}
-			held := holdPulls(m)
+			m := pullMock(t)
+			held := holdPulls(t, m)
 			patient := pullInBackground(context.Background(), mongod.DefaultOptions().WithDocker(m))
 			waitForWaiters(t, m, defaultImage, 1)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-			impatient := pullInBackground(tc.ctx, tc.opts.WithDocker(m))
-			cancel()
+			impatient := pullInBackground(ctx, tc.opts.WithDocker(m))
+			if tc.cancel {
+				waitForWaiters(t, m, defaultImage, 2)
+				cancel()
+			}
 
 			assert.ErrorIs(t, receive(t, impatient), tc.want, "a caller whose own time is up returns at once")
-			close(held.release)
+			held.letGo()
 			assert.NoError(t, receive(t, patient), "and the pull carries on for the caller still waiting")
 			assert.Len(t, m.CallsTo("ImagePull"), 1, "it was one pull throughout")
 		})
 	}
 }
 
+// The pull a caller joins is bounded by the pull timeout of the caller that
+// started it, and every caller still waiting learns why the last attempt
+// failed.
+func TestAJoinedPullEndsAtTheStartersPullTimeout(t *testing.T) {
+	mongod.SetPullWait(t, waitForever)
+	m := pullMock(t)
+	missingImage(m)
+	attempted := make(chan struct{}, 1)
+	m.ImagePullFunc = func(context.Context, string) error {
+		select {
+		case attempted <- struct{}{}:
+		default:
+		}
+		return registryDown
+	}
+	starter := pullInBackground(context.Background(), mongod.DefaultOptions().WithDocker(m).WithPullTimeout(time.Second))
+	<-attempted
+	joiner := pullInBackground(context.Background(), mongod.DefaultOptions().WithDocker(m))
+	waitForWaiters(t, m, defaultImage, 2)
+
+	err := receive(t, joiner)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the joiner waits no longer than the starter's pull timeout")
+	assert.ErrorIs(t, err, registryDown, "and its error says why the pull failed")
+	assert.ErrorIs(t, receive(t, starter), context.DeadlineExceeded, "the starter's own timeout ended it too")
+}
+
 func TestTheCallerThatStartedAPullCanLeaveWithoutFailingTheOthers(t *testing.T) {
-	m := &dockermock.Mock{}
-	held := holdPulls(m)
+	m := pullMock(t)
+	held := holdPulls(t, m)
 	opts := mongod.DefaultOptions().WithDocker(m)
 	ctx, cancel := context.WithCancel(context.Background())
 	starter := pullInBackground(ctx, opts)
@@ -218,7 +264,7 @@ func TestTheCallerThatStartedAPullCanLeaveWithoutFailingTheOthers(t *testing.T) 
 
 	cancel()
 	assert.ErrorIs(t, receive(t, starter), context.Canceled, "the caller that started the pull leaves")
-	close(held.release)
+	held.letGo()
 
 	assert.NoError(t, receive(t, joiner), "and the caller that joined it still gets the image")
 }
@@ -236,7 +282,7 @@ func waitForPulls(t *testing.T, held *heldPull, n int) {
 }
 
 func TestAPullNobodyIsWaitingForIsAbandoned(t *testing.T) {
-	m := &dockermock.Mock{}
+	m := pullMock(t)
 	missingImage(m)
 	abandoned := make(chan struct{})
 	pulls := 0

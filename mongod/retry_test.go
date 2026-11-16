@@ -51,11 +51,14 @@ func TestAPullThatFailsForATemporaryReasonIsTriedAgain(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
 	temporary := map[string]error{
 		"a registry that is down": registryDown,
-		"a dropped download":      &dockerclient.PullError{Ref: "docker.io/library/mongo:8.0", Message: "short read: expected 100 bytes but got 50: unexpected EOF"},
+		"a gateway that timed out": &dockerclient.StatusError{StatusCode: 500,
+			Message: `unknown: failed to resolve reference "docker.io/library/mongo:8.0": unexpected status from HEAD request: 504 Gateway Timeout`},
+		"a connection that timed out": &dockerclient.PullError{Ref: "docker.io/library/mongo:8.0", Message: "read tcp 172.17.0.1:43210->104.18.0.1:443: i/o timeout"},
+		"a dropped download":          &dockerclient.PullError{Ref: "docker.io/library/mongo:8.0", Message: "short read: expected 100 bytes but got 50: unexpected EOF"},
 	}
 	for name, failure := range temporary {
 		t.Run(name, func(t *testing.T) {
-			m := &dockermock.Mock{}
+			m := pullMock(t)
 			missingImage(m)
 			failingThen(m, failure, 2)
 
@@ -82,7 +85,7 @@ func TestAPullThatARetryCannotFixFailsAtOnce(t *testing.T) {
 	}
 	for name, failure := range permanent {
 		t.Run(name, func(t *testing.T) {
-			m := &dockermock.Mock{}
+			m := pullMock(t)
 			missingImage(m)
 			failingThen(m, failure, 2)
 
@@ -97,11 +100,8 @@ func TestAPullThatARetryCannotFixFailsAtOnce(t *testing.T) {
 // Docker Hub counts its limit per address over hours, so waiting rarely
 // helps, and every later start in the run would wait as well.
 func TestARateLimitFailsAtOnceAndSaysSo(t *testing.T) {
-	mongod.SetPullWait(t, func(context.Context, time.Duration) error {
-		require.Fail(t, "a rate limit is not worth waiting for")
-		return nil
-	})
-	m := &dockermock.Mock{}
+	mongod.SetPullWait(t, noWait)
+	m := pullMock(t)
 	missingImage(m)
 	m.ImagePullFunc = func(context.Context, string) error { return rateLimitedInTheStream }
 
@@ -131,7 +131,7 @@ func TestRetryingStopsWhenTheTimeRunsOut(t *testing.T) {
 				}
 				return waitForever(pullCtx, 0)
 			})
-			m := &dockermock.Mock{}
+			m := pullMock(t)
 			missingImage(m)
 			m.ImagePullFunc = func(context.Context, string) error { return registryDown }
 
@@ -155,17 +155,19 @@ func TestARateLimitedPullOfTheOfficialImageSuggestsPublicECR(t *testing.T) {
 		"the official image, pinned":        {"mongo@sha256:" + strings.Repeat("a", 64), rateLimitedInTheStream, true},
 		"the community image, rate limited": {"mongodb/mongodb-community-server:8.0-ubi8", rateLimitedInTheStream, false},
 		"the official image, a missing tag": {"8.0", &dockerclient.StatusError{StatusCode: 404, Message: "not found"}, false},
+		"another image with a similar name": {"mongo-express:1", rateLimitedInTheStream, false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			m := &dockermock.Mock{}
+			m := pullMock(t)
 			missingImage(m)
 			m.ImagePullFunc = func(context.Context, string) error { return tc.failure }
 
 			err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage(tc.image))
 
 			require.Error(t, err, "the pull fails")
-			assert.Equal(t, tc.want, mongod.SuggestsPublicECR(err), "ECR Public is a way round Docker Hub's limit only for the image it mirrors")
+			assert.Equal(t, tc.want, strings.Contains(err.Error(), "ImagePublicECR"),
+				"ECR Public is a way round Docker Hub's limit only for the image it mirrors, and the reader has to be told its name")
 		})
 	}
 }

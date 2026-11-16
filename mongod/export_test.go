@@ -2,7 +2,6 @@ package mongod
 
 import (
 	"context"
-	"errors"
 	"time"
 )
 
@@ -30,11 +29,4 @@ func SetPullWait(t interface{ Cleanup(func()) }, wait func(ctx context.Context, 
 	saved := pullWait
 	pullWait = wait
 	t.Cleanup(func() { pullWait = saved })
-}
-
-// SuggestsPublicECR reports whether err advises pulling from Amazon ECR
-// Public instead.
-func SuggestsPublicECR(err error) bool {
-	var advice *publicECRAdvice
-	return errors.As(err, &advice)
 }
