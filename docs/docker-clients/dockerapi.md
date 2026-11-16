@@ -121,7 +121,7 @@ A few behaviours worth knowing:
 - **`CopyToContainer`** builds the tar archive with `archive/tar` and streams
   it through an `io.Pipe`; nothing is buffered beyond the files you passed.
   It works on a container that has been created but not yet started, which is
-  how TLS material will be placed before `mongod` runs.
+  how the `mongod` package places its TLS files before the server starts.
 - **`Exec`** captures stdout and stderr separately through the multiplexed
   stream, waits for the process to exit, and reports a non-zero exit code in
   `ExecResult.ExitCode` rather than as an error.

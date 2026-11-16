@@ -11,19 +11,11 @@ them in any order.
 
 <div class="grid cards" markdown>
 
--   :material-connection:{ .lg .middle } **[Test connections](test-connection.md)**
+-   :material-connection:{ .lg .middle } **[Starting a server](test-connection.md)**
 
     ---
 
-    `NewTestConnection`, what a `TestConnection` gives you, and how to use it
-    with easymongo or the official driver.
-
--   :material-flash:{ .lg .middle } **[One-shot helpers](one-shot-helpers.md)**
-
-    ---
-
-    `EasyMongoWithContainer` and `MongoClientWithContainer`: a container for
-    the length of one function call.
+    `Run`, `Start` and `Attach`, and what an instance gives you.
 
 -   :material-table-multiple:{ .lg .middle } **[Table-driven and parallel tests](parallel-tests.md)**
 

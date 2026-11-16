@@ -40,21 +40,13 @@ Search the docs for its number and work through the hits:
 grep -rn 'PR #53' docs/ mkdocs.yml
 ```
 
-1. **Pages badged `landing` on that PR** become `current`. Move the page out
-   of **What's changing** into the section where it belongs for good, and
-   update `nav` in `mkdocs.yml`. Replace prose that says "lands in" or "will"
-   with the present tense.
+1. **Pages badged `landing` on that PR** become `current`. Replace prose that
+   says "lands in" or "will" with the present tense.
 2. **Pages badged `changing`** that the PR affects: rewrite the "today"
    description to the new behaviour, delete the known-limit admonitions the
    PR fixed, and drop the number from `tracks` or set `status: current`.
-3. **The table on [What's changing](../changing/index.md):** update the row.
-4. **Code samples.** Any snippet that used a workaround for the old behaviour
-   (tagging an image under the `latest` name, passing `"cf"` as a replica set
-   name, `ExecCommandInMongoContainer` with `mongosh` instead of
-   `RunMongoScriptOnContainer`) should become the straightforward version.
-
-When the last `landing` page is promoted, delete the
-`announce` block from `docs/overrides/main.html` and retire the section.
+3. **Code samples.** Any snippet that used a workaround for the old
+   behaviour should become the straightforward version.
 
 To see which pages a merge touches, list the front matter:
 

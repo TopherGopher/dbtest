@@ -8,8 +8,7 @@ tracks: ["#52", "#46"]
 # Continuous integration
 
 mongotest needs a Docker-compatible daemon reachable from the test process.
-Most hosted Linux runners have one. This page covers the shapes that work and
-the one that does not.
+Most hosted Linux runners have one. This page covers the shapes that work.
 
 ## GitHub Actions
 
@@ -34,10 +33,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Optional: pull once up front so the first test is not also a download.
-      - name: Pull mongo
-        run: docker pull registry.hub.docker.com/library/mongo:latest
-
       - name: Test
         run: go test -race -count=1 ./...
 
@@ -49,7 +44,7 @@ jobs:
 ### Using a service container instead
 
 If you would rather not start containers from inside the test, run MongoDB as
-a job service and use `NewTestConnection(false)`:
+a job service and use `Attach`:
 
 ```yaml
 jobs:
@@ -66,22 +61,27 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test -race -count=1 ./...
+        env:
+          MONGODB_URI: mongodb://localhost:27017
 ```
 
 The trade-off is isolation: every test shares one server. Give each test its
 own database name and drop it in cleanup, as shown in
-[Test connections](test-connection.md#without-a-container).
+[Starting a server](test-connection.md#a-server-you-already-run).
 
 To choose at run time:
 
 ```go
-func startMongo(t *testing.T) *mongotest.TestConnection {
+func startMongo(t *testing.T) *mongotest.Instance {
     t.Helper()
-    useContainer := os.Getenv("MONGO_SERVICE") == ""
-    conn, err := mongotest.NewTestConnection(useContainer)
-    require.NoError(t, err)
-    t.Cleanup(func() { _ = conn.KillMongoContainer() })
-    return conn
+    uri := os.Getenv("MONGODB_URI")
+    if uri == "" {
+        return mongotest.Run(t)
+    }
+    inst, err := mongotest.Attach(t.Context(), uri)
+    require.NoError(t, err, "the MongoDB service must be reachable")
+    t.Cleanup(func() { _ = inst.Stop(context.Background()) })
+    return inst
 }
 ```
 
@@ -90,8 +90,10 @@ func startMongo(t *testing.T) *mongotest.TestConnection {
 === "GitLab CI"
 
     Use a runner with the Docker socket mounted, or the shell executor on a
-    host that runs Docker. Docker-in-Docker (`docker:dind` as a service) does
-    **not** work with the current release; see the note below.
+    host that runs Docker. Docker-in-Docker (`docker:dind` as a service)
+    should work: mongotest dials the daemon's host, as
+    [Remote and nested daemons](remote-daemons.md) explains. Proving it in CI
+    is [#52](https://github.com/TopherGopher/mongotest/issues/52).
 
     ```yaml
     test:
@@ -112,37 +114,20 @@ func startMongo(t *testing.T) *mongotest.TestConnection {
     GitHub's macOS runners do not ship Docker. Windows runners run Windows
     containers by default and cannot run the Linux `mongo` image. Run the
     mongotest suite on Linux and restrict other platforms to tests that use
-    `NewTestConnection(false)` against a service, or skip them.
+    `Attach` against a service, or skip them.
 
-## The shape that does not work: a remote daemon
-
-mongotest publishes the container port on `127.0.0.1` **of the machine the
-daemon runs on** and then connects to `127.0.0.1` **from the test process**.
-Those are the same machine in every setup above. They are not the same
-machine when:
-
-- the test runs inside a container and talks to the host's daemon over a
-  mounted socket (the port is published on the host, not inside your
-  container);
-- `DOCKER_HOST` points at `tcp://some-other-box:2376`;
-- a docker-in-docker service runs the daemon in a sibling container.
-
-In those cases the connection fails. The `mongod` package works out a
-reachable address instead of assuming loopback;
-[Remote and nested daemons](remote-daemons.md) explains how it is chosen,
-and [#52](https://github.com/TopherGopher/mongotest/issues/52) tracks the
-rest of the work. With `NewTestConnection`, run the tests on the same host
-as the daemon.
+When the tests run in a container, or the daemon is on another machine,
+[Remote and nested daemons](remote-daemons.md) says how the address is
+worked out.
 
 ## Tips for stable CI runs
 
-- **Pin the image.** `mongo:latest` changes under you. Pre-pull and tag a
-  known version under the name mongotest uses:
-
-    ```sh
-    docker pull mongo:8.0
-    docker tag mongo:8.0 registry.hub.docker.com/library/mongo:latest
-    ```
+- **Pin the image.** The default is `mongo:8.0`, which still moves between
+  patch releases. Set `MONGOTEST_IMAGE` to a version, such as `8.0.4`, in the
+  job's environment to pin one.
+- **Pull the image once.** Call `mongod.PullImage` in `TestMain`, so the first
+  test is not also a download; see
+  [Which image](../reference/mongod.md#which-image).
 
 - **Use `-count=1`.** Integration tests should not be served from the test
   cache.

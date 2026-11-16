@@ -7,10 +7,9 @@ tracks: ["#52"]
 
 # Remote and nested daemons
 
-`NewTestConnection` dials `127.0.0.1:<port>`, which only works when the test
-process and the daemon share a network. In the setups below its container
-starts but the connection fails. `mongod.Start` works out an address that
-reaches the container instead.
+`mongotest.Run` and `mongod.Start` work out an address that reaches the
+container. Loopback works only when the test process and the daemon share a
+network.
 
 ## The four setups
 
@@ -49,24 +48,17 @@ user and a random password, which `URI()` includes; see
 
 ## Using it
 
-With `mongod.Start` these setups need no configuration, apart from a socket
+With `mongotest.Run` or `mongod.Start` these setups need no configuration, apart from a socket
 proxy that refuses a call. If the address is wrong, set it:
 
 ```sh
 MONGOTEST_HOST_IP=172.17.0.1 go test ./...
 ```
 
-or in code, `mongod.DefaultOptions().WithHostIP("172.17.0.1")`.
+or in code, `mongotest.DefaultOptions().WithHostIP("172.17.0.1")`.
 
 ## Still open
 
 The rest of [#52](https://github.com/TopherGopher/mongotest/issues/52) is
 open: a CI matrix for the four setups, and clearer errors behind a socket
 proxy ([#72](https://github.com/TopherGopher/mongotest/issues/72)).
-
-## With `NewTestConnection`
-
-`NewTestConnection` does not work the address out. Run the tests on the same
-host as the daemon, or use a service container and `NewTestConnection(false)`.
-The [CI guide](ci.md#the-shape-that-does-not-work-a-remote-daemon) explains
-why.

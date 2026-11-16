@@ -14,20 +14,20 @@ works is a machine where mongotest works.
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
-| `DOCKER_HOST` | root package, `dockerapi`, `mobyclient` | Daemon address: `unix:///path`, `tcp://host:port`, `npipe://` (official client only). Overrides every other discovery step. |
+| `DOCKER_HOST` | `dockerapi`, `mobyclient` | Daemon address: `unix:///path`, `tcp://host:port`, `npipe://` (official client only). Overrides every other discovery step. |
 | `DOCKER_CONTEXT` | `dockerapi`, `mobyclient` | The Docker context to use when `DOCKER_HOST` is unset. |
 | `DOCKER_CONFIG` | `dockerapi`, `mobyclient` | Directory holding `config.json` and `contexts/`. Defaults to `~/.docker`. The `currentContext` key in `config.json` is honoured. |
-| `DOCKER_TLS_VERIFY` | root package, `dockerapi`, `mobyclient` | When set to a non-empty value, verify the daemon's certificate using the CA under `DOCKER_CERT_PATH`. |
-| `DOCKER_CERT_PATH` | root package, `dockerapi`, `mobyclient` | Directory with `ca.pem`, `cert.pem`, `key.pem` for a TLS-protected daemon. |
-| `DOCKER_API_VERSION` | root package (legacy client), `mobyclient` | Pin the API version. `dockerapi` uses `WithAPIVersion` instead and negotiates by default. |
+| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set to a non-empty value, verify the daemon's certificate using the CA under `DOCKER_CERT_PATH`. |
+| `DOCKER_CERT_PATH` | `dockerapi`, `mobyclient` | Directory with `ca.pem`, `cert.pem`, `key.pem` for a TLS-protected daemon. |
+| `DOCKER_API_VERSION` | `mobyclient` | Pin the API version. `dockerapi` uses `WithAPIVersion` instead and negotiates by default. |
 | `XDG_RUNTIME_DIR` | `dockerapi` | Where rootless Docker and Podman put their sockets. `/run/user/$UID` is used when unset. |
 | `TEMP` | `dockerapi` on Windows | Where `podman machine` exposes its AF_UNIX socket. |
 
 ## Read by `mongod`
 
 An option beats the variable, and the variable beats the default. See
-[The mongod package](../reference/mongod.md#options). `NewTestConnection`
-reads none of them.
+[The mongod package](../reference/mongod.md#options). `mongotest.Run` and
+`Start` read them too, because they start through `mongod`.
 
 | Variable | Sets | Default |
 | --- | --- | --- |
@@ -37,8 +37,6 @@ reads none of them.
 
 ## Not read
 
-mongotest does not read `MONGO_URI`, `MONGODB_URI` or similar. When you call
-`NewTestConnection(false)`, the address is fixed at `mongodb://127.0.0.1:27017`.
-To point tests at another server, build your own client from the URI you
-have, or wait for `Attach(ctx, uri)`, issue
-[#40](https://github.com/TopherGopher/mongotest/issues/40).
+mongotest does not read `MONGO_URI`, `MONGODB_URI` or similar. The earlier
+`NewTestConnection(false)` always connects to `mongodb://127.0.0.1:27017`.
+To point tests at another server, pass its URI to `mongotest.Attach(ctx, uri)`.

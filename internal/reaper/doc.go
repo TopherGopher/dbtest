@@ -1,6 +1,6 @@
 // Package reaper removes what a process started when that process is told
 // to stop, so an interrupted test run does not leave containers behind. It
-// is internal: mongod and the legacy root package register with it.
+// is internal: mongod registers with it.
 //
 //	handle := reaper.Register("mongotest-1a2b3c4d", container.Stop)
 //	defer reaper.Unregister(handle)

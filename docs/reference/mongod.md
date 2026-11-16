@@ -14,7 +14,7 @@ with it.
 
 Reach for `mongod` when you want the container without a driver. For a
 connection with the driver already set up, use
-[`NewTestConnection`](../guides/test-connection.md).
+[`mongotest.Run`](../guides/test-connection.md).
 
 ```go
 c, err := mongod.Start(ctx)
@@ -28,7 +28,7 @@ client, err := mongo.Connect(options.Client().ApplyURI(c.URI())) // driver v2 he
 
 `Start` runs `docker.io/library/mongo:8.0`, publishes `mongod` on a host port
 the daemon picks, labels the container `mongotest=regression`, and waits up
-to a minute. `NewTestConnection` runs `mongo:latest` instead.
+to a minute.
 
 ## Options
 
@@ -149,8 +149,8 @@ step failed, and matches a sentinel such as `ErrNotReady` or
 the message says which of these happened: nothing answered at the address,
 something answered that is not `mongod`, or `mongod` answered with an error.
 A start that gets no answer from the daemon ends at the start timeout, unless
-it is pulling an image: the start timeout does not cover a pull, which is
-bounded only by the context you pass in.
+it is pulling an image: the start timeout does not cover a pull, which has
+its own limit, ten minutes by default; see `WithPullTimeout`.
 
 ## Many containers at once
 

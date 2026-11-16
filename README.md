@@ -4,45 +4,40 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tophergopher/mongotest.svg)](https://pkg.go.dev/github.com/tophergopher/mongotest)
 [![Coverage](https://coveralls.io/repos/github/TopherGopher/mongotest/badge.svg?branch=main)](https://coveralls.io/github/TopherGopher/mongotest?branch=main)
 
-`mongotest` was written with the goal of creating simple, segregated testing mongo environments. The only requirement to use mongotest is to have the docker daemon running (should you wish to use the docker container method).
+mongotest starts a real MongoDB server in a Docker container for a Go test,
+hands the test a connected client of the official MongoDB Go driver (v1), and
+removes the container when the test ends.
 
-Example:
+```sh
+go get github.com/tophergopher/mongotest
+```
+
+It needs Go 1.27 or newer, and Docker or Podman. Without one, the test fails;
+it is not skipped.
+
 ```go
-func TestFoo(t *testing.T) {
-  useDockerContainer := true
-  // conn is a mongotest.TestConnection object which embeds an easymongo.Connection object
-  conn, err := mongotest.NewTestConnection(useDockerContainer)
-  is.NoError(err)
-  t.Cleanup(func() {
-    conn.KillMongoContainer()
-  })
-  // Insert a document
-  type enemy struct {
-    ID   primitive.ObjectID  `bson:"_id"`
-    Name string              `bson:"name"`
-  }
-  id, err := conn.Insert().One(&enemy{
-    ID:   primitive.NewObjectID(),
-    Name: "The Joker",
-  })
+func TestOrders(t *testing.T) {
+    orders := mongotest.Run(t).Database("shop").Collection("orders")
+    _, err := orders.InsertOne(t.Context(), bson.M{"item": "book"})
+    require.NoError(t, err)
 }
 ```
-The above code will spin-up a docker mongo container on a randomly assigned port, insert a document into the collection and when the test exits, the mongo container will be destroyed. In order to ensure that the docker container gracefully exits, it is recommended to run the `.KillMongoContainer()` command in a `t.Cleanup()` function.
 
-If you choose to use a `defer` (rather than `t.Cleanup()`), note that it is (presently) not possible to automatically cleanup the created container should the test panic.
+Upgrading? The earlier function names still exist, but code that used the
+easymongo connection must change; [CHANGELOG.md](CHANGELOG.md) shows how.
+For Podman, see the [Podman guide](https://tophergopher.github.io/mongotest/guides/podman/).
 
-_* I was wondering if a compiler flag might be the way to go to always ensure clean-up, but I truly welcome input on how this might be accomplished cleanly._
+## Cleaning up stray containers
 
-# Cleaning up stray containers
-Containers are created with a label of `mongotest=regression`. If you run `docker ps` and see stray mongo containers, try running:
+Every container mongotest starts carries the label `mongotest=regression`. If
+a killed test run leaves containers behind, this command removes them and
+their volumes:
 
 ```shell
-    docker rm --force --volumes $(docker ps -a -q --filter=label=mongotest=regression)
+docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ```
 
-This will thwack any containers that were created via mongotest. 
-
-# Documentation
+## Documentation
 
 The documentation site lives in [`docs/`](docs/) and is built with MkDocs
 Material. It is published to GitHub Pages from `main` by

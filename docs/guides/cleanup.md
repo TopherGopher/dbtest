@@ -1,26 +1,23 @@
 ---
 title: Cleanup and reaping
 description: Everything that removes a mongotest container, in the order it is tried, and how to remove stray ones.
-status: changing
-tracks: ["#33"]
+status: current
 ---
 
 # Cleanup and reaping
 
-A container that outlives its test keeps a port and memory. Four things
-remove containers. You write the first; the others cover a test that never
-reaches it.
+A container that outlives its test keeps a port and memory. Three things
+remove containers. The first is part of every start; the others cover a test
+that never reaches it.
 
-## 1. `KillMongoContainer` in `t.Cleanup`
+## 1. When the test ends
 
-```go
-conn, err := mongotest.NewTestConnection(true)
-require.NoError(t, err)
-t.Cleanup(func() { _ = conn.KillMongoContainer() })
-```
+`Run` removes the container when the test ends, pass or fail. A caller of
+`Start` calls `Stop`, which removes the container and its anonymous volumes.
+`Stop` still removes it when the context it is given has already ended, and
+it can be called again, including after a `Stop` that failed.
 
-`KillMongoContainer` force-removes the container and its anonymous volumes,
-and forgets the container ID so a second call does nothing. Prefer `t.Cleanup` over `defer`:
+With `Start`, prefer `t.Cleanup` over `defer`:
 
 | | `t.Cleanup` | `defer` |
 | --- | --- | --- |
@@ -39,32 +36,30 @@ yet removed is force-removed, and the signal is raised again so the process
 still exits. This covers ++ctrl+c++ during a run. A second ++ctrl+c++ while
 the containers are being removed stops the process at once.
 
-You can remove the same containers yourself, for instance from a `TestMain`:
+You can remove the same containers yourself, for instance from a `TestMain`.
+`mongod.ReapRunningContainers` returns an error naming any container it could
+not remove:
 
 ```go
 func TestMain(m *testing.M) {
     code := m.Run()
-    mongotest.ReapRunningContainers()
+    if err := mongod.ReapRunningContainers(context.Background()); err != nil {
+        log.Print(err)
+    }
     os.Exit(code)
 }
 ```
 
-## 3. The finalizer
-
-Each `TestConnection` carries a `runtime.SetFinalizer` that removes the
-container when the garbage collector finds the value unreachable. Finalizers
-are not guaranteed to run before a program exits, so do not rely on this.
-
-## 4. The label
+## 3. The label
 
 Every container is created with the label `mongotest=regression`. Whatever
 else fails, this lets you find and remove stray containers with one command:
 
 ```sh
-docker rm --force --volumes $(docker ps -aq --filter label=mongotest=regression)
+docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ```
 
-`--volumes` also removes each container's anonymous volumes, which otherwise
+`-v` also removes each container's anonymous volumes, which otherwise
 stay on disk. With nothing to remove, `docker rm` reports a missing argument,
 which is harmless. To look before removing:
 
@@ -86,7 +81,7 @@ a crashed run do not hold ports and memory the next run needs:
 
 If the Go process is killed with `SIGKILL`, or the machine loses power, none
 of the above runs. The containers stay until the command under
-[the label](#4-the-label) removes them.
+[the label](#3-the-label) removes them.
 
 ## Checking for leaks in a suite
 

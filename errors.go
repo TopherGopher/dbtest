@@ -1,26 +1,36 @@
 package mongotest
 
-import "errors"
+import (
+	"errors"
 
-var (
-	// ErrFailedToConnectToDockerDaemon denotes that we couldn't connect to the docker daemon
-	// running locally on the machine.
-	ErrFailedToConnectToDockerDaemon = errors.New("could not connect to docker daemon")
-	// ErrNoAvailablePorts denotes that no ports were available for binding the docker mongo instance to
-	ErrNoAvailablePorts = errors.New("no ports are available to bind the docker mongo instance to")
-	// ErrMongoContainerAlreadyRunning
-	ErrMongoContainerAlreadyRunning = errors.New("the mongo container is already running - an attempt was made to call it a second time")
+	"github.com/tophergopher/mongotest/dockerclient"
 )
 
-type MongoTestError struct {
-	err error
-}
+// Sentinels to match with errors.Is. A start's other errors come from the
+// mongod package, such as mongod.ErrNotReady.
+var (
+	// ErrNotConnected: the client could not connect to the server. The error
+	// wraps the driver's.
+	ErrNotConnected = errors.New("mongotest: cannot connect to the server")
+	// ErrNoContainer: an instance from Attach was asked to do something only
+	// a container it started can do, such as run a script.
+	ErrNoContainer = errors.New("mongotest: the instance was attached to a running server and has no container; " +
+		"start one with Run or Start to run scripts and commands")
+	// ErrCommandFailed: a command or script run with
+	// ExecCommandInMongoContainer or RunMongoScriptOnContainer exited
+	// non-zero. The error gives the exit code.
+	ErrCommandFailed = errors.New("mongotest: the command exited with a non-zero code")
+)
 
-func NewMongoTestError(err error) *MongoTestError {
-	return &MongoTestError{
-		err: err,
-	}
-}
-func (mte *MongoTestError) Unwrap() error {
-	return mte.err
-}
+// Error values from the package's earlier API. The two about Docker are the
+// dockerclient sentinels, so errors.Is matches what a start returns.
+var (
+	// ErrFailedToConnectToDockerDaemon: no Docker daemon could be reached.
+	ErrFailedToConnectToDockerDaemon = dockerclient.ErrConnectionFailed
+	// ErrNoAvailablePorts: GetAvailablePort could not listen on a port.
+	ErrNoAvailablePorts = errors.New("mongotest: no port is free to listen on")
+	// ErrMongoContainerAlreadyRunning: the daemon reported a conflict, such as
+	// a container name WithName gave already being in use. Remove that
+	// container, or choose another name.
+	ErrMongoContainerAlreadyRunning = dockerclient.ErrConflict
+)

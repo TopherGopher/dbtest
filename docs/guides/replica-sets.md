@@ -1,31 +1,24 @@
 ---
 title: Replica sets
 description: Starting a single-member replica set for transactions and change streams.
-status: changing
-tracks: ["#40"]
+status: current
 ---
 
 # Replica sets
 
-Transactions, change streams and some retryable write behaviour need a replica
-set. A single `mongod` started with `--replSet` and initiated with one member
-is enough for tests.
+Transactions, change streams and retryable writes need a replica set. A
+single member is enough for tests.
 
 ```go
-func NewReplicaSetContainer(rsName string) (*TestConnection, error)
-```
+inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
 
-```go
-conn, err := mongotest.NewReplicaSetContainer("cf") // only "cf" works today; see below
+ctx := t.Context()
+session, err := inst.StartSession()
 require.NoError(t, err)
-t.Cleanup(func() { _ = conn.KillMongoContainer() })
+defer session.EndSession(ctx)
 
-sess, err := conn.MongoDriverClient().StartSession()
-require.NoError(t, err)
-defer sess.EndSession(ctx)
-
-_, err = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
-    coll := conn.MongoDriverClient().Database("bank").Collection("accounts")
+_, err = session.WithTransaction(ctx, func(sc mongo.SessionContext) (any, error) {
+    coll := inst.Database("bank").Collection("accounts")
     if _, err := coll.InsertOne(sc, bson.M{"owner": "a", "balance": 100}); err != nil {
         return nil, err
     }
@@ -35,43 +28,31 @@ _, err = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, e
 require.NoError(t, err, "a transaction must commit on a single-member replica set")
 ```
 
-What happens on top of the [normal lifecycle](../getting-started/how-it-works.md):
+`WithReplicaSet("rs0")` starts `mongod` as the only member of a replica set
+named `rs0`, and sets the set up. `Run` returns once the member accepts
+writes, so the first transaction needs no retry.
 
-1. The container is started with `mongod --replSet <name>`.
-2. A `rs.initiate(...)` script is copied into the container and run with the
-   legacy `mongo` shell, retried a few times while `mongod` finishes starting.
-3. The connection is opened with `directConnection=true`, so the driver talks
-   to this one member without trying to discover others.
+The URI includes `directConnection=true`. Without it, the driver would switch
+to the member's own address, `localhost` inside the container, which the test
+cannot reach. Code that builds its own client should use `inst.URI()`
+unchanged.
 
-## Two limits today
+The earlier `NewReplicaSetContainer(name)` still works, and does the same.
 
-!!! warning "Read before relying on this"
-    Issue [#40](https://github.com/TopherGopher/mongotest/issues/40) removes
-    both.
-
-    **It needs the legacy `mongo` shell.** The initiate script is run with
-    `mongo`, which the official image stopped shipping in MongoDB 6.0. Against
-    `mongo:latest` the initiation fails. Until #40 lands, pin an image
-    that still has the shell by tagging it under the name mongotest looks for:
-
-    ```sh
-    docker pull mongo:5.0
-    docker tag mongo:5.0 registry.hub.docker.com/library/mongo:latest
-    ```
-
-    mongotest finds that image locally and never pulls. This changes the
-    image for every mongotest test on the machine.
-
-    **The replica set name is fixed to `cf`.** The `rsName` argument is passed
-    to `mongod --replSet`, but the initiate script hardcodes `_id: 'cf'`, so
-    the two disagree unless you pass `"cf"`.
+The [Atlas Local image](../reference/mongod.md#which-image) already runs as a
+replica set. Do not add `WithReplicaSet` with it; the start fails with
+`mongod.ErrUnsupportedForImage`.
 
 ## Change streams
 
 With a replica set running, change streams work as they do in production:
 
 ```go
-coll := conn.MongoDriverClient().Database("app").Collection("events")
+// A deadline keeps the test from hanging if no event arrives.
+ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+defer cancel()
+
+coll := inst.Database("app").Collection("events")
 stream, err := coll.Watch(ctx, mongo.Pipeline{})
 require.NoError(t, err)
 defer stream.Close(ctx)
@@ -81,8 +62,3 @@ require.NoError(t, err)
 
 require.True(t, stream.Next(ctx), "the insert must appear on the change stream")
 ```
-
-## With the `mongod` package
-
-The [`mongod` package](../reference/mongod.md#replica-sets) initiates the set
-under the name you ask for, with `mongosh`.
