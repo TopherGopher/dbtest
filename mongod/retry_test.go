@@ -50,7 +50,10 @@ func failingThen(m *dockermock.Mock, err error, failures int) {
 func TestAPullThatFailsForATemporaryReasonIsTriedAgain(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
 	temporary := map[string]error{
-		"a registry that is down": registryDown,
+		"a rate limit when resolving the tag": rateLimitedWhenResolving,
+		"a rate limit in the stream":          rateLimitedInTheStream,
+		"a 429 status":                        &dockerclient.StatusError{StatusCode: 429, Message: "too many requests"},
+		"a registry that is down":             registryDown,
 		"a gateway that timed out": &dockerclient.StatusError{StatusCode: 500,
 			Message: `unknown: failed to resolve reference "docker.io/library/mongo:8.0": unexpected status from HEAD request: 504 Gateway Timeout`},
 		"a connection that timed out": &dockerclient.PullError{Ref: "docker.io/library/mongo:8.0", Message: "read tcp 172.17.0.1:43210->104.18.0.1:443: i/o timeout"},
@@ -73,11 +76,8 @@ func TestAPullThatFailsForATemporaryReasonIsTriedAgain(t *testing.T) {
 func TestAPullThatARetryCannotFixFailsAtOnce(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
 	permanent := map[string]error{
-		"a rate limit when resolving the tag": rateLimitedWhenResolving,
-		"a rate limit in the stream":          rateLimitedInTheStream,
-		"a 429 status":                        &dockerclient.StatusError{StatusCode: 429, Message: "too many requests"},
-		"a missing tag":                       &dockerclient.StatusError{StatusCode: 404, Message: "manifest for mongo:0.1 not found"},
-		"refused credentials":                 &dockerclient.StatusError{StatusCode: 401, Message: "authentication required"},
+		"a missing tag":       &dockerclient.StatusError{StatusCode: 404, Message: "manifest for mongo:0.1 not found"},
+		"refused credentials": &dockerclient.StatusError{StatusCode: 401, Message: "authentication required"},
 		"access denied, as a 500": &dockerclient.StatusError{StatusCode: 500,
 			Message: "pull access denied, repository does not exist or may require authorization: authorization failed: no basic auth credentials"},
 		"access denied, in the stream": &dockerclient.PullError{Ref: "docker.io/library/mongo:8.0", Message: "error from registry: denied"},
@@ -99,16 +99,67 @@ func TestAPullThatARetryCannotFixFailsAtOnce(t *testing.T) {
 
 // Docker Hub counts its limit per address over hours, so waiting rarely
 // helps, and every later start in the run would wait as well.
-func TestARateLimitFailsAtOnceAndSaysSo(t *testing.T) {
+// A rate limit that outlasts every attempt is spent for a while. Remembering
+// it keeps a run of sequential tests from each waiting out the retries
+// against a quota that will not clear.
+func TestASpentRateLimitIsRememberedForAWhile(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
+	mongod.SetRateLimitMemory(t, time.Hour)
 	m := pullMock(t)
 	missingImage(m)
 	m.ImagePullFunc = func(context.Context, string) error { return rateLimitedInTheStream }
+	opts := mongod.DefaultOptions().WithDocker(m)
 
-	err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m))
+	first := mongod.PullImage(context.Background(), opts)
+	require.ErrorIs(t, first, dockerclient.ErrRateLimited, "the caller can tell it was the rate limit")
+	attempts := len(m.CallsTo("ImagePull"))
+	require.Greater(t, attempts, 1, "it was tried more than once")
 
-	assert.ErrorIs(t, err, dockerclient.ErrRateLimited, "the caller can tell it was the rate limit")
-	assert.Len(t, m.CallsTo("ImagePull"), 1, "after one attempt")
+	second := mongod.PullImage(context.Background(), opts)
+
+	assert.ErrorIs(t, second, dockerclient.ErrRateLimited, "a later pull of the same image is told the limit is spent")
+	assert.Len(t, m.CallsTo("ImagePull"), attempts, "without asking the registry again")
+}
+
+func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
+	mongod.SetPullWait(t, noWait)
+	mongod.SetRateLimitMemory(t, time.Millisecond)
+	m := pullMock(t)
+	missingImage(m)
+	limited := true
+	m.ImagePullFunc = func(context.Context, string) error {
+		if limited {
+			return rateLimitedInTheStream
+		}
+		return nil
+	}
+	opts := mongod.DefaultOptions().WithDocker(m)
+	require.ErrorIs(t, mongod.PullImage(context.Background(), opts), dockerclient.ErrRateLimited, "the limit is spent")
+	limited = false
+	time.Sleep(10 * time.Millisecond)
+
+	assert.NoError(t, mongod.PullImage(context.Background(), opts), "once the memory of the limit has passed, the registry is asked again")
+}
+
+func TestARateLimitCutShortByTheCallerIsNotRemembered(t *testing.T) {
+	mongod.SetPullWait(t, waitForever)
+	mongod.SetRateLimitMemory(t, time.Hour)
+	m := pullMock(t)
+	missingImage(m)
+	limited := true
+	m.ImagePullFunc = func(context.Context, string) error {
+		if limited {
+			return rateLimitedInTheStream
+		}
+		return nil
+	}
+	opts := mongod.DefaultOptions().WithDocker(m)
+	short := opts.WithPullTimeout(50 * time.Millisecond)
+	require.ErrorIs(t, mongod.PullImage(context.Background(), short), context.DeadlineExceeded, "the pull timeout ends the wait for another attempt")
+	limited = false
+
+	assert.NoError(t, mongod.PullImage(context.Background(), opts),
+		"the attempts did not run out, so nothing is known about the limit and the next pull asks the registry")
 }
 
 func TestRetryingStopsWhenTheTimeRunsOut(t *testing.T) {

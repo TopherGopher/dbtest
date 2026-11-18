@@ -40,7 +40,14 @@ type sharedPull struct {
 var pulls = struct {
 	sync.Mutex
 	inProgress map[pullKey]*sharedPull
-}{inProgress: make(map[pullKey]*sharedPull)}
+	// spent holds the rate limits that used up a pull's attempts, until
+	// they are forgotten.
+	spent map[pullKey]*spentLimitError
+}{inProgress: make(map[pullKey]*sharedPull), spent: make(map[pullKey]*spentLimitError)}
+
+// rateLimitMemory is how long a spent rate limit is remembered. Tests change
+// it.
+var rateLimitMemory = 5 * time.Minute
 
 // pullShared pulls image, or joins a pull of it from the same daemon that is
 // already in progress, and waits for it within ctx and timeout. inStart says
@@ -86,10 +93,29 @@ func join(ctx context.Context, docker dockerclient.Client, key pullKey, timeout 
 	defer pulls.Unlock()
 	p := pulls.inProgress[key]
 	if p == nil {
-		p = startPull(ctx, docker, key, timeout)
-		pulls.inProgress[key] = p
+		p = startUnlessSpentLocked(ctx, docker, key, timeout)
 	}
 	p.waiters++
+	return p
+}
+
+// startUnlessSpentLocked starts a pull, unless a rate limit spent the last
+// one recently: then it returns that pull's failure without asking the
+// registry again. The caller holds the lock.
+func startUnlessSpentLocked(ctx context.Context, docker dockerclient.Client, key pullKey, timeout time.Duration) *sharedPull {
+	if spent := pulls.spent[key]; spent != nil && time.Now().Before(spent.until) {
+		return endedPull(spent)
+	}
+	delete(pulls.spent, key)
+	p := startPull(ctx, docker, key, timeout)
+	pulls.inProgress[key] = p
+	return p
+}
+
+// endedPull is a pull that has already failed with err.
+func endedPull(err error) *sharedPull {
+	p := &sharedPull{cancel: func() {}, done: make(chan struct{}), err: err}
+	close(p.done)
 	return p
 }
 
@@ -102,7 +128,9 @@ func startPull(ctx context.Context, docker dockerclient.Client, key pullKey, tim
 		defer cancel()
 		p.err = p.pullWithRetries(bounded, docker, key.image)
 		p.timedOut = p.err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded)
-		forget(key, p)
+		// A rate limit counts as spent only if it outlasted every attempt;
+		// a pull cut short says nothing about it.
+		finish(key, p, errors.Is(p.err, dockerclient.ErrRateLimited) && bounded.Err() == nil)
 		close(p.done)
 	}()
 	return p
@@ -121,13 +149,30 @@ func leave(key pullKey, p *sharedPull) {
 	p.cancel()
 }
 
-// forget removes p from the pulls in progress, unless a newer pull has
-// already taken its place.
-func forget(key pullKey, p *sharedPull) {
+// finish removes p from the pulls in progress, and remembers its failure if
+// a rate limit spent it.
+func finish(key pullKey, p *sharedPull, limitSpent bool) {
 	pulls.Lock()
 	defer pulls.Unlock()
 	forgetLocked(key, p)
+	if limitSpent {
+		pulls.spent[key] = &spentLimitError{err: p.err, until: time.Now().Add(rateLimitMemory)}
+	}
 }
+
+// spentLimitError is a rate limit an earlier pull in this process used up
+// its attempts on. It matches that pull's error, and so ErrRateLimited.
+type spentLimitError struct {
+	err   error
+	until time.Time
+}
+
+func (e *spentLimitError) Error() string {
+	return fmt.Sprintf("%v. An earlier pull in this process used up its attempts on this rate limit, "+
+		"so the registry will not be asked again until %s", e.err, e.until.Format(time.TimeOnly))
+}
+
+func (e *spentLimitError) Unwrap() error { return e.err }
 
 // forgetLocked is forget for a caller that holds the lock.
 func forgetLocked(key pullKey, p *sharedPull) {
@@ -173,9 +218,10 @@ func withCause(ended, last error) error {
 	return fmt.Errorf("%w; the last attempt failed: %w", ended, last)
 }
 
-// The daemon already retries a failed request once or twice within a second
-// or two. These waits are longer, to outlast a registry that is briefly down,
-// and stop after about a minute.
+// The daemon already retries a failed request a few times within a second
+// or two. These waits are longer, to outlast a registry that is briefly down
+// or a short burst of pulls against a rate limit, and stop after about a
+// minute.
 const (
 	pullAttempts  = 6
 	firstPullWait = 2 * time.Second
@@ -231,14 +277,13 @@ var temporaryFailures = []string{
 	"unexpected eof", "connection reset by peer", "i/o timeout", "tls handshake timeout",
 }
 
-// temporary reports whether a failed pull may work if tried again. Only the
-// daemon's text tells: it reports a registry's failure as a 500 or inside
-// the pull's stream, alongside failures no retry can fix, such as "pull
-// access denied". A rate limit is not retried: Docker Hub counts it per
-// address over hours, and the daemon has already retried the refusal.
+// temporary reports whether a failed pull may work if tried again: a rate
+// limit, or a registry's failure that may pass. Only the daemon's text tells:
+// it reports a registry's failure as a 500 or inside the pull's stream,
+// alongside failures no retry can fix, such as "pull access denied".
 func temporary(err error) bool {
 	if errors.Is(err, dockerclient.ErrRateLimited) {
-		return false
+		return true
 	}
 	msg := strings.ToLower(failureMessage(err))
 	for _, mark := range temporaryFailures {

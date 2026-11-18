@@ -30,3 +30,17 @@ func SetPullWait(t interface{ Cleanup(func()) }, wait func(ctx context.Context, 
 	pullWait = wait
 	t.Cleanup(func() { pullWait = saved })
 }
+
+// SetRateLimitMemory sets how long a spent rate limit is remembered until the
+// test ends, and then forgets every spent limit, so one test's cannot reach
+// the next.
+func SetRateLimitMemory(t interface{ Cleanup(func()) }, d time.Duration) {
+	saved := rateLimitMemory
+	rateLimitMemory = d
+	t.Cleanup(func() {
+		pulls.Lock()
+		defer pulls.Unlock()
+		rateLimitMemory = saved
+		clear(pulls.spent)
+	})
+}
