@@ -48,6 +48,8 @@ const (
 	DefaultImageID = "sha256:41c3b7abb48e"
 	// DefaultExecOutput is what an exec started against it writes on stdout.
 	DefaultExecOutput = "1\n"
+	// DefaultContainerLog is what every container writes to stdout.
+	DefaultContainerLog = "Waiting for connections\n"
 )
 
 // Daemon is a fake Docker daemon that speaks the Engine API over HTTP, so a
@@ -316,6 +318,14 @@ func (d *Daemon) ServeDefaults() {
 			"Titles": []string{"PID", "CMD"}, "Processes": [][]string{{"1", "mongod --bind_ip_all"}},
 		})
 	})
+	d.Handle("GET", "/containers/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		if id := PathParam(r, "id"); strings.HasPrefix(id, "no-such") {
+			Error(w, http.StatusNotFound, "No such container: "+id)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.docker.multiplexed-stream")
+		writeFrames(w, DefaultContainerLog, "")
+	})
 	d.Handle("PUT", "/containers/{id}/archive", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusOK)
@@ -375,6 +385,17 @@ func Frame(stream byte, payload string) []byte {
 	hdr[0] = stream
 	binary.BigEndian.PutUint32(hdr[4:], uint32(len(payload)))
 	return append(hdr, payload...)
+}
+
+// writeFrames writes stdout and stderr as the daemon frames a log, leaving
+// out an empty stream.
+func writeFrames(w http.ResponseWriter, stdout, stderr string) {
+	if stdout != "" {
+		_, _ = w.Write(Frame(StreamStdout, stdout))
+	}
+	if stderr != "" {
+		_, _ = w.Write(Frame(StreamStderr, stderr))
+	}
 }
 
 // Hijack takes over the connection, answers with the 101 upgrade a real
@@ -593,6 +614,15 @@ func (d *Daemon) ServeFake(f *Fake) {
 			return
 		}
 		JSON(w, http.StatusCreated, map[string]any{"Id": id})
+	})
+	d.Handle("GET", "/containers/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		var stdout, stderr strings.Builder
+		if err := f.ContainerLogsTo(ctx, PathParam(r, "id"), &stdout, &stderr); err != nil {
+			fail(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.docker.multiplexed-stream")
+		writeFrames(w, stdout.String(), stderr.String())
 	})
 	d.Handle("POST", "/exec/{id}/start", func(w http.ResponseWriter, r *http.Request) {
 		var stdout, stderr strings.Builder

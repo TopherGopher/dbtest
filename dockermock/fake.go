@@ -50,6 +50,11 @@ type Fake struct {
 	// image with a HEALTHCHECK does: "starting", "healthy" or "unhealthy".
 	// The default, "", is an image that declares no check.
 	Health string
+	// Log is what every container writes to stdout, where mongod writes its
+	// log. The default, "", is a container that writes nothing.
+	Log string
+	// ErrLog is what every container writes to stderr.
+	ErrLog string
 }
 
 // ContainerState is what the Fake knows about one container, passed to the
@@ -286,6 +291,28 @@ func (f *Fake) ContainerInspect(ctx context.Context, id string) (dockerclient.Co
 		Config:          dockerclient.InspectedConfig{Image: c.state.Config.Image, Labels: c.state.Config.Labels},
 		NetworkSettings: dockerclient.NetworkSettings{Ports: c.state.Ports},
 	}, nil
+}
+
+func (f *Fake) ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	f.mu.Lock()
+	_, err := f.container(id, "GET", "/containers/"+id+"/logs")
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	if _, err := io.WriteString(stdout, f.Log); err != nil {
+		return &dockerclient.StreamError{Problem: "writing a container's log", Err: err}
+	}
+	if _, err := io.WriteString(stderr, f.ErrLog); err != nil {
+		return &dockerclient.StreamError{Problem: "writing a container's log", Err: err}
+	}
+	return nil
 }
 
 func (f *Fake) ContainerTop(ctx context.Context, id string) (dockerclient.Top, error) {

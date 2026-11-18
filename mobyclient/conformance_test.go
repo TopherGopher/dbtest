@@ -77,6 +77,7 @@ func newConformanceClient(tb testing.TB) dockerclient.Client {
 	tb.Cleanup(d.Close)
 	f := dockermock.NewFake()
 	f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
+	f.Log, f.ErrLog = dockerclienttest.TestContainerLog, dockerclienttest.TestContainerErrLog
 	d.ServeFake(f)
 	servePing(d)
 	serveNormalizedPull(d, f)

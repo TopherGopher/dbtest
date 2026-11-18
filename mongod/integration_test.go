@@ -202,6 +202,25 @@ func TestIntegrationStartFailsWhenTheImageDoesNotExist(t *testing.T) {
 	assert.False(t, errors.Is(err, context.DeadlineExceeded), "the failure is a missing image, not a slow one; reporting a timeout would send the reader looking in the wrong place")
 }
 
+// A flag mongod rejects is the commonest first failure. The error must carry
+// mongod's own reason.
+func TestIntegrationAFlagMongodRejectsIsReportedWithItsReason(t *testing.T) {
+	docker, ctx := liveDocker(t)
+	key, value := runLabel(t)
+
+	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().
+		WithDocker(docker).
+		WithLabel(key, value).
+		WithMongodArgs("--no-such-mongod-flag"))
+
+	var exited *mongod.ContainerExitedError
+	require.ErrorAs(t, err, &exited, "mongod exits at once, and the start reports the exit, not a missing port or a timeout")
+	assert.Contains(t, exited.Output, "no-such-mongod-flag", "the output names the flag mongod refused")
+	if ids, checked := containersLabelled(t, key, value); checked {
+		assert.Empty(t, ids, "and the container is removed once its output is read")
+	}
+}
+
 // The well-known images are only worth having if they resolve to something
 // that really exists and really runs. These start each of them for real.
 func TestIntegrationWellKnownImagesStart(t *testing.T) {

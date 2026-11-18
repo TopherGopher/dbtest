@@ -44,3 +44,6 @@ func SetRateLimitMemory(t interface{ Cleanup(func()) }, d time.Duration) {
 		clear(pulls.spent)
 	})
 }
+
+// ExitOutputLimit is how much of an exited container's output is kept.
+const ExitOutputLimit = exitOutputLimit

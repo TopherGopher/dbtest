@@ -68,6 +68,9 @@ what to do if it affects you.
   It used to return the daemon's "not found" error. If you read that error to
   learn whether a container still existed, ask the daemon instead; killing a
   container twice is now safe.
+- **Daemon errors keep the whole message.** When a container fails to start
+  because its port or its name is already in use, the error now says so.
+  Before, that part was cut off.
 
 ### Added
 
@@ -90,3 +93,6 @@ what to do if it affects you.
   `ErrDaemonResponse`. Match `ErrRateLimited`, or read `StatusError.StatusCode`.
 - `Options.WithPullTimeout` bounds a pull of a missing image, ten minutes by
   default, separately from the wait for mongod.
+- When a container exits before mongod is ready, the error now ends with the
+  last of what mongod wrote, which usually says why.
+  `ContainerExitedError.Output` holds the same text.

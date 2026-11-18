@@ -72,15 +72,20 @@ func TestCancelledContextIsReportedAsCancellation(t *testing.T) {
 func TestStatusErrorTruncatesOnARuneBoundary(t *testing.T) {
 	// Cutting a UTF-8 string at a byte offset can leave half a rune, which
 	// then propagates into logs and into anything that re-encodes the error.
-	long := strings.Repeat("日", 300) // three bytes per rune, so byte 200 falls mid-rune
-	resp := &http.Response{
-		StatusCode: http.StatusInternalServerError,
-		Body:       io.NopCloser(strings.NewReader(`{"message":"` + long + `"}`)),
+	// The runes are three bytes long, so whatever the cap is, the cut falls
+	// mid-rune behind one of these prefixes.
+	for _, prefix := range []string{"", "x", "xx"} {
+		long := prefix + strings.Repeat("日", maxErrorMessage/3+1)
+		resp := &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Body:       io.NopCloser(strings.NewReader(`{"message":"` + long + `"}`)),
+		}
+		err := newStatusError(resp, http.MethodGet, "/containers/x/json")
+		assert.True(t, utf8.ValidString(err.Message), "a truncated daemon message must still be valid UTF-8 (prefix %q)", prefix)
+		assert.True(t, utf8.ValidString(err.Error()), "the rendered error must be valid UTF-8 (prefix %q)", prefix)
+		assert.Contains(t, err.Message, "…", "a truncated message must show that it was cut (prefix %q)", prefix)
+		assert.LessOrEqual(t, len(err.Message), maxErrorMessage, "the cut message, ellipsis included, must fit the cap (prefix %q)", prefix)
 	}
-	err := newStatusError(resp, http.MethodGet, "/containers/x/json")
-	assert.True(t, utf8.ValidString(err.Message), "a truncated daemon message must still be valid UTF-8")
-	assert.True(t, utf8.ValidString(err.Error()), "the rendered error must be valid UTF-8")
-	assert.Contains(t, err.Message, "…", "a truncated message must show that it was cut")
 }
 
 func TestParseHostRejectsAUnixAuthority(t *testing.T) {

@@ -3,6 +3,7 @@ package dockerapi
 import (
 	"context"
 	"encoding/json/v2"
+	"io"
 	"net/http"
 	"net/url"
 )
@@ -107,6 +108,39 @@ func (c *Client) ContainerInspect(ctx context.Context, id string) (ContainerInsp
 	}
 	err = c.getJSON(ctx, "/containers/"+id+"/json", &out)
 	return out, err
+}
+
+// ContainerLogsTo copies what a container has written so far, stdout and
+// stderr each to its own writer, and returns. It does not wait for more
+// output. Either writer may be nil to discard that stream.
+func (c *Client) ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	id, err := checkID("container", id)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	path := "/containers/" + id + "/logs"
+	resp, err := c.do(ctx, http.MethodGet, path, url.Values{"stdout": {"1"}, "stderr": {"1"}}, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusOK:
+	case resp.StatusCode >= 400:
+		return newStatusError(resp, http.MethodGet, path)
+	default:
+		return unexpectedStatus(http.MethodGet, path, resp.StatusCode)
+	}
+	if err := demux(resp.Body, stdout, stderr); err != nil {
+		return ctxErr(ctx, err)
+	}
+	return nil
 }
 
 // ContainerTop lists the processes running inside a container.

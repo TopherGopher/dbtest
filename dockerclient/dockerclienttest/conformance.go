@@ -27,6 +27,13 @@ const (
 	// TestImageHealth is the health a running container of TestImage
 	// reports, as one from an image with a health check does.
 	TestImageHealth = "healthy"
+	// TestContainerLog is what a container of TestImage writes to stdout,
+	// where mongod writes its log. A dockermock.Fake takes it in its Log
+	// field.
+	TestContainerLog = "Waiting for connections\n"
+	// TestContainerErrLog is what a container of TestImage writes to
+	// stderr. A dockermock.Fake takes it in its ErrLog field.
+	TestContainerErrLog = "about to fork child process\n"
 )
 
 // Conformance runs every behaviour assertion against one implementation.
@@ -52,6 +59,28 @@ func Conformance(t *testing.T, newClient Factory) {
 	t.Run("reports the health check of a running container", func(t *testing.T) {
 		conformanceHealth(t, newClient(t))
 	})
+	t.Run("reads what a container wrote", func(t *testing.T) {
+		conformanceLogs(t, newClient(t))
+	})
+}
+
+// conformanceLogs checks ContainerLogsTo returns what the container wrote,
+// which is how a failed start says why mongod stopped.
+func conformanceLogs(t *testing.T, c dockerclient.Client) {
+	id := createRunning(t, c)
+	var stdout, stderr bytes.Buffer
+	if err := c.ContainerLogsTo(context.Background(), id, &stdout, &stderr); err != nil {
+		t.Fatalf("reading the log of %s: %v", id, err)
+	}
+	if stdout.String() != TestContainerLog {
+		t.Errorf("the log must hold what the container wrote to stdout: want %q, got %q. Without it a failed start "+
+			"cannot say why mongod stopped. Split the daemon's log stream into stdout and stderr; a dockermock.Fake "+
+			"needs its Log set to TestContainerLog", TestContainerLog, stdout.String())
+	}
+	if stderr.String() != TestContainerErrLog {
+		t.Errorf("the log must hold what the container wrote to stderr, apart from stdout: want %q, got %q. "+
+			"A dockermock.Fake needs its ErrLog set to TestContainerErrLog", TestContainerErrLog, stderr.String())
+	}
 }
 
 // conformanceImageUser checks ImageInspect passes on the image's user, which
@@ -103,6 +132,9 @@ func conformanceValidation(t *testing.T, c dockerclient.Client) {
 		"an empty exec id": func() error {
 			return c.ExecStartTo(ctx, "", nil, nil)
 		},
+		"reading the log of an empty container id": func() error {
+			return c.ContainerLogsTo(ctx, "", nil, nil)
+		},
 		"an exec id with a slash": func() error {
 			_, err := c.ExecInspect(ctx, "a/b")
 			return err
@@ -142,6 +174,9 @@ func conformanceNotFound(t *testing.T, c dockerclient.Client) {
 		"starting an unknown container": func() error { return c.ContainerStart(ctx, "missing") },
 		"removing an unknown container": func() error {
 			return c.ContainerRemove(ctx, "missing", dockerclient.RemoveOptions{Force: true})
+		},
+		"reading the log of an unknown container": func() error {
+			return c.ContainerLogsTo(ctx, "missing", nil, nil)
 		},
 		"inspecting an image that was never pulled": func() error {
 			_, err := c.ImageInspect(ctx, "never-pulled:1")
