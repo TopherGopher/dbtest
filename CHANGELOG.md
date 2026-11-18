@@ -83,11 +83,12 @@ what to do if it affects you.
   nothing if the daemon already has it.
 - When `Start` and `PullImage` calls in one process need the same missing
   image, they share one pull. A pull that fails because a registry is
-  briefly down is tried again for up to about a minute.
+  briefly down, or because of its rate limit, is tried again for up to about
+  a minute. A rate limit that outlasts those attempts is remembered for five
+  minutes, and pulls of that image fail at once until then.
 - `dockerclient.ErrRateLimited` matches a pull that a registry refused
-  because of its rate limit, from `dockerapi` or `mobyclient`. A rate limit
-  is reported at once, not retried, and for the official image the error
-  suggests `mongod.ImagePublicECR`.
+  because of its rate limit, from `dockerapi` or `mobyclient`. For the
+  official image, the error suggests `mongod.ImagePublicECR`.
 - `mobyclient` reports a daemon's 429, 500 and 503 as a `StatusError` with
   that code, as `dockerapi` does, so they no longer match
   `ErrDaemonResponse`. Match `ErrRateLimited`, or read `StatusError.StatusCode`.

@@ -49,9 +49,11 @@
 //	mongod.DefaultOptions().WithMongoImage(mongod.ImagePublicECR).WithImage("7.0")
 //
 // A start pulls an image the daemon does not have. Calls to Start and
-// [PullImage] in one process that need the same image share one pull, and a
-// pull that fails because a registry is briefly down is tried again for up
-// to about a minute. Call PullImage in TestMain, so the download happens
+// [PullImage] in one process that need the same image share one pull. A pull
+// that fails because a registry is briefly down, or because of its rate
+// limit, is tried again for up to about a minute. A rate limit that outlasts
+// those attempts is remembered for five minutes, and pulls of that image fail
+// at once until then. Call PullImage in TestMain, so the download happens
 // before any test starts. A pull may take up to ten minutes, which
 // [Options.WithPullTimeout] changes, and does not count against the wait
 // for mongod.
