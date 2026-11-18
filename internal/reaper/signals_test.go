@@ -31,8 +31,8 @@ func TestRegisteringWhileEverySignalIsIgnoredInstallsNothing(t *testing.T) {
 }
 
 // ownProcess is the environment variable inOwnProcess sets in the copy it
-// starts. It holds the path of a file the copy creates to prove the test ran
-// there.
+// starts. It holds the path of a file the copy creates once the test has run
+// there without skipping.
 const ownProcess = "REAPER_TEST_OWN_PROCESS"
 
 // inOwnProcess reports whether the calling test is running in a copy of this
@@ -46,7 +46,13 @@ const ownProcess = "REAPER_TEST_OWN_PROCESS"
 func inOwnProcess(t *testing.T) bool {
 	t.Helper()
 	if marker := os.Getenv(ownProcess); marker != "" {
-		require.NoError(t, os.WriteFile(marker, nil, 0o600), "the copy records that it ran")
+		// In a cleanup, so a copy that skips the test does not count as
+		// having run it.
+		t.Cleanup(func() {
+			if !t.Skipped() {
+				require.NoError(t, os.WriteFile(marker, nil, 0o600), "the copy records that it ran")
+			}
+		})
 		return true
 	}
 	marker := filepath.Join(t.TempDir(), "ran")

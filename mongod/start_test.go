@@ -116,7 +116,7 @@ func TestAPullIsAnnouncedWhereAFirstTimeUserSeesIt(t *testing.T) {
 
 			require.NoError(t, pull(m, mongod.DefaultOptions().WithLogger(logger)), "the pull succeeds")
 
-			assert.True(t, announcedBeforeThePull, "the pull is logged at info")
+			assert.True(t, announcedBeforeThePull, "the pull is logged at info before it starts")
 		})
 	}
 }
@@ -244,7 +244,7 @@ func TestStartTimesOutWhenNothingAnswers(t *testing.T) {
 	assert.Equal(t, dead, notReady.Port, "including the port that was dialled")
 	assert.Equal(t, "WithHostIP", notReady.HostSource, "and what chose the address")
 	assert.ErrorIs(t, err, mongod.ErrNoReply, "nothing answered there")
-	assert.True(t, mongod.AddressInDoubt(notReady), "with advice about the address")
+	assert.True(t, mongod.AddressInDoubt(notReady), "the error says how to correct the address")
 	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the container is removed")
 }
 

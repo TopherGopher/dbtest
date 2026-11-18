@@ -292,7 +292,7 @@ func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 	assert.ErrorIs(t, err, mongod.ErrNotMongod, "and the error says that something else answered")
 	var notReady *mongod.NotReadyError
 	require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
-	assert.True(t, mongod.AddressInDoubt(notReady), "the address may be the wrong one, so the error says how to correct it")
+	assert.True(t, mongod.AddressInDoubt(notReady), "the error says how to correct the address")
 }
 
 func TestAPortThatAnswersWithGarbageIsNotReady(t *testing.T) {

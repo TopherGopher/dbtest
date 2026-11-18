@@ -3,6 +3,7 @@ package mongod_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 // address is in doubt only when nothing, or something other than mongod,
 // answered; and a mongod that ignores its credentials needs no longer wait.
 func TestTheAdviceForAStartThatRanOutOfTimeSuitsTheFailure(t *testing.T) {
-	inDoubt := func(lastErr error) bool { return mongod.AddressInDoubt(&mongod.NotReadyError{LastErr: lastErr}) }
+	inDoubt := func(lastErr error) bool { return strings.Contains(mongod.NotReadyAdvice(lastErr), mongod.EnvHostIP) }
 	assert.True(t, inDoubt(mongod.ErrNoReply), "nothing answered: maybe the address")
 	assert.True(t, inDoubt(mongod.ErrNotMongod), "not mongod: maybe the address")
 	assert.False(t, inDoubt(mongod.ErrHelloRefused), "mongod answered: the address is right")

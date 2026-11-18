@@ -86,7 +86,7 @@ func TestIntegrationStartConnectAndStop(t *testing.T) {
 
 	// If this fails, Start resolved the wrong host here; WithHostIP corrects it.
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(c.Host(), strconv.Itoa(c.Port())), 10*time.Second)
-	require.NoError(t, err, "mongod answers at the resolved address")
+	require.NoError(t, err, "the resolved address accepts a connection")
 	require.NoError(t, conn.Close(), "closing the probe connection must succeed")
 
 	require.NoError(t, c.Stop(ctx), "stopping removes the container")

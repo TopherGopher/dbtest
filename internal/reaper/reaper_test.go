@@ -228,7 +228,7 @@ func TestUnregisterKeepsAReapFromTouchingIt(t *testing.T) {
 	torn := false
 	handle := Register("stopped-already", func(context.Context) error { torn = true; return nil }, nil)
 
-	assert.True(t, Unregister(handle), "unregistering a handle reports it")
+	assert.True(t, Unregister(handle), "reports that it removed something")
 	require.NoError(t, Reap(context.Background()), "there is nothing left to reap")
 
 	assert.False(t, torn, "an unregistered container is not torn down")
