@@ -18,7 +18,6 @@ const DummyHost = "api.moby.localhost"
 const (
 	defaultTCPPort    = "2375"
 	defaultTCPTLSPort = "2376"
-	defaultUnixSocket = "unix:///var/run/docker.sock"
 )
 
 // endpoint is the parsed form of a DOCKER_HOST string. It answers two

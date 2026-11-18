@@ -1,4 +1,4 @@
-package dockerapi
+package dockerclient
 
 import (
 	"net"
@@ -68,9 +68,6 @@ const socketProbeTimeout = 100 * time.Millisecond
 // Rootless paths are omitted when XDG_RUNTIME_DIR is unset, because the path
 // cannot be built without it.
 func socketCandidates(l lookup) []string {
-	if l.goos == "windows" {
-		return windowsMachineSockets(l)
-	}
 	runtimeDir := runtimeDirFor(l)
 	var paths []string
 	if runtimeDir != "" {
@@ -102,27 +99,6 @@ func runtimeDirFor(l lookup) string {
 		return "/run/user/" + strconv.Itoa(l.uid)
 	}
 	return ""
-}
-
-// windowsMachineSockets are the AF_UNIX sockets podman machine exposes on
-// the Windows filesystem, which this client can dial even though it cannot
-// dial the named pipe alongside them. Added in Podman 5.3.
-func windowsMachineSockets(l lookup) []string {
-	if l.glob == nil {
-		return nil
-	}
-	var dirs []string
-	if tmp := l.getenv("TEMP"); tmp != "" {
-		dirs = append(dirs, tmp)
-	}
-	if local := l.getenv("LOCALAPPDATA"); local != "" {
-		dirs = append(dirs, filepath.Join(local, "Temp"))
-	}
-	var paths []string
-	for _, dir := range dirs {
-		paths = append(paths, l.glob(filepath.Join(dir, "podman", "*-api.sock"))...)
-	}
-	return paths
 }
 
 // socketDialable reports whether a daemon is listening on the unix socket at
