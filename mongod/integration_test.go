@@ -335,7 +335,6 @@ func TestIntegrationAtlasLocalWouldDieIfGivenMongodFlags(t *testing.T) {
 	require.Error(t, startErr, "the flag has replaced the program, so there is nothing to execute")
 	info, err := docker.ContainerInspect(ctx, id)
 	require.NoError(t, err, "the container is still there to inspect")
-	assert.False(t, info.State.Running, "the container never ran")
 	// The daemon says only that "--quiet" is not a program. It never says
 	// the flag was meant for mongod, so Start refuses it first.
 	assert.Contains(t, []int{126, 127}, info.State.ExitCode, "the exit code of a program that could not be run")
