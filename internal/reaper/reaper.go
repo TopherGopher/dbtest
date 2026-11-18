@@ -339,11 +339,12 @@ func reapOnSignal(ch chan os.Signal) {
 	signal.Stop(ch)
 	signal.Reset(sig)
 
+	// Deferred, so a logger that ends this goroutine, as t.FailNow does,
+	// cannot keep the process from dying of the signal.
+	defer reRaise(sig)
 	ctx, cancel := context.WithTimeout(context.Background(), reapTimeout)
 	defer cancel()
-	// The process is about to die, so stderr is the only place left.
 	reapAndReport(ctx, sig, os.Stderr)
-	reRaise(sig)
 }
 
 // reapAndReport reaps until nothing is left or ctx ends, and then reports

@@ -86,3 +86,29 @@ func TestALoggerThatPanicsDoesNotStopTheReport(t *testing.T) {
 	assert.NotZero(t, stderr.Len(), "stderr gets the report")
 	assert.Len(t, other.all(), 1, "the other container's logger still gets its record")
 }
+
+// A signal can arrive while a TestMain's Reap is still removing a container.
+// If the signal's reap times out first, that container is logged too, to
+// the logger it was registered with.
+func TestARemovalAnotherReapHasNotFinishedIsLogged(t *testing.T) {
+	resetForTest(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	log := &recordingLogger{}
+	Register("mongotest-1a2b3c4d", func(context.Context) error {
+		close(started)
+		<-release
+		return nil
+	}, log)
+	go func() { _ = Reap(context.Background()) }()
+	<-started
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	reapAndReport(ctx, syscall.SIGINT, &bytes.Buffer{})
+
+	records := log.all()
+	require.Len(t, records, 1, "the container whose removal had not finished is logged once")
+	assert.Equal(t, "mongotest-1a2b3c4d", records[0].kv["container"], "the record names the container")
+	assert.ErrorIs(t, records[0].kv["error"].(error), errUnfinished, "the record says its removal did not finish")
+}
