@@ -66,10 +66,11 @@ func TestEachContainerLeftAfterASignalIsLogged(t *testing.T) {
 	failed := failedLog.all()
 	require.Len(t, failed, 1, "a container whose removal failed is logged once, to the logger it was registered with")
 	assert.Equal(t, "mongotest-1a2b3c4d", failed[0].kv["container"], "the record names the container")
-	assert.Equal(t, syscall.SIGTERM, failed[0].kv["signal"], "the record names the signal that started the reap")
-	assert.ErrorIs(t, failed[0].kv["error"].(error), refused, "the record says why the container was not removed")
+	assert.Equal(t, syscall.SIGTERM.String(), failed[0].kv["signal"], "the record names the signal that started the reap, as a JSON handler can show it")
+	err, _ := failed[0].kv["error"].(error)
+	assert.ErrorIs(t, err, refused, "the record says why the container was not removed")
 	stuck := stuckLog.all()
-	require.Len(t, stuck, 1, "a container whose removal did not finish is logged too")
+	require.Len(t, stuck, 1, "a removal still running at the deadline is logged too")
 	assert.Equal(t, "mongotest-5e6f7a8b", stuck[0].kv["container"], "the record names the container")
 	assert.Empty(t, removedLog.all(), "a container that was removed is not reported")
 }
@@ -110,5 +111,6 @@ func TestARemovalAnotherReapHasNotFinishedIsLogged(t *testing.T) {
 	records := log.all()
 	require.Len(t, records, 1, "the container whose removal had not finished is logged once")
 	assert.Equal(t, "mongotest-1a2b3c4d", records[0].kv["container"], "the record names the container")
-	assert.ErrorIs(t, records[0].kv["error"].(error), errUnfinished, "the record says its removal did not finish")
+	err, _ := records[0].kv["error"].(error)
+	assert.ErrorIs(t, err, errUnfinished, "the record says its removal did not finish")
 }
