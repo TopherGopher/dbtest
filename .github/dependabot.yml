@@ -16,7 +16,7 @@ updates:
     cooldown:
       default-days: 7
   - package-ecosystem: "gomod"
-    directory: "/mobyclient" # its own module, with the largest third-party tree
+    directory: "/mobyclient" # its own go.mod, which the root entry does not cover
     schedule:
       interval: "weekly"
     cooldown:

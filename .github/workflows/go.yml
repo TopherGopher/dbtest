@@ -26,13 +26,15 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        # The newest patch release of that version, for its security fixes.
+        # Use the newest patch release of the Go version in go.mod, for its
+        # security fixes.
         check-latest: true
 
     - name: Get dependencies
       run: go mod download
 
-    # gofmt reads files, not modules, so one run covers all three.
+    # gofmt works on files, not modules, so one run from the root checks
+    # all three modules.
     - name: Check formatting
       run: |
         unformatted=$(gofmt -l .)
@@ -48,10 +50,11 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    # Each module is built and tested from its own go.mod, so CI tests the
-    # dependency versions its users get. No go.work is committed: in a
-    # workspace the root would be tested against the other modules' newer
-    # versions. The root ./... does not reach the other modules.
+    # The root ./... does not reach mobyclient or exporter, which have their
+    # own go.mod files, so each gets its own steps. Testing each module from
+    # its own go.mod tests the dependency versions that module's users get.
+    # A go.work would resolve all three modules' dependencies together, so
+    # the root could be tested against newer versions another module requires.
     - name: Vet and build mobyclient
       working-directory: ./mobyclient
       run: |
@@ -78,16 +81,19 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        # The newest patch release of that version, for its security fixes.
+        # Use the newest patch release of the Go version in go.mod, for its
+        # security fixes.
         check-latest: true
     - name: Get dependencies
       run: go mod download
 
-    # dockerapi's integration tests call ImagePull directly, which tries once,
-    # so a brief refusal from Docker Hub would fail the run. mongod's own
-    # pulls retry. Pulling the image here first, with retries, keeps the run
-    # from depending on the registry's mood.
-    - name: Pull the image the integration tests use
+    # The integration tests in the dockerapi package pull mongo:8 once, with
+    # no retry, so a brief Docker Hub error fails the run. (The library's
+    # mongod package retries its own pulls.) Pulled here first, with retries,
+    # the image is already on the daemon, and the tests that pull only a
+    # missing image skip their pull. Keep the tag the same as
+    # integrationImage in dockerapi/integration_test.go.
+    - name: Pull mongo:8 for the integration tests
       run: |
         for attempt in 1 2 3 4 5; do
           docker pull mongo:8 && exit 0
@@ -112,8 +118,8 @@ jobs:
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # The profiles the three test steps write, read as Go's own format
-        # and reported together.
+        # The coverage profiles from the three test steps, in Go's format,
+        # sent as one report.
         files: coverage.out mobyclient/coverage.out exporter/coverage.out
         format: golang
         # The reporter this action downloads; without it, the newest one.
