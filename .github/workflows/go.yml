@@ -25,10 +25,10 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
+        # The Go 1.27.x the runner image already has. check-latest is left
+        # off, so a new Go patch reaches CI when GitHub ships it in the
+        # runner image, not on the day it is released.
         go-version-file: go.mod
-        # Use the newest patch release of the Go version in go.mod, for its
-        # security fixes.
-        check-latest: true
 
     - name: Get dependencies
       run: go mod download
@@ -80,10 +80,10 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
+        # The Go 1.27.x the runner image already has. check-latest is left
+        # off, so a new Go patch reaches CI when GitHub ships it in the
+        # runner image, not on the day it is released.
         go-version-file: go.mod
-        # Use the newest patch release of the Go version in go.mod, for its
-        # security fixes.
-        check-latest: true
     - name: Get dependencies
       run: go mod download
 
@@ -113,6 +113,22 @@ jobs:
     - name: Test exporter
       working-directory: ./exporter
       run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+
+    # The total for each module, on the run's summary page. go tool cover runs
+    # inside each module, because only that module's go.mod resolves its
+    # packages.
+    - name: Write the coverage summary
+      run: |
+        {
+          echo "### Test coverage"
+          echo ""
+          echo "| Module | Statements covered |"
+          echo "| --- | --- |"
+          for dir in . mobyclient exporter; do
+            total=$(cd "$dir" && go tool cover -func=coverage.out | tail -n 1 | awk '{print $NF}')
+            echo "| ${dir/#./root} | $total |"
+          done
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload code coverage to Coveralls for every module
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
