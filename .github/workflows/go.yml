@@ -110,7 +110,7 @@ jobs:
         MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
       run: |
         mkdir -p "$MONGOTEST_HELPER_COVERDIR"
-        go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+        go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     # Adds the helpers' coverage to coverage.out. The counts for each code
     # block are summed, so code that only a helper runs is reported as
@@ -135,11 +135,11 @@ jobs:
     # benchmark suites are the same ones dockerapi runs.
     - name: Test mobyclient
       working-directory: ./mobyclient
-      run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     - name: Test exporter
       working-directory: ./exporter
-      run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     # The total for each module, on the run's summary page. go tool cover runs
     # inside each module, because only that module's go.mod resolves its
