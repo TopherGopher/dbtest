@@ -9,21 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// helperCoverDir names the environment variable that asks for the helper
-// programs' coverage. CI sets it to a directory, and merges what the helpers
-// write there into the root module's coverage: a helper is a separate
-// program, so go test does not count it.
-const helperCoverDir = "MONGOTEST_HELPER_COVERDIR"
+// helperCoverDirEnv names the environment variable that turns on coverage
+// for the helper programs. go test does not count code that runs in a
+// separate program. When the variable holds a directory, the helpers are
+// built with -cover and write their counts there, and CI adds them to
+// coverage.out.
+const helperCoverDirEnv = "MONGOTEST_HELPER_COVERDIR"
 
 // buildProgram compiles pkg for a test that runs it as a separate process. It
-// is built rather than run through `go run`, because `go run` sits between
-// the signal and the process under test. When helperCoverDir is set, the
-// program is built to record coverage of this module's packages.
+// is built rather than run through `go run`, because `go run` would receive
+// the test's signal itself and report its own exit status, not the
+// program's. When the variable in helperCoverDirEnv is set, the program
+// records coverage of every package in this module, in the same mode as CI's
+// coverage.out.
 func buildProgram(t *testing.T, pkg string) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), filepath.Base(pkg))
 	args := []string{"build", "-o", binary}
-	if os.Getenv(helperCoverDir) != "" {
+	if os.Getenv(helperCoverDirEnv) != "" {
 		args = append(args, "-cover", "-covermode=atomic", "-coverpkg=github.com/tophergopher/mongotest/...")
 	}
 	build := exec.Command("go", append(args, pkg)...)
@@ -32,11 +35,12 @@ func buildProgram(t *testing.T, pkg string) string {
 	return binary
 }
 
-// programEnv is the environment for a helper program: this process's, the
-// given variables, and GOCOVERDIR when helperCoverDir asks for coverage.
+// programEnv returns this process's environment plus vars. When helper
+// coverage is on, it also sets GOCOVERDIR so the program writes its counts
+// to that directory.
 func programEnv(vars ...string) []string {
 	env := append(os.Environ(), vars...)
-	if dir := os.Getenv(helperCoverDir); dir != "" {
+	if dir := os.Getenv(helperCoverDirEnv); dir != "" {
 		env = append(env, "GOCOVERDIR="+dir)
 	}
 	return env

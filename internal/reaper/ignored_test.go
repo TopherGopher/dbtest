@@ -69,12 +69,13 @@ func buildIgnoreHelper(t *testing.T) string {
 }
 
 // A program built with -cover writes its coverage only when it exits
-// normally. One that dies of the signal the reaper re-raises would lose it,
-// so the reaper writes the counters first. That keeps the coverage of a
-// caller's own -cover program that is stopped with Ctrl-C.
-func TestACoverageBuildKeepsItsCountersWhenSignalled(t *testing.T) {
+// normally. After its teardown, the reaper sends the signal to the program
+// again so that it dies of it, which would lose the coverage. CI counts the
+// reaper's signal path only because the helpers write their counters first,
+// through BeforeReRaise.
+func TestASignalledHelperKeepsItsCoverage(t *testing.T) {
 	coverDir := t.TempDir()
-	t.Setenv(helperCoverDir, coverDir)
+	t.Setenv(helperCoverDirEnv, coverDir)
 	helper := buildIgnoreHelper(t)
 	cmd := exec.Command(helper)
 	cmd.Env = programEnv()
@@ -83,7 +84,7 @@ func TestACoverageBuildKeepsItsCountersWhenSignalled(t *testing.T) {
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Start(), "the helper binary must start")
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
-	require.Equal(t, "ready true", firstLine(t, stdout, 2*time.Minute), "the helper has registered its teardown")
+	require.Equal(t, "ready true", firstLine(t, stdout, 2*time.Minute), "the helper has registered its teardown, and the reaper's handler is installed")
 
 	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM), "sending SIGTERM to the helper must succeed")
 	state := waitFor(t, cmd, 60*time.Second)

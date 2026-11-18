@@ -101,9 +101,10 @@ jobs:
         done
         exit 1
 
-    # The reaper's tests also run reaphelper and ignorehelper as separate
-    # programs, which go test does not count. Asked for here, they are built
-    # with coverage and write it to this directory.
+    # The reaper's tests start two helper programs, reaphelper and
+    # ignorehelper, and go test does not count coverage in programs the tests
+    # start. Setting MONGOTEST_HELPER_COVERDIR makes the tests build the
+    # helpers with coverage and write it to that directory.
     - name: Test package
       env:
         MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
@@ -111,16 +112,22 @@ jobs:
         mkdir -p "$MONGOTEST_HELPER_COVERDIR"
         go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
-    # Adds the helper programs' counts to the root module's profile, block
-    # by block, so a line the tests only reach through a helper counts too.
+    # Adds the helpers' coverage to coverage.out. The counts for each code
+    # block are summed, so code that only a helper runs is reported as
+    # covered. Only blocks already in coverage.out are added to, so the merge
+    # never adds code the tests' own profile does not count. The first line
+    # of each file is its coverage mode, and the two must match for the
+    # counts to add up.
     - name: Add the helper programs' coverage
       env:
-        HELPER_COVERAGE: ${{ runner.temp }}/helper-coverage
+        MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
       run: |
-        go tool covdata textfmt -i="$HELPER_COVERAGE" -o helpers.out
-        awk 'FNR == 1 { if (NR == 1) print; next }
-             { key = $1 " " $2; if (!(key in count)) order[++n] = key; count[key] += $3 }
-             END { for (i = 1; i <= n; i++) print order[i], count[order[i]] }' \
+        go tool covdata textfmt -i="$MONGOTEST_HELPER_COVERDIR" -o helpers.out
+        awk 'FNR == 1 { if (NR == 1) { mode = $0; print } else if ($0 != mode) { print "coverage modes differ: " $0 > "/dev/stderr"; failed = 1; exit 1 } next }
+             { key = $1 " " $2 }
+             NR == FNR { if (!(key in count)) order[++n] = key; count[key] += $3; next }
+             key in count { count[key] += $3 }
+             END { if (failed) exit 1; for (i = 1; i <= n; i++) print order[i], count[order[i]] }' \
           coverage.out helpers.out > merged.out
         mv merged.out coverage.out
 

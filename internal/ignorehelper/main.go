@@ -11,12 +11,19 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/coverage"
 	"time"
 
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
 func main() {
+	// The tests can build this program with coverage, to count the
+	// reaper's signal path, which runs only here. The program dies of the
+	// signal, and Go writes coverage only on a normal exit, so write it
+	// first. Without -cover the call fails, which is fine.
+	reaper.BeforeReRaise = func() { _ = coverage.WriteCountersDir(os.Getenv("GOCOVERDIR")) }
+
 	marker := os.Getenv("IGNOREHELPER_MARKER")
 
 	reaper.Register("ignorehelper", func(context.Context) error {
