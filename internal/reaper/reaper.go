@@ -376,7 +376,7 @@ func logLeftBehind(log Logger, name string, sig os.Signal, err error) {
 	}
 	defer func() { _ = recover() }()
 	log.Error("A container could not be removed after a signal, so it may still be running. "+
-		"Remove it by hand: docker rm -fv "+name, "container", name, "signal", sig, "error", err)
+		"Remove it by hand: docker rm -fv "+name, "container", name, "signal", sig.String(), "error", err)
 }
 
 // reapLeavingBehind reaps until nothing is left or ctx ends, and returns
