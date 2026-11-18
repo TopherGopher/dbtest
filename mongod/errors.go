@@ -1,7 +1,6 @@
 package mongod
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/tophergopher/mongotest/dockerclient"
 	"github.com/tophergopher/mongotest/internal/hostaddr"
+	"github.com/tophergopher/mongotest/internal/pull"
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
@@ -197,25 +197,25 @@ func (e *StartError) Error() string {
 
 func (e *StartError) Unwrap() error { return e.Err }
 
-// pullTimeoutError is a pull the pull timeout cut short. It matches
-// context.DeadlineExceeded and the daemon's own error.
+// pullTimeoutError is a pull the pull timeout cut short, with what a caller
+// of this package can do about it. It matches context.DeadlineExceeded and
+// the daemon's own error.
 type pullTimeoutError struct {
-	timeout time.Duration
-	err     error
+	err *pull.TimeoutError
 	// inStart says the pull happened inside Start, where fetching the image
 	// first with PullImage is a way out.
 	inStart bool
 }
 
 func (e *pullTimeoutError) Error() string {
-	msg := fmt.Sprintf("the pull did not finish within %s (%v). Allow longer with WithPullTimeout", e.timeout, e.err)
+	msg := e.err.Error() + ". Allow longer with WithPullTimeout"
 	if e.inStart {
 		msg += ", or fetch the image first with PullImage"
 	}
 	return msg
 }
 
-func (e *pullTimeoutError) Unwrap() []error { return []error{context.DeadlineExceeded, e.err} }
+func (e *pullTimeoutError) Unwrap() error { return e.err }
 
 // UnpublishedPortError names a container port with no host port. It matches
 // ErrNoPublishedPort.
