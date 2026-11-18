@@ -60,7 +60,7 @@ func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
 
 	err := Reap(context.Background())
 
-	require.Error(t, err, "two teardowns failed, so the reap did")
+	require.Error(t, err, "the reap fails when any teardown fails")
 	assert.ErrorIs(t, err, first, "the first failure is reported")
 	assert.ErrorIs(t, err, second, "the second is reported too")
 	assert.EqualValues(t, 4, ran.Load(), "every teardown runs")
@@ -129,8 +129,8 @@ func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
 
 	err := Reap(ctx)
 
-	require.ErrorIs(t, err, stillStuck, "the others were removed, and the stuck one reported")
-	assert.EqualValues(t, others, removed.Load(), "all of them")
+	require.ErrorIs(t, err, stillStuck, "the stuck teardown is reported")
+	assert.EqualValues(t, others, removed.Load(), "every other teardown ran")
 }
 
 // A teardown runs on a goroutine of its own, where a panic would end the
@@ -344,8 +344,8 @@ func TestReapUntilEmptyGivesUpAtItsDeadline(t *testing.T) {
 
 	require.Len(t, failures, rounds, "it retries while there is time, and reports failures")
 	assert.ErrorIs(t, failures[0], failure, "with its cause")
-	assert.Equal(t, rounds, attempts, "and it stops when the time is up")
-	assert.NotEmpty(t, Names(), "and gives up when time runs out")
+	assert.Equal(t, rounds, attempts, "no round starts after the deadline")
+	assert.NotEmpty(t, Names(), "a teardown that keeps re-registering is left registered")
 }
 
 func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
@@ -369,7 +369,7 @@ func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
 
 	select {
 	case <-done:
-		assert.Fail(t, "the signal path waits for running teardowns")
+		assert.Fail(t, "reapUntilEmpty waits for a teardown already running")
 	case <-time.After(100 * time.Millisecond):
 	}
 	close(release)

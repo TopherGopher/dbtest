@@ -25,26 +25,28 @@ func TestRegisteringWhileEverySignalIsIgnoredInstallsNothing(t *testing.T) {
 
 	Register("container", func(context.Context) error { return nil }, nil)
 
-	assert.False(t, Installed(), "there is nothing to listen for, so no handler is claimed")
+	assert.False(t, Installed(), "no handler is installed")
 	assert.True(t, signal.Ignored(syscall.SIGINT), "and the signal is still ignored")
 	assert.Equal(t, []string{"container"}, Names(), "while the container is still registered for an explicit Reap")
 }
 
-// ownProcess holds, in the copy of the test binary inOwnProcess starts, the
-// path of a file the copy creates to show that the test really ran there.
+// ownProcess is the environment variable inOwnProcess sets in the copy it
+// starts. It holds the path of a file the copy creates to prove the test ran
+// there.
 const ownProcess = "REAPER_TEST_OWN_PROCESS"
 
 // inOwnProcess reports whether the calling test is running in a copy of this
-// test binary. If not, it runs the test in one, and passes if that copy does.
+// test binary. If not, it runs the test in one and passes if the copy does;
+// the caller then returns.
 //
-// A test that ignores SIGINT needs it. Go cannot take signal.Ignore back for
-// SIGINT: the signal stays ignored by the operating system, and every process
-// started afterwards inherits that, so the helpers other tests signal would
-// never die.
+// Any test that ignores SIGINT must call it. Go cannot take signal.Ignore
+// back for SIGINT: the signal stays ignored by the operating system, and
+// every process started afterwards inherits that, so helper processes that
+// other tests send SIGINT to would never die.
 func inOwnProcess(t *testing.T) bool {
 	t.Helper()
 	if marker := os.Getenv(ownProcess); marker != "" {
-		require.NoError(t, os.WriteFile(marker, nil, 0o600), "the copy says it ran")
+		require.NoError(t, os.WriteFile(marker, nil, 0o600), "the copy records that it ran")
 		return true
 	}
 	marker := filepath.Join(t.TempDir(), "ran")

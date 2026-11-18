@@ -36,7 +36,7 @@ func TestTheErrorReportsWhatTheLastCompletedPollFound(t *testing.T) {
 
 		_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
-		assert.ErrorIs(t, err, mongod.ErrHelloRefused, "what the wait last learned is kept")
+		assert.ErrorIs(t, err, mongod.ErrHelloRefused, "the last poll's refusal is kept")
 	})
 
 	t.Run("a completed poll replaces what the one before found", func(t *testing.T) {
@@ -54,7 +54,7 @@ func TestTheErrorReportsWhatTheLastCompletedPollFound(t *testing.T) {
 		require.ErrorIs(t, err, mongod.ErrNoReply, "the last poll found nothing answering")
 		assert.NotErrorIs(t, err, mongod.ErrHelloRefused, "so the earlier refusal is not reported")
 		var notReady *mongod.NotReadyError
-		require.ErrorAs(t, err, &notReady, "with the details")
+		require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
 		assert.True(t, mongod.AddressInDoubt(notReady), "nothing answering is what a wrong address looks like")
 	})
 }
@@ -263,7 +263,7 @@ func TestStartWaitsForTheHealthCheckAnImageDeclares(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, err, "the check passes inside the timeout")
-	assert.True(t, *healthy, "not ready while the image says starting")
+	assert.True(t, *healthy, "returned only once the image reported healthy")
 }
 
 func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {
@@ -291,7 +291,7 @@ func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a reply that is not mongod's does not make the address a mongod")
 	assert.ErrorIs(t, err, mongod.ErrNotMongod, "and the error says that something else answered")
 	var notReady *mongod.NotReadyError
-	require.ErrorAs(t, err, &notReady, "with the details")
+	require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
 	assert.True(t, mongod.AddressInDoubt(notReady), "the address may be the wrong one, so the error says how to correct it")
 }
 
@@ -320,8 +320,8 @@ func TestAMongodThatAnswersWithAnErrorIsNotReady(t *testing.T) {
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a server that refuses commands is not ready for a test's")
 	assert.ErrorIs(t, err, mongod.ErrHelloRefused, "the server's own refusal reaches the caller")
 	var notReady *mongod.NotReadyError
-	require.ErrorAs(t, err, &notReady, "with the details")
-	assert.False(t, mongod.AddressInDoubt(notReady), "no advice about the address")
+	require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+	assert.False(t, mongod.AddressInDoubt(notReady), "the error does not blame the address")
 }
 
 // A server from before the hello command says it does not know it, which
@@ -364,8 +364,8 @@ func TestAFailureToAskTheDaemonIsNotBlamedOnTheAddress(t *testing.T) {
 			require.ErrorIs(t, err, mongod.ErrNotReady, "the start runs out of time")
 			assert.ErrorIs(t, err, refused, "the daemon's own error is kept")
 			var notReady *mongod.NotReadyError
-			require.ErrorAs(t, err, &notReady, "with the details")
-			assert.False(t, mongod.AddressInDoubt(notReady), "no advice about the address")
+			require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+			assert.False(t, mongod.AddressInDoubt(notReady), "the error does not blame the address")
 		})
 	}
 }
