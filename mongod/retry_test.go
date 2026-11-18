@@ -34,6 +34,11 @@ var (
 		Message: `unknown: failed to resolve reference "docker.io/library/mongo:8.0": unexpected status from HEAD request: 503 Service Unavailable`}
 )
 
+// noMirrorImage is on Docker Hub, but outside the namespaces a mirror
+// serves, so its rate limit is waited out and remembered rather than sent
+// to a mirror.
+const noMirrorImage = "bitnami/mongodb:8.0"
+
 // failingThen makes m's pulls fail with err the given number of times, and
 // then succeed.
 func failingThen(m *dockermock.Mock, err error, failures int) {
@@ -65,7 +70,7 @@ func TestAPullThatFailsForATemporaryReasonIsTriedAgain(t *testing.T) {
 			missingImage(m)
 			failingThen(m, failure, 2)
 
-			err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m))
+			err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage))
 
 			assert.NoError(t, err, "a temporary failure that clears is not reported")
 			assert.Len(t, m.CallsTo("ImagePull"), 3, "the pull was tried until it succeeded")
@@ -105,7 +110,7 @@ func TestASpentRateLimitIsRememberedForAWhile(t *testing.T) {
 	m := pullMock(t)
 	missingImage(m)
 	m.ImagePullFunc = func(context.Context, string) error { return rateLimitedInTheStream }
-	opts := mongod.DefaultOptions().WithDocker(m)
+	opts := mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage)
 
 	first := mongod.PullImage(context.Background(), opts)
 	require.ErrorIs(t, first, dockerclient.ErrRateLimited, "the caller can tell it was the rate limit")
@@ -130,7 +135,7 @@ func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
 		}
 		return nil
 	}
-	opts := mongod.DefaultOptions().WithDocker(m)
+	opts := mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage)
 	require.ErrorIs(t, mongod.PullImage(context.Background(), opts), dockerclient.ErrRateLimited, "the first pull uses up its attempts on the limit")
 	limited = false
 
@@ -199,13 +204,13 @@ func TestARateLimitCutShortByTheCallerIsNotRemembered(t *testing.T) {
 				}
 				return nil
 			}
-			require.ErrorIs(t, receive(t, pullInBackground(ctx, tc.opts.WithDocker(m))), tc.want, "the caller stops waiting")
+			require.ErrorIs(t, receive(t, pullInBackground(ctx, tc.opts.WithDocker(m).WithImage(noMirrorImage))), tc.want, "the caller stops waiting")
 			// The pull it left ends on its own goroutine, just after its wait.
 			<-ended
 			time.Sleep(50 * time.Millisecond)
 			limited = false
 
-			assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m)),
+			assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage)),
 				"a pull cut short is not remembered, so the next pull asks the registry")
 		})
 	}

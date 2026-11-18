@@ -30,6 +30,11 @@ type sharedPull struct {
 	timeout  time.Duration // that pull timeout
 	waiters  int           // guarded by pulls
 	last     error         // the latest attempt's failure, guarded by pulls
+	// limited is the rate limit's refusal that sent the pull to mirror,
+	// guarded by pulls. A caller that leaves while the mirror is pulled is
+	// told of it, not only of the mirror's latest failure.
+	limited error
+	route   route
 	// pause waits between attempts. It is read once, when the pull starts,
 	// so a test that replaces pullWait cannot race a pull still running.
 	pause func(ctx context.Context, d time.Duration) error
@@ -121,7 +126,7 @@ func endedPull(err error) *sharedPull {
 // context, so the caller can leave without failing others waiting on it.
 func startPull(ctx context.Context, docker dockerclient.Client, key pullKey, timeout time.Duration, r route) *sharedPull {
 	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
-	p := &sharedPull{cancel: cancel, done: make(chan struct{}), timeout: timeout, pause: pullWait}
+	p := &sharedPull{cancel: cancel, done: make(chan struct{}), timeout: timeout, pause: pullWait, route: r, limited: r.limited}
 	go func() {
 		defer cancel()
 		p.ref, p.err = p.fetch(bounded, docker, r)
@@ -221,12 +226,27 @@ func (p *sharedPull) wait(ctx context.Context, timeout time.Duration) (string, e
 	}
 }
 
-// lastFailure returns the latest attempt's failure, or nil, so a caller that
-// leaves during a wait still learns why the pull failed.
+// lastFailure returns why the pull has not succeeded so far, or nil, so a
+// caller that leaves during a wait still learns why it failed: the latest
+// attempt's failure, and the rate limit's refusal that sent it to a mirror.
 func (p *sharedPull) lastFailure() error {
 	pulls.Lock()
 	defer pulls.Unlock()
-	return p.last
+	switch {
+	case p.limited == nil, p.last == p.limited:
+		return p.last
+	case p.last == nil:
+		return p.limited
+	default:
+		return &MirrorError{Image: p.route.key.image, Mirror: p.route.mirror, Limited: p.limited, Mirrored: p.last}
+	}
+}
+
+// setLimited records the refusal that sent the pull to its mirror.
+func (p *sharedPull) setLimited(err error) {
+	pulls.Lock()
+	defer pulls.Unlock()
+	p.limited = err
 }
 
 // withCause adds the last attempt's failure, if there was one, to the error
@@ -262,6 +282,7 @@ func (p *sharedPull) fetch(ctx context.Context, docker dockerclient.Client, r ro
 		// Remembered at once, so a pull that starts while this one is at
 		// the mirror goes there too.
 		remember(r.key, err)
+		p.setLimited(err)
 		limited = err
 	}
 	// An earlier pull may have left the mirror's copy on the daemon.
