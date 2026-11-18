@@ -70,9 +70,8 @@ func WithLogger(l dockerclient.Logger) Option {
 	}
 }
 
-// New creates a Client. When WithHost is not given the underlying moby
-// client uses its own default (the platform's local socket); use FromEnv to
-// discover the daemon the way the docker CLI does instead.
+// New creates a Client. Without WithHost or WithMobyClient it finds the
+// daemon as FromEnv does, so New() and FromEnv() reach the same daemon.
 func New(opts ...Option) (*Client, error) {
 	cfg := &clientConfig{logger: dockerclient.NopLogger()}
 	for _, opt := range opts {
@@ -86,9 +85,9 @@ func New(opts ...Option) (*Client, error) {
 	if cfg.mobyClient != nil {
 		return &Client{cli: cfg.mobyClient, host: cfg.mobyClient.DaemonHost(), logger: cfg.logger}, nil
 	}
-	var mopts []client.Opt
-	if cfg.host != "" {
-		mopts = append(mopts, client.WithHost(cfg.host))
+	mopts, err := hostOptions(cfg.host)
+	if err != nil {
+		return nil, err
 	}
 	mopts = append(mopts, client.WithResponseHook(loggingHook(cfg.logger)))
 	cli, err := client.New(mopts...)
@@ -98,17 +97,32 @@ func New(opts ...Option) (*Client, error) {
 	return &Client{cli: cli, host: cli.DaemonHost(), logger: cfg.logger}, nil
 }
 
-// FromEnv locates the daemon exactly as the docker CLI and moby client do:
-// DOCKER_HOST, DOCKER_API_VERSION, and DOCKER_CERT_PATH/DOCKER_TLS_VERIFY
-// for TLS. It is New with the moby client's own FromEnv option; use New with
-// WithLogger for request logging.
-func FromEnv() (*Client, error) {
-	cli, err := client.New(client.FromEnv)
-	if err != nil {
-		return nil, wrapConstructError("", err)
+// hostOptions returns the moby options that pick the daemon: the host
+// given, or else the one dockerclient.ResolveHost finds, with TLS and the
+// API version from the environment as the docker CLI reads them.
+func hostOptions(host string) ([]client.Opt, error) {
+	if host != "" {
+		return []client.Opt{client.WithHost(host)}, nil
 	}
-	return &Client{cli: cli, host: cli.DaemonHost(), logger: dockerclient.NopLogger()}, nil
+	found, err := dockerclient.ResolveHost()
+	if err != nil {
+		return nil, err
+	}
+	// The TLS option replaces the HTTP client, so it comes before WithHost,
+	// which sets up that client's transport for the address.
+	opts := []client.Opt{client.WithTLSClientConfigFromEnv()}
+	if found != "" { // "" on Windows: moby's default named pipe
+		opts = append(opts, client.WithHost(found))
+	}
+	return append(opts, client.WithAPIVersionFromEnv()), nil
 }
+
+// FromEnv finds the daemon the way the docker CLI does: DOCKER_HOST, then
+// the docker context, then the usual Docker and Podman sockets. See
+// dockerclient.ResolveHost. TLS and the API version come from
+// DOCKER_CERT_PATH, DOCKER_TLS_VERIFY and DOCKER_API_VERSION. It is New with
+// no options.
+func FromEnv() (*Client, error) { return New() }
 
 // loggingHook builds a client.ResponseHook that logs one Debug record per
 // request, in the same shape dockerapi's WithLogger produces, so a caller

@@ -18,10 +18,13 @@
 //
 // # Getting a client
 //
-// FromEnv locates the daemon the same way the docker CLI does: DOCKER_HOST,
-// then DOCKER_API_VERSION, DOCKER_CERT_PATH and DOCKER_TLS_VERIFY for TLS.
-// It is github.com/moby/moby/client's own FromEnv option, so behaviour
-// matches the moby-based docker CLI exactly:
+// FromEnv, like New with no options, finds the daemon the way
+// github.com/tophergopher/mongotest/dockerapi does, so both clients reach the
+// same daemon: DOCKER_HOST, then the docker context, then the usual Docker
+// and Podman sockets. DOCKER_API_VERSION, DOCKER_CERT_PATH and
+// DOCKER_TLS_VERIFY apply as the docker CLI reads them. The moby client's own
+// FromEnv reads only DOCKER_HOST; to keep exactly its behaviour, build that
+// client yourself and pass it with WithMobyClient:
 //
 //	c, err := mobyclient.FromEnv()
 //	if err != nil {

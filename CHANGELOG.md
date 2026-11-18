@@ -5,6 +5,19 @@ what to do if it affects you.
 
 ## Unreleased
 
+### mobyclient finds the daemon as dockerapi does
+
+- **`mobyclient.FromEnv()` and `mobyclient.New()` with no host** now find
+  the daemon the way `dockerapi` does: `DOCKER_HOST`, then the docker
+  context, then the usual Docker and Podman sockets. Before, `FromEnv`
+  read only `DOCKER_HOST`, and `New()` read nothing and used the platform
+  default.
+- **If you set `DOCKER_HOST` and relied on `New()` ignoring it,** pass
+  `WithHost` with the address you want. To keep exactly the moby client's
+  own discovery, build that client and pass it with `WithMobyClient`.
+- **`dockerclient.ResolveHost`** is the shared discovery, for anyone
+  writing a client of their own.
+
 ### mongotest needs Go 1.26 or newer
 
 - **Every module declares `go 1.26`,** the oldest release the Go team still

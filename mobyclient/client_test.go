@@ -35,12 +35,6 @@ func TestNewRequiresValidHost(t *testing.T) {
 	assert.Equal(t, "bogus", ia.Value, "the rejected value must be reported back")
 }
 
-func TestNewWithoutHostUsesMobyDefault(t *testing.T) {
-	c, err := New()
-	require.NoError(t, err, "New with no options must construct against the moby client's own default host")
-	assert.Equal(t, mobydocker.DefaultDockerHost, c.Host(), "with no WithHost, mobyclient must use the moby client's platform default, not perform its own discovery")
-}
-
 func TestWithHostOverridesDefault(t *testing.T) {
 	c, err := New(WithHost("tcp://build-host:2376"))
 	require.NoError(t, err, "a well-formed tcp host must construct")

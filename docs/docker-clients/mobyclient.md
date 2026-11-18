@@ -22,7 +22,7 @@ go get github.com/tophergopher/mongotest/mobyclient
 ## Getting a client
 
 ```go
-c, err := mobyclient.FromEnv()          // discover the daemon like the docker CLI
+c, err := mobyclient.FromEnv()          // find the daemon as dockerapi does; New() does the same
 c, err := mobyclient.New(               // or configure it explicitly
     mobyclient.WithHost("unix:///var/run/docker.sock"),
     mobyclient.WithLogger(slog.Default()),
@@ -32,6 +32,12 @@ c, err := mobyclient.New(               // or configure it explicitly
 | Option | Effect |
 | --- | --- |
 | `WithHost(h)` | Daemon address in `DOCKER_HOST` form. Skips discovery. |
+
+Without `WithHost` or `WithMobyClient`, the client finds the daemon exactly
+as `dockerapi` does: `DOCKER_HOST`, then the docker context, then the usual
+Docker and Podman sockets. The moby client's own `FromEnv` reads only
+`DOCKER_HOST`; to keep that behaviour, build the moby client yourself and
+pass it with `WithMobyClient`.
 | `WithMobyClient(cli)` | Wrap a `*client.Client` you already built, for options this package does not expose (custom `*tls.Config`, extra headers). `WithHost` and `WithLogger` are ignored when this is set, since that client is already configured. |
 | `WithLogger(l)` | One `Debug` record per request through the moby client's response hooks. |
 
@@ -63,5 +69,5 @@ classification, streaming, exec demultiplexing and validation.
 | | `dockerapi` | `mobyclient` |
 | --- | --- | --- |
 | Third-party modules linked | none | the official client and what it needs |
-| Features beyond the interface | version negotiation, runtime detection, socket probing | everything the official client offers, via `WithMobyClient` |
-| Pick it when | you want the smallest footprint, or you run against Podman | you already use the official client and want to share its configuration |
+| Features beyond the interface | version negotiation, runtime detection | everything the official client offers, via `WithMobyClient` |
+| Pick it when | you want the smallest footprint, or need to know whether Docker or Podman answered | you already use the official client and want to share its configuration |

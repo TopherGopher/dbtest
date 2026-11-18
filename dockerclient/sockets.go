@@ -1,4 +1,4 @@
-package dockerapi
+package dockerclient
 
 import (
 	"net"

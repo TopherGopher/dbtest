@@ -1,4 +1,4 @@
-package dockerapi
+package dockerclient
 
 import (
 	"path/filepath"
@@ -282,12 +282,26 @@ func TestWindowsFindsAPodmanMachineSocket(t *testing.T) {
 		assert.Equal(t, "tcp://"+dockerDesktopTCP, got, "docker is preferred over podman on windows too")
 	})
 
-	t.Run("with neither, the error mentions both", func(t *testing.T) {
+	t.Run("with neither, the client's own default applies", func(t *testing.T) {
 		l := lookup{goos: "windows", getenv: winEnv, dialable: noSockets(), glob: globbing,
 			listening: func(string) bool { return false }}
-		_, err := defaultHostForLookup(l)
-		require.ErrorIs(t, err, ErrConnectionFailed, "nothing reachable on windows is a connection problem")
-		assert.Contains(t, err.Error(), "DOCKER_HOST", "the error must name the variable to set")
-		assert.Contains(t, err.Error(), "podman", "the error must mention podman now that it is also looked for")
+		got, err := defaultHostForLookup(l)
+		require.NoError(t, err, "finding nothing on windows is not an error here: some clients can open the named pipe")
+		assert.Empty(t, got, "no address is chosen, so each client uses its own default")
 	})
+}
+
+// Discovery runs once per client built with FromEnv, and it dials up to five
+// sockets before giving up, so its cost is worth watching.
+func BenchmarkSocketCandidates(b *testing.B) {
+	l := lookup{goos: "linux", getenv: func(k string) string {
+		if k == "XDG_RUNTIME_DIR" {
+			return "/run/user/1000"
+		}
+		return ""
+	}, uid: 1000}
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = socketCandidates(l)
+	}
 }
