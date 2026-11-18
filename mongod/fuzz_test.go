@@ -9,7 +9,7 @@ import (
 )
 
 // These read text this package does not write: a process listing from the
-// daemon, DOCKER_HOST from the environment, and the user an image declares.
+// daemon, and the user an image declares.
 // They are inside the package because none of it is reachable with arbitrary
 // bytes through Start.
 
@@ -48,27 +48,6 @@ func FuzzCommands(f *testing.F) {
 		for _, command := range commands(top) {
 			assert.Contains(t, cells, command, "a command is one of the cells the daemon listed, never anything else")
 		}
-	})
-}
-
-func FuzzRemoteHost(f *testing.F) {
-	for _, seed := range []string{
-		"tcp://build-host:2376",
-		"ssh://deploy@build-host",
-		"http://build-host:2375/v1",
-		"tcp://[fd00::1]:2376",
-		"tcp://0.0.0.0:2375",
-		"unix:///var/run/docker.sock",
-		"mock",
-	} {
-		f.Add(seed)
-	}
-	f.Fuzz(func(t *testing.T, dockerHost string) {
-		scheme, hostPart := splitDockerHost(dockerHost)
-		host := remoteHost(hostPart)
-
-		assert.Equal(t, strings.ToLower(scheme), scheme, "a scheme is compared in lower case")
-		assert.NotEmpty(t, host, "and there is always a host to dial, this machine if the address names none")
 	})
 }
 

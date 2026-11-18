@@ -1,14 +1,78 @@
-package mongod
+// Package hostaddr works out the address a container's published port can be
+// reached at from this process, and which interface to publish it on. It
+// knows nothing about the image the container runs.
+package hostaddr
 
 import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/tophergopher/mongotest/dockerclient"
 )
+
+// EnvHostIP is the address containers are reachable at, when set. It takes
+// precedence over the address worked out from the daemon and the network.
+const EnvHostIP = "MONGOTEST_HOST_IP"
+
+// The two addresses a port is published on.
+const (
+	// Loopback is reachable only from the daemon's own host.
+	Loopback = "127.0.0.1"
+	// AllInterfaces is reachable from anywhere that can reach that host.
+	AllInterfaces = "0.0.0.0"
+)
+
+// ErrUnresolved: the address to reach the container on could not be worked
+// out. Set WithHostIP.
+var ErrUnresolved = errors.New("cannot work out the address to reach the container on")
+
+// UnresolvedError reports that this process is in a container and the
+// address of the daemon's host could not be found from inside it. It matches
+// ErrUnresolved and dockerclient.ErrInvalidArgument.
+type UnresolvedError struct {
+	DockerHost string // the daemon address the client reported
+	Evidence   string // what showed this process is in a container
+	Err        error
+}
+
+func (e *UnresolvedError) Error() string {
+	return fmt.Sprintf("cannot work out where containers started through %s are reachable from here: "+
+		"this process looks containerised (%s), and the gateway lookup failed: %v. Set %s, or pass WithHostIP, to the address of the daemon's host",
+		e.DockerHost, e.Evidence, e.Err, EnvHostIP)
+}
+
+func (e *UnresolvedError) Unwrap() error { return e.Err }
+
+func (e *UnresolvedError) Is(target error) bool {
+	return target == ErrUnresolved || target == dockerclient.ErrInvalidArgument
+}
+
+// Address is where a published port can be reached, and what decided it.
+// The source is kept for the error a readiness timeout returns: a wrong
+// address looks just like a container that never came up.
+type Address struct {
+	Host string
+	// Source reads naturally after "the address came from".
+	Source string
+}
+
+// Resolve returns where a port published by the daemon at dockerHost can be
+// reached from this process: override if it is set, then EnvHostIP, then
+// wherever the daemon is. The host is ready to dial; see DialHost.
+func Resolve(dockerHost, override string) (Address, error) {
+	address, err := newResolver(dockerHost, override).resolve()
+	if err != nil {
+		return Address{}, err
+	}
+	address.Host = DialHost(address.Host)
+	return address, nil
+}
 
 // errNoDefaultRoute reports a routing table with no default gateway, as a
 // container on an internal-only network has.
@@ -92,12 +156,12 @@ type hostResolver struct {
 	bridge func() (string, bool)
 }
 
-// hostResolver returns the address resolution for these settings and the
-// daemon address the client reported.
-func (c config) hostResolver(dockerHost string) hostResolver {
+// newResolver returns the resolver for a daemon address and an override,
+// using this machine's own lookups.
+func newResolver(dockerHost, override string) hostResolver {
 	return hostResolver{
 		dockerHost: dockerHost,
-		override:   c.hostIP,
+		override:   override,
 		getenv:     os.Getenv,
 		detect:     detectContainerisation,
 		gateway:    realGateway,
@@ -105,29 +169,20 @@ func (c config) hostResolver(dockerHost string) hostResolver {
 	}
 }
 
-// hostAddress is a resolved address and what decided it. The source is kept
-// for the error a readiness timeout returns: a wrong address looks just like
-// a container that never came up.
-type hostAddress struct {
-	Host string
-	// Source reads naturally after "the address came from".
-	Source string
-}
-
 // resolve returns the host to dial: the option, then the environment
 // variable, then wherever the daemon is.
-func (r hostResolver) resolve() (hostAddress, error) {
+func (r hostResolver) resolve() (Address, error) {
 	if r.override != "" {
-		return hostAddress{Host: r.override, Source: "WithHostIP"}, nil
+		return Address{Host: r.override, Source: "WithHostIP"}, nil
 	}
 	if fromEnv := r.getenv(EnvHostIP); fromEnv != "" {
-		return hostAddress{Host: fromEnv, Source: EnvHostIP}, nil
+		return Address{Host: fromEnv, Source: EnvHostIP}, nil
 	}
 	scheme, hostPart := splitDockerHost(r.dockerHost)
 	switch scheme {
 	case "tcp", "http", "https", "ssh":
 		// A port is published on the machine the daemon runs on.
-		return hostAddress{Host: remoteHost(hostPart), Source: "the daemon address " + r.dockerHost}, nil
+		return Address{Host: remoteHost(hostPart), Source: "the daemon address " + r.dockerHost}, nil
 	default:
 		// A unix socket or named pipe, or a test double: the daemon is local.
 		return r.localHost()
@@ -136,28 +191,28 @@ func (r hostResolver) resolve() (hostAddress, error) {
 
 // localHost answers for a daemon on this machine. Loopback is right unless
 // this process is in a container with a network of its own.
-func (r hostResolver) localHost() (hostAddress, error) {
+func (r hostResolver) localHost() (Address, error) {
 	inContainer := r.detect()
 	if !inContainer.containerised {
-		return hostAddress{
-			Host:   loopback,
+		return Address{
+			Host:   Loopback,
 			Source: "loopback, because the daemon is on this machine and this process is not in a container",
 		}, nil
 	}
 	// A container on the host's network, as --network host gives, shares
 	// the namespace the port is published into.
 	if bridge, found := r.visibleBridge(); found {
-		return hostAddress{
-			Host:   loopback,
+		return Address{
+			Host:   Loopback,
 			Source: "loopback, because " + bridge + " is visible from here, so this process shares the daemon host's network namespace",
 		}, nil
 	}
 	// Otherwise the port is on the host outside, which is the gateway.
 	gateway, err := r.gateway()
 	if err != nil {
-		return hostAddress{}, &UnresolvedHostError{DockerHost: r.dockerHost, Evidence: inContainer.evidence, Err: err}
+		return Address{}, &UnresolvedError{DockerHost: r.dockerHost, Evidence: inContainer.evidence, Err: err}
 	}
-	return hostAddress{
+	return Address{
 		Host:   gateway,
 		Source: "the default route's gateway, because this process is in a network namespace of its own (" + inContainer.evidence + ")",
 	}, nil
@@ -239,7 +294,7 @@ func remoteHost(hostPart string) string {
 	hostPart, _, _ = strings.Cut(hostPart, "/")
 	host := stripPort(hostPart)
 	if host == "" || isWildcard(host) {
-		return loopback
+		return Loopback
 	}
 	return host
 }

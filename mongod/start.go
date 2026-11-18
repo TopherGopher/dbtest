@@ -8,6 +8,7 @@ import (
 
 	"github.com/tophergopher/mongotest/dockerapi"
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/hostaddr"
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
@@ -31,13 +32,13 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	}
 	// Worked out before anything is created, so failing to leaves no
 	// container behind.
-	address, err := cfg.hostResolver(docker.Host()).resolve()
+	address, err := hostaddr.Resolve(docker.Host(), cfg.hostIP)
 	if err != nil {
 		return nil, err
 	}
 	// The host decides which interface the port is published on, and so
 	// whether the container needs credentials.
-	host := dialHost(address.Host)
+	host := address.Host
 	cfg = cfg.withCredentialsIfExposed(host)
 	cfg.hostSource = address.Source
 	cfg.announceExposure(host)
@@ -102,9 +103,11 @@ func PullImage(ctx context.Context, opts Options) error {
 		return nil
 	}
 	cfg.logger.Info(pullingMessage, "image", image)
-	if err := pullShared(ctx, docker, image, cfg.pullTimeout, false); err != nil {
+	pulled, err := pullShared(ctx, docker, image, cfg.pullTimeout, false)
+	if err != nil {
 		return &StartError{Op: OpPullImage, Image: image, Err: err}
 	}
+	announceMirror(cfg.logger, image, pulled)
 	return nil
 }
 
@@ -158,7 +161,7 @@ func (c config) client() (dockerclient.Client, error) {
 // otherwise leave the container behind. See createOnce.
 func newContainer(host string, cfg config, docker dockerclient.Client, certs *certificates) *Container {
 	c := &Container{
-		name: cfg.name, image: cfg.image, replicaSet: cfg.replicaSet,
+		name: cfg.name, image: cfg.image, ref: cfg.image.Reference(), replicaSet: cfg.replicaSet,
 		username: cfg.username, password: cfg.password,
 		host: host, certs: certs, docker: docker, logger: cfg.logger,
 	}
@@ -200,9 +203,15 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 		return deadline, err
 	}
 	c.logger.Info(pullingMessage, "image", request.Image)
-	if err := pullShared(ctx, c.docker, request.Image, cfg.pullTimeout, true); err != nil {
+	pulled, err := pullShared(ctx, c.docker, request.Image, cfg.pullTimeout, true)
+	if err != nil {
 		return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: request.Image, Err: err}
 	}
+	// A mirror's copy keeps the mirror's name: it is not tagged with the
+	// name asked for, so the container is created from the mirror's.
+	announceMirror(c.logger, request.Image, pulled)
+	request.Image = pulled
+	c.ref = pulled
 	return c.createWithin(ctx, cfg, request)
 }
 
