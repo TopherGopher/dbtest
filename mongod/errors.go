@@ -20,7 +20,8 @@ var (
 	// ErrNoPublishedPort: the container port has no host port to connect to.
 	ErrNoPublishedPort = container.ErrNoPublishedPort
 	// ErrNotReady: mongod was not ready before the start timeout passed or
-	// the context ended. The error also matches the context's error.
+	// the context ended. An error that matches it also matches the
+	// context's error.
 	ErrNotReady = container.ErrNotReady
 	// ErrLoopbackOnly: when the wait ended, the only mongod running was
 	// listening on the container's own loopback, where no published port
@@ -185,10 +186,11 @@ const (
 	OpInitiate       = "initiate the replica set"
 )
 
-// StartError says which step of a start failed, and wraps the daemon's
-// error. Op is one of the seven Op constants, Name the container (empty for
-// a pull by PullImage), Image the image reference, and Err the cause. A
-// step the start timeout cut short comes inside a [NotReadyError].
+// StartError says which step of a start failed. Op is one of OpPullImage,
+// OpCreate, OpCopyKeyFile, OpTLSCertificate, OpStart, OpInspect and
+// OpInitiate. Name is the container, empty for a pull by PullImage. Image is
+// the image reference and Err the cause. If the start timeout cut a step
+// short, its StartError is the LastErr of a [NotReadyError].
 type StartError = container.StartError
 
 // pullTimeoutError is a pull the pull timeout cut short, with what a caller
@@ -218,11 +220,12 @@ type UnpublishedPortError = container.UnpublishedPortError
 
 // NotReadyError reports that mongod was not ready in time. It matches
 // ErrNotReady, the context error that ended the start, and the last failure
-// the start saw. Read Name, ID, Host and Port for where it waited (ID and
-// Port are empty if time ran out first), HostSource for what chose the
-// host, Timeout, ContextEnded for whether the caller's context ended the
-// wait rather than the start timeout, Cause for the context's error, and
-// LastErr for the last failure, such as a [StartError] of a step cut short.
+// the start saw. Name, ID, Host and Port say where it waited. ID is empty
+// and Port zero if time ran out before the container was created or its
+// port published. HostSource says what chose Host, such as WithHostIP.
+// ContextEnded is true if the caller's context, not the start timeout,
+// ended the wait. Cause is the context's error. LastErr is the last
+// failure, such as the [StartError] of a step cut short.
 type NotReadyError = container.NotReadyError
 
 // notReadyAdvice says what to do when the start timeout passed, given the
@@ -302,7 +305,8 @@ func (e *AuthNotEnforcedError) Error() string {
 func (e *AuthNotEnforcedError) Is(target error) bool { return target == ErrAuthNotEnforced }
 
 // ContainerExitedError reports that the container stopped, or was removed,
-// before mongod was ready. It matches ErrContainerExited. Status is "exited",
+// before mongod was ready. It matches ErrContainerExited. Name and ID say
+// which container. Status is "exited",
 // "dead" or "removed". ExitCode is set only when HasExitCode is true, which
 // is when Status is not "removed". Output is the end of what the container
 // wrote, at most 8 KiB, and usually says why mongod stopped. Err is what

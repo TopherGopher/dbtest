@@ -14,8 +14,8 @@ var (
 	// ErrNoPublishedPort: the container port has no host port to connect to.
 	ErrNoPublishedPort = errors.New("container port is not published on the host")
 	// ErrNotReady: the container was not ready before the start timeout
-	// passed or the context ended. The error also matches the context's
-	// error.
+	// passed or the context ended. An error that matches it also matches
+	// the context's error.
 	ErrNotReady = errors.New("the container did not become ready in time")
 )
 
@@ -27,9 +27,10 @@ const (
 	OpInspect   = "inspect the container"
 )
 
-// StartError says which step of a start failed. It wraps the daemon's error.
-// A step the start timeout cut short comes inside a NotReadyError. Image
-// packages re-export it, so its fields and message are public API.
+// StartError says which step of a start failed, and wraps its cause. If the
+// start timeout cut a step short, its StartError is the LastErr of a
+// NotReadyError. Image packages re-export it, so its fields and message are
+// public API.
 type StartError struct {
 	Op    string // the step that failed, such as OpCreate
 	Name  string // the container name, or "" for a pull outside a start
@@ -39,7 +40,7 @@ type StartError struct {
 
 func (e *StartError) Error() string {
 	if e.Name == "" {
-		return fmt.Sprintf("cannot %s (image %s): %v", e.Op, e.Image, e.Err)
+		return fmt.Sprintf("cannot %s (%s): %v", e.Op, e.Image, e.Err)
 	}
 	return fmt.Sprintf("cannot %s (container %s, image %s): %v", e.Op, e.Name, e.Image, e.Err)
 }
@@ -55,7 +56,8 @@ type UnpublishedPortError struct {
 }
 
 func (e *UnpublishedPortError) Error() string {
-	return fmt.Sprintf("container %s (%s) has no host port for %s: the daemon did not publish it",
+	return fmt.Sprintf("container %s (%s) has no host port for %s: the daemon did not publish it. "+
+		"Check that the daemon allows publishing ports, as a rootless or locked-down daemon may not",
 		e.Name, ShortID(e.ID), e.Port)
 }
 
@@ -103,7 +105,7 @@ func (e *NotReadyError) where() string {
 func (e *NotReadyError) Error() string {
 	where := e.where()
 	if e.ContextEnded {
-		return fmt.Sprintf("the context passed to the start ended before %s was ready: %v%s. If it has a deadline, make it later",
+		return fmt.Sprintf("the caller's context ended before %s was ready: %v%s. If that context has a deadline, make it later",
 			where, e.Cause, e.lastFailure())
 	}
 	msg := fmt.Sprintf("%s was not ready within %s%s", where, e.Timeout, e.lastFailure())
@@ -113,7 +115,7 @@ func (e *NotReadyError) Error() string {
 	return msg + ". " + e.advice
 }
 
-// lastFailure is what the last attempt found, ready to follow a message.
+// lastFailure returns ": " and the last failure, or "" if there was none.
 func (e *NotReadyError) lastFailure() string {
 	if e.LastErr == nil {
 		return ""

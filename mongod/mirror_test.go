@@ -284,3 +284,27 @@ func TestATimeoutDuringTheMirrorPullStillNamesTheRateLimit(t *testing.T) {
 	require.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m)), "once the mirror recovers, the pull works")
 	assert.Equal(t, 1, countOf(pulled(m), defaultImage), "without asking Docker Hub again while its refusal is remembered")
 }
+
+// A step after the pull reports the image the container runs, which is the
+// mirror's copy after a rate-limited pull.
+func TestAStepAfterAMirrorPullNamesTheMirrorsImage(t *testing.T) {
+	mongod.SetPullWait(t, noWait)
+	m, _ := readyMock(t)
+	t.Cleanup(mongod.ForgetSpentLimits)
+	m.HostFunc = t.Name
+	create := m.ContainerCreateFunc
+	m.ContainerCreateFunc = func(ctx context.Context, name string, cfg dockerclient.ContainerConfig) (string, []string, error) {
+		if strings.HasPrefix(cfg.Image, "docker.io/") {
+			return "", nil, dockerclient.ErrNotFound // only the mirror's copy is on the daemon
+		}
+		return create(ctx, name, cfg)
+	}
+	rateLimitedOnDockerHub(m, nil)
+	shell(m, dockerclient.ExecResult{ExitCode: 1, Stderr: "MongoServerError: not authorized"}, nil)
+
+	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
+
+	var failed *mongod.StartError
+	require.ErrorAs(t, err, &failed, "the initiation fails")
+	assert.Equal(t, "public.ecr.aws/docker/library/mongo:8.0", failed.Image, "and names the image the container runs")
+}

@@ -47,8 +47,8 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 		return nil, err
 	}
 	c := newContainer(host, cfg, docker, certs)
-	ref, port, err := c.ctr.Start(ctx, c.spec(cfg))
-	c.ref, c.port = ref, port
+	port, err := c.ctr.Start(ctx, c.spec(cfg))
+	c.port = port
 	if err != nil {
 		return nil, err
 	}
@@ -166,9 +166,7 @@ func (c *Container) startError(op string, err error) error {
 	return &StartError{Op: op, Name: c.Name(), Image: c.Image(), Err: err}
 }
 
-// spec is what the generic start needs from this package: the request, the
-// mirror-aware pull, the files copied in before mongod starts, the check
-// that mongod is ready, and the replica set's initiation.
+// spec fills in the generic start for mongod.
 func (c *Container) spec(cfg config) container.Spec {
 	return container.Spec{
 		Request: cfg.containerConfig(c.host), Port: mongoPort,
@@ -184,7 +182,8 @@ func (c *Container) spec(cfg config) container.Spec {
 
 // pullFor pulls an image the daemon does not have, from a mirror if Docker
 // Hub's rate limit refuses it. A mirror's copy keeps the mirror's name, so
-// the container is created from that.
+// it returns the mirror's reference, and records it as the image the
+// container runs, for every later step and error.
 func (c *Container) pullFor(cfg config) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, image string) (string, error) {
 		c.logger.Info(pullingMessage, "image", image)
@@ -193,13 +192,14 @@ func (c *Container) pullFor(cfg config) func(context.Context, string) (string, e
 			return "", &StartError{Op: OpPullImage, Name: c.Name(), Image: image, Err: err}
 		}
 		announceMirror(c.logger, image, pulled)
+		c.ref = pulled
 		return pulled, nil
 	}
 }
 
-// beforeStart copies in what mongod needs before it starts: the key file a
-// replica set member that authenticates will not start without, and the
-// TLS certificate.
+// beforeStart copies in the files mongod needs at start: the key file, which
+// a replica set with credentials requires, and the TLS certificate if there
+// is one.
 func (c *Container) beforeStart(cfg config) func(context.Context, string, string) error {
 	return func(ctx context.Context, id, ref string) error {
 		if cfg.needsKeyFile() {
@@ -218,7 +218,7 @@ func (c *Container) beforeStart(cfg config) func(context.Context, string, string
 }
 
 // ready asks mongod, through the published port, whether it is serving and
-// enforces any credentials the container was created with.
+// whether it enforces the credentials the container was created with.
 func (c *Container) ready(cfg config) func(context.Context, int) error {
 	return func(ctx context.Context, port int) error {
 		probe := readyProbe{
@@ -226,18 +226,13 @@ func (c *Container) ready(cfg config) func(context.Context, int) error {
 			requireAuth: cfg.username != "",
 			tlsConfig:   c.probeTLSConfig(),
 		}
-		if err := probe.ask(ctx); err != nil {
-			return err
-		}
-		c.logger.Debug("mongod answered a command at the address tests will connect to.",
-			"container", c.Name(), "address", addr(c.host, port))
-		return nil
+		return probe.ask(ctx)
 	}
 }
 
-// afterReady initiates the replica set, if there is one. Out of time, it
-// reports that the set had no primary yet: that says nothing about whether
-// the image can initiate a set at all.
+// afterReady initiates the replica set, if there is one. If the start
+// timeout ends first, it returns errNoPrimary, not the initiation's error,
+// which would wrongly suggest the image cannot initiate a set.
 func (c *Container) afterReady(cfg config) func(context.Context) error {
 	if cfg.replicaSet == "" {
 		return nil

@@ -55,18 +55,16 @@ what to do if it affects you.
 ### Start errors no longer begin with `mongod:`
 
 - **`StartError`, `NotReadyError` and `UnpublishedPortError`** no longer
-  begin with `mongod:`, and `NotReadyError` says "the context passed to the
-  start" rather than "to Start". `ErrNotReady`'s own text is now "the
-  container did not become ready in time". The types, their fields, the
-  `Op` constants and the sentinels are unchanged, so `errors.Is` and
-  `errors.As` match as before; match with them, not the text.
-- **`%T` prints these types as `*container.StartError`,
-  `*container.NotReadyError` and `*container.UnpublishedPortError`.**
+  begin with `mongod:`. `NotReadyError` says "the caller's context" rather
+  than "the context passed to Start". `ErrNotReady`'s own text is now "the
+  container did not become ready in time". Errors about options still begin
+  with `mongod:`.
+- The types, their fields, the `Op` constants and the sentinels are
+  unchanged, so `errors.Is` and `errors.As` match as before; match with
+  them, not the text. `%T` prints the types as `*container.StartError`,
+  `*container.NotReadyError` and `*container.UnpublishedPortError`.
 - **A start that ends with mongod still not enforcing its credentials** no
-  longer advises a longer start timeout.
-- **The wait for an image's Docker health check now inspects the container
-  after every failed check,** to notice one that has exited, where before it
-  did so only when nothing answered.
+  longer advises a longer start timeout; the error says what to do instead.
 
 ### `mongod.ContainerExitedError`'s message no longer begins with `mongod:`
 
