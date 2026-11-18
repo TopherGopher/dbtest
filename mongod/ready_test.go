@@ -55,7 +55,7 @@ func TestTheErrorReportsWhatTheLastCompletedPollFound(t *testing.T) {
 		assert.NotErrorIs(t, err, mongod.ErrHelloRefused, "so the earlier refusal is not reported")
 		var notReady *mongod.NotReadyError
 		require.ErrorAs(t, err, &notReady, "with the details")
-		assert.True(t, notReady.AddressInDoubt(), "nothing answering is what a wrong address looks like")
+		assert.True(t, mongod.AddressInDoubt(notReady), "nothing answering is what a wrong address looks like")
 	})
 }
 
@@ -159,7 +159,7 @@ func TestAnUnsettledCredentialsCheckIsNotReady(t *testing.T) {
 			assert.ErrorIs(t, err, mongod.ErrAuthUnknown, "the error says the credentials check was what never settled")
 			var notReady *mongod.NotReadyError
 			require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
-			assert.False(t, notReady.AddressInDoubt(), "mongod answered at that address, so advice to correct it would mislead")
+			assert.False(t, mongod.AddressInDoubt(notReady), "mongod answered at that address, so advice to correct it would mislead")
 			assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the container is removed")
 		})
 	}
@@ -292,7 +292,7 @@ func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 	assert.ErrorIs(t, err, mongod.ErrNotMongod, "and the error says that something else answered")
 	var notReady *mongod.NotReadyError
 	require.ErrorAs(t, err, &notReady, "with the details")
-	assert.True(t, notReady.AddressInDoubt(), "the address may be the wrong one, so the error says how to correct it")
+	assert.True(t, mongod.AddressInDoubt(notReady), "the address may be the wrong one, so the error says how to correct it")
 }
 
 func TestAPortThatAnswersWithGarbageIsNotReady(t *testing.T) {
@@ -321,7 +321,7 @@ func TestAMongodThatAnswersWithAnErrorIsNotReady(t *testing.T) {
 	assert.ErrorIs(t, err, mongod.ErrHelloRefused, "the server's own refusal reaches the caller")
 	var notReady *mongod.NotReadyError
 	require.ErrorAs(t, err, &notReady, "with the details")
-	assert.False(t, notReady.AddressInDoubt(), "a mongod answered, so the address is right and advice about it would mislead")
+	assert.False(t, mongod.AddressInDoubt(notReady), "a mongod answered, so the address is right and advice about it would mislead")
 }
 
 // A server from before the hello command says it does not know it, which
@@ -365,7 +365,7 @@ func TestAFailureToAskTheDaemonIsNotBlamedOnTheAddress(t *testing.T) {
 			assert.ErrorIs(t, err, refused, "the daemon's own error is kept")
 			var notReady *mongod.NotReadyError
 			require.ErrorAs(t, err, &notReady, "with the details")
-			assert.False(t, notReady.AddressInDoubt(), "the daemon failed, not the address, so advice about the address would mislead")
+			assert.False(t, mongod.AddressInDoubt(notReady), "the daemon failed, not the address, so advice about the address would mislead")
 		})
 	}
 }

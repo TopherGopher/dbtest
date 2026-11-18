@@ -10,9 +10,9 @@ import (
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
-// CleanupTimeout bounds a removal whose caller set no deadline, or whose
+// cleanupTimeout bounds a removal whose caller set no deadline, or whose
 // context has already ended.
-const CleanupTimeout = 30 * time.Second
+const cleanupTimeout = 30 * time.Second
 
 // Container is a container this module creates and removes. It knows
 // nothing about the image it runs.
@@ -71,27 +71,18 @@ func (c *Container) Name() string {
 	return c.name
 }
 
-// StopWanted reports whether Stop has been called, by the caller or by the
-// reaper. If it is true once Create has succeeded, Stop came while the daemon
-// was creating the container: that Stop removes it, and the start should give
-// up rather than use it.
-func (c *Container) StopWanted() bool { return c.stopWanted.Load() }
-
-// Create asks the daemon for the container and records its id. Stop waits
-// until Create returns: a removal sent before the daemon knows the container
+// create asks the daemon for the container and records its id. Stop waits
+// until create returns: a removal sent before the daemon knows the container
 // would find nothing, and leave it behind.
 //
-// Give ctx a deadline, because Stop waits for Create and Create waits for the
-// daemon. If Stop has already been called, Create creates nothing and returns
-// an *ExitedError with Status "removed".
-//
-// If Create fails, call Forget. If ctx ended first, the daemon may have
-// created the container all the same, so call RemoveUnconfirmed first.
-func (c *Container) Create(ctx context.Context, request dockerclient.ContainerConfig) error {
+// ctx needs a deadline, because Stop waits for create and create waits for
+// the daemon. If Stop has already been called, create creates nothing and
+// returns an *ExitedError with Status "removed".
+func (c *Container) create(ctx context.Context, request dockerclient.ContainerConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.stopped {
-		return &ExitedError{Name: c.name, Status: "removed"}
+		return c.removedError(nil)
 	}
 	id, warnings, err := c.docker.ContainerCreate(ctx, c.name, request)
 	if err != nil {
@@ -104,9 +95,9 @@ func (c *Container) Create(ctx context.Context, request dockerclient.ContainerCo
 	return nil
 }
 
-// Forget drops a container the daemon never created, so that nothing tries
+// forget drops a container the daemon never created, so that nothing tries
 // to remove it.
-func (c *Container) Forget() {
+func (c *Container) forget() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.stopped = true
@@ -118,7 +109,7 @@ func (c *Container) Forget() {
 // gone counts as removed. If the daemon refuses, or ctx ends while Stop is
 // waiting, Stop returns the error and can be called again.
 //
-// If ctx has already ended, Stop still tries for up to CleanupTimeout, so a
+// If ctx has already ended, Stop still tries for up to cleanupTimeout, so a
 // test's cleanup can pass the test's context.
 func (c *Container) Stop(ctx context.Context) error {
 	ctx, cancel := removalContext(ctx)
@@ -133,7 +124,7 @@ func removalContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx.Err() == nil {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(context.WithoutCancel(ctx), CleanupTimeout)
+	return context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 }
 
 // stop is Stop without the extra time for an ended context. The reaper uses
@@ -165,14 +156,6 @@ func (c *Container) remove(ctx context.Context) error {
 	return c.removeRef(ctx, c.id)
 }
 
-// RemoveUnconfirmed removes the container by its name, for when Create was
-// cut short: the daemon may have created it all the same, and its id never
-// arrived. Use it only for a name this module generated, since a name the
-// caller chose may belong to someone else's container.
-func (c *Container) RemoveUnconfirmed(ctx context.Context) error {
-	return c.removeRef(ctx, c.name)
-}
-
 // removeRef has the daemon remove a container, named by its id or its name,
 // and its anonymous volumes. A container the daemon does not have counts as
 // removed.
@@ -193,7 +176,7 @@ func withRemovalDeadline(ctx context.Context) (context.Context, context.CancelFu
 	if _, bounded := ctx.Deadline(); bounded {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, CleanupTimeout)
+	return context.WithTimeout(ctx, cleanupTimeout)
 }
 
 // lockPoll is how often lockContext tries again.
@@ -211,4 +194,17 @@ func lockContext(ctx context.Context, mu *sync.Mutex) error {
 		}
 	}
 	return nil
+}
+
+// removeAfterFailedStart removes the container a failed start left behind.
+// The caller's context may be what failed, so the removal gets its own
+// deadline instead.
+func (c *Container) removeAfterFailedStart(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	defer cancel()
+	if err := c.Stop(ctx); err != nil {
+		c.logger.Error("A container failed to start and then could not be removed, so it may still be running. "+
+			"Remove it by hand: docker rm -fv "+c.name,
+			"container", c.name, "error", err)
+	}
 }

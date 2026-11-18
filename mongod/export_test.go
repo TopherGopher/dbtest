@@ -18,7 +18,7 @@ var (
 )
 
 // AddressInDoubt reports whether the error advises correcting the address.
-func (e *NotReadyError) AddressInDoubt() bool { return e.addressInDoubt() }
+func AddressInDoubt(e *NotReadyError) bool { return addressInDoubt(e.LastErr) }
 
 // The pull hooks live with the pulls; see the internal/pull package.
 var (

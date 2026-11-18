@@ -225,7 +225,7 @@ func TestStartTimesOutWhenNothingAnswers(t *testing.T) {
 	assert.Equal(t, dead, notReady.Port, "including the port that was dialled")
 	assert.Equal(t, "WithHostIP", notReady.HostSource, "and what chose the address")
 	assert.ErrorIs(t, err, mongod.ErrNoReply, "nothing answered there")
-	assert.True(t, notReady.AddressInDoubt(), "so the address may be the wrong one, and the error says how to correct it")
+	assert.True(t, mongod.AddressInDoubt(notReady), "so the address may be the wrong one, and the error says how to correct it")
 	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the container is removed")
 }
 

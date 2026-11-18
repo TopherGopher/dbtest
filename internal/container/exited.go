@@ -79,20 +79,25 @@ func (e *ExitedError) Unwrap() error { return e.Err }
 
 func (e *ExitedError) Is(target error) bool { return target == ErrExited }
 
-// HasExited reports whether a container's process has ended for good.
-func HasExited(state dockerclient.ContainerState) bool {
+// hasExited reports whether a container's process has ended for good.
+func hasExited(state dockerclient.ContainerState) bool {
 	return state.Status == "exited" || state.Status == "dead"
 }
 
-// NewExitedError reports a container that exited before it was ready, with
+// exitedError reports a container that exited before it was ready, with
 // the end of what it wrote, which usually says why.
-func NewExitedError(ctx context.Context, docker dockerclient.Client, name, id string, state dockerclient.ContainerState, cause error) *ExitedError {
-	output, logErr := lastOutput(ctx, docker, id)
+func (c *Container) exitedError(ctx context.Context, state dockerclient.ContainerState, cause error) *ExitedError {
+	output, logErr := lastOutput(ctx, c.docker, c.id)
 	return &ExitedError{
-		Name: name, ID: id, Status: state.Status,
+		Name: c.name, ID: c.id, Status: state.Status,
 		ExitCode: state.ExitCode, HasExitCode: true,
 		Output: output, logErr: logErr, Err: cause,
 	}
+}
+
+// removedError reports a container that was removed before it was ready.
+func (c *Container) removedError(cause error) *ExitedError {
+	return &ExitedError{Name: c.name, ID: c.id, Status: "removed", Err: cause}
 }
 
 // ShortID abbreviates a container id for a message, as the docker CLI does.

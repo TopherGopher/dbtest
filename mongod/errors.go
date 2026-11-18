@@ -18,10 +18,10 @@ import (
 // details and say what to do.
 var (
 	// ErrNoPublishedPort: the container port has no host port to connect to.
-	ErrNoPublishedPort = errors.New("container port is not published on the host")
+	ErrNoPublishedPort = container.ErrNoPublishedPort
 	// ErrNotReady: mongod was not ready before the start timeout passed or
 	// the context ended. The error also matches the context's error.
-	ErrNotReady = errors.New("mongod did not become ready in time")
+	ErrNotReady = container.ErrNotReady
 	// ErrLoopbackOnly: when the wait ended, the only mongod running was
 	// listening on the container's own loopback, where no published port
 	// reaches.
@@ -176,32 +176,20 @@ func problemOf(cause error) string {
 
 // The steps of a start, as StartError.Op names them.
 const (
-	OpPullImage      = "pull the image"
-	OpCreate         = "create the container"
+	OpPullImage      = container.OpPullImage
+	OpCreate         = container.OpCreate
 	OpCopyKeyFile    = "copy the replica set key file into the container"
 	OpTLSCertificate = "put a TLS certificate in the container"
-	OpStart          = "start the container"
-	OpInspect        = "inspect the container"
+	OpStart          = container.OpStart
+	OpInspect        = container.OpInspect
 	OpInitiate       = "initiate the replica set"
 )
 
-// StartError says which step of a start failed. It wraps the daemon's error.
-// A step the start timeout cut short comes inside a [NotReadyError].
-type StartError struct {
-	Op    string // one of the Op constants
-	Name  string // the container name, or "" when PullImage reports a pull
-	Image string // the image reference
-	Err   error
-}
-
-func (e *StartError) Error() string {
-	if e.Name == "" {
-		return fmt.Sprintf("mongod: cannot %s (image %s): %v", e.Op, e.Image, e.Err)
-	}
-	return fmt.Sprintf("mongod: cannot %s (container %s, image %s): %v", e.Op, e.Name, e.Image, e.Err)
-}
-
-func (e *StartError) Unwrap() error { return e.Err }
+// StartError says which step of a start failed, and wraps the daemon's
+// error. Op is one of the seven Op constants, Name the container (empty for
+// a pull by PullImage), Image the image reference, and Err the cause. A
+// step the start timeout cut short comes inside a [NotReadyError].
+type StartError = container.StartError
 
 // pullTimeoutError is a pull the pull timeout cut short, with what a caller
 // of this package can do about it. It matches context.DeadlineExceeded and
@@ -223,96 +211,41 @@ func (e *pullTimeoutError) Error() string {
 
 func (e *pullTimeoutError) Unwrap() error { return e.err }
 
-// UnpublishedPortError names a container port with no host port. It matches
-// ErrNoPublishedPort.
-type UnpublishedPortError struct {
-	Port string // the container port, such as "27017/tcp"
-	Name string
-	ID   string
-}
-
-func (e *UnpublishedPortError) Error() string {
-	return fmt.Sprintf("mongod: container %s (%s) has no host port for %s: the daemon did not publish it",
-		e.Name, container.ShortID(e.ID), e.Port)
-}
-
-func (e *UnpublishedPortError) Is(target error) bool { return target == ErrNoPublishedPort }
+// UnpublishedPortError names a container port with no host port: Port, the
+// container port such as "27017/tcp", and the container's Name and ID. It
+// matches ErrNoPublishedPort.
+type UnpublishedPortError = container.UnpublishedPortError
 
 // NotReadyError reports that mongod was not ready in time. It matches
 // ErrNotReady, the context error that ended the start, and the last failure
-// the start saw.
-type NotReadyError struct {
-	Name string
-	// ID is empty, and Port zero, if the time ran out before the daemon
-	// had created the container or published its port.
-	ID string
-	// Host and Port are the address that was dialled. HostSource says what
-	// chose the host, since a wrong address looks just like a slow start.
-	Host       string
-	Port       int
-	HostSource string
-	Timeout    time.Duration
-	// ContextEnded says the context passed to Start ended the wait, not the
-	// start timeout, so a longer timeout would not have helped.
-	ContextEnded bool
-	// Cause is the context's error. LastErr is the last failed attempt to
-	// reach mongod, or the [StartError] of a step that was cut short, or nil.
-	Cause   error
-	LastErr error
-}
+// the start saw. Read Name, ID, Host and Port for where it waited (ID and
+// Port are empty if time ran out first), HostSource for what chose the
+// host, Timeout, ContextEnded for whether the caller's context ended the
+// wait rather than the start timeout, Cause for the context's error, and
+// LastErr for the last failure, such as a [StartError] of a step cut short.
+type NotReadyError = container.NotReadyError
 
-// where names the container, with as much of its id and address as the
-// start had learned.
-func (e *NotReadyError) where() string {
-	where := "container " + e.Name
-	if e.ID != "" {
-		where += " (" + container.ShortID(e.ID) + ")"
+// notReadyAdvice says what to do when the start timeout passed, given the
+// last failure the start saw.
+func (c config) notReadyAdvice(lastErr error) string {
+	switch {
+	case errors.Is(lastErr, ErrAuthNotEnforced):
+		return "" // the error from the credentials check says what to do
+	case !addressInDoubt(lastErr):
+		return "Allow longer with WithStartTimeout"
+	case c.hostSource != "":
+		return "The address came from " + c.hostSource +
+			". Allow longer with WithStartTimeout, or correct the address with WithHostIP or " + EnvHostIP
 	}
-	if e.Port != 0 {
-		where += " at " + addr(e.Host, e.Port)
-	}
-	return where
-}
-
-func (e *NotReadyError) Error() string {
-	where := e.where()
-	if e.ContextEnded {
-		return fmt.Sprintf("mongod: the context passed to Start ended before %s was ready: %v%s. If it has a deadline, make it later",
-			where, e.Cause, e.lastFailure())
-	}
-	msg := fmt.Sprintf("mongod: %s was not ready within %s%s", where, e.Timeout, e.lastFailure())
-	if !e.addressInDoubt() {
-		return msg + ". Allow longer with WithStartTimeout"
-	}
-	if e.HostSource != "" {
-		msg += ". The address came from " + e.HostSource
-	}
-	return msg + ". Allow longer with WithStartTimeout, or correct the address with WithHostIP or " + EnvHostIP
+	return "Allow longer with WithStartTimeout, or correct the address with WithHostIP or " + EnvHostIP
 }
 
 // addressInDoubt reports whether the last attempt failed in a way a wrong
 // address would explain: nothing answered there, or something that is not
 // mongod did. Advice about the address would mislead after any other failure.
-func (e *NotReadyError) addressInDoubt() bool {
-	return errors.Is(e.LastErr, errNoReply) || errors.Is(e.LastErr, errNotMongod)
+func addressInDoubt(lastErr error) bool {
+	return errors.Is(lastErr, errNoReply) || errors.Is(lastErr, errNotMongod)
 }
-
-// lastFailure is what the last attempt found, ready to follow a message.
-func (e *NotReadyError) lastFailure() string {
-	if e.LastErr == nil {
-		return ""
-	}
-	return fmt.Sprintf(": %v", e.LastErr)
-}
-
-func (e *NotReadyError) Unwrap() []error {
-	if e.LastErr == nil {
-		return []error{e.Cause}
-	}
-	return []error{e.Cause, e.LastErr}
-}
-
-func (e *NotReadyError) Is(target error) bool { return target == ErrNotReady }
 
 // UnresolvedHostError reports that this process is in a container and the
 // address of the daemon's host could not be found from inside it. Read
