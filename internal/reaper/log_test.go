@@ -41,13 +41,13 @@ func (l *recordingLogger) all() []record {
 	return append([]record(nil), l.records...)
 }
 
-// panickingLogger stands for a logger whose output has gone, as one built
-// on a finished test's t.Output() panics.
+// panickingLogger panics, as a logger that writes to t.Output() does after
+// its test has ended.
 type panickingLogger struct{}
 
 func (panickingLogger) Error(string, ...any) { panic("the test this logger wrote to has ended") }
 
-func TestASignalsReapLogsEachContainerItLeavesBehind(t *testing.T) {
+func TestEachContainerLeftAfterASignalIsLogged(t *testing.T) {
 	resetForTest(t)
 	refused := errors.New("the daemon refused")
 	failedLog, stuckLog, removedLog := &recordingLogger{}, &recordingLogger{}, &recordingLogger{}
@@ -64,13 +64,13 @@ func TestASignalsReapLogsEachContainerItLeavesBehind(t *testing.T) {
 
 	assert.NotZero(t, stderr.Len(), "stderr still gets the report, since a logger in a dying process may never be flushed")
 	failed := failedLog.all()
-	require.Len(t, failed, 1, "a container whose removal failed is logged once, to the logger of the start that made it")
-	assert.Equal(t, "mongotest-1a2b3c4d", failed[0].kv["container"], "naming the container")
-	assert.Equal(t, syscall.SIGTERM, failed[0].kv["signal"], "and the signal that stopped the process")
-	assert.ErrorIs(t, failed[0].kv["error"].(error), refused, "and why it was not removed")
+	require.Len(t, failed, 1, "a container whose removal failed is logged once, to the logger it was registered with")
+	assert.Equal(t, "mongotest-1a2b3c4d", failed[0].kv["container"], "the record names the container")
+	assert.Equal(t, syscall.SIGTERM, failed[0].kv["signal"], "the record names the signal that started the reap")
+	assert.ErrorIs(t, failed[0].kv["error"].(error), refused, "the record says why the container was not removed")
 	stuck := stuckLog.all()
 	require.Len(t, stuck, 1, "a container whose removal did not finish is logged too")
-	assert.Equal(t, "mongotest-5e6f7a8b", stuck[0].kv["container"], "naming the container")
+	assert.Equal(t, "mongotest-5e6f7a8b", stuck[0].kv["container"], "the record names the container")
 	assert.Empty(t, removedLog.all(), "a container that was removed is not reported")
 }
 
@@ -84,5 +84,5 @@ func TestALoggerThatPanicsDoesNotStopTheReport(t *testing.T) {
 	assert.NotPanics(t, func() { reapAndReport(context.Background(), syscall.SIGINT, &stderr) },
 		"the process still has to re-raise the signal and die of it")
 	assert.NotZero(t, stderr.Len(), "stderr gets the report")
-	assert.Len(t, other.all(), 1, "and the other container's logger still gets its record")
+	assert.Len(t, other.all(), 1, "the other container's logger still gets its record")
 }

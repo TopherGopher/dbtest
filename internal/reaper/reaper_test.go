@@ -116,7 +116,6 @@ func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
 			return ctx.Err()
 		}
 	}, nil)
-
 	for range others {
 		Register("fine", func(context.Context) error {
 			if removed.Add(1) == others {
@@ -124,7 +123,6 @@ func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
 			}
 			return nil
 		}, nil)
-
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -285,7 +283,6 @@ func TestRegisterIsSafeUnderConcurrentUse(t *testing.T) {
 				torn[name] = true
 				return nil
 			}, nil)
-
 			// Half of them stop normally, as a passing test would.
 			if i%2 == 0 {
 				Unregister(handle)
@@ -310,7 +307,8 @@ func TestReapUntilEmptyTearsDownWhatRegistersWhileItRuns(t *testing.T) {
 	resetForTest(t)
 	var late bool
 	Register("first", func(context.Context) error {
-
+		// What a parallel test does when a signal lands mid-start: its
+		// container comes into existence while the reap is already running.
 		Register("late", func(context.Context) error { late = true; return nil }, nil)
 		return nil
 	}, nil)
@@ -358,7 +356,6 @@ func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
 		<-release
 		return nil
 	}, nil)
-
 	// What a TestMain does at the end of a run.
 	go func() { _ = Reap(context.Background()) }()
 	<-started
@@ -408,7 +405,6 @@ func TestWhatIsLeftBehindIncludesARemovalAnotherReapHasNotFinished(t *testing.T)
 		<-release
 		return nil
 	}, nil)
-
 	go func() { _ = Reap(context.Background()) }()
 	<-started
 

@@ -25,7 +25,6 @@ func main() {
 		}
 		return os.WriteFile(marker, []byte("reaped\n"), 0o600)
 	}, nil)
-
 	fmt.Printf("ready %t\n", reaper.Installed())
 
 	// Getting past this means no signal arrived, which is a failure.

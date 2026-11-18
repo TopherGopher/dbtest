@@ -44,8 +44,8 @@ type entry struct {
 	log    Logger
 }
 
-// Logger receives the report of a container a signal's reap left behind.
-// dockerclient.Logger, and so *slog.Logger, satisfies it.
+// Logger is told about each container that could not be removed after a
+// signal. dockerclient.Logger, and so *slog.Logger, satisfies it.
 type Logger interface {
 	Error(msg string, keysAndValues ...any)
 }
@@ -71,8 +71,9 @@ var signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
 // importing this package alone changes nothing.
 //
 // name appears in the error if the teardown fails. The teardown's context may
-// be close to its deadline, so it should not retry at length. log, which may
-// be nil, also gets the report if a signal's reap leaves it behind.
+// be close to its deadline, so it should not retry at length. If a signal
+// arrives and this teardown fails or does not finish, log gets an Error
+// record about it. log may be nil.
 func Register(name string, tear func(context.Context) error, log Logger) Handle {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -346,9 +347,8 @@ func reapOnSignal(ch chan os.Signal) {
 }
 
 // reapAndReport reaps until nothing is left or ctx ends, and then reports
-// which containers it could not remove, if any: to w first, since a logger
-// in a dying process may never be flushed, and then to each container's own
-// logger.
+// each container it could not remove. It writes to w first, because a dying
+// process may not flush its logger, and then to each container's own logger.
 func reapAndReport(ctx context.Context, sig os.Signal, w io.Writer) {
 	left := reapLeavingBehind(ctx)
 	if len(left.names()) > 0 {
@@ -362,19 +362,19 @@ func reapAndReport(ctx context.Context, sig os.Signal, w io.Writer) {
 	}
 }
 
-// errUnfinished is why a container whose removal had not finished when the
-// time ran out was left behind.
-var errUnfinished = errors.New("the time ran out before its removal finished")
+// errUnfinished is the error given for a container whose removal did not
+// finish before ctx ended.
+var errUnfinished = errors.New("its removal did not finish in time")
 
-// logLeftBehind logs a container a signal's reap left behind. A logger that
-// panics, as one writing to a finished test's output does, is ignored: the
-// process still has to die of the signal.
+// logLeftBehind logs a container that could not be removed after a signal.
+// It recovers if the logger panics, as one that writes to a finished test
+// does, because the process must still re-raise the signal and die of it.
 func logLeftBehind(log Logger, name string, sig os.Signal, err error) {
 	if log == nil {
 		return
 	}
 	defer func() { _ = recover() }()
-	log.Error("The process was stopped by a signal before this container could be removed, so it may still be running. "+
+	log.Error("A container could not be removed after a signal, so it may still be running. "+
 		"Remove it by hand: docker rm -fv "+name, "container", name, "signal", sig, "error", err)
 }
 
