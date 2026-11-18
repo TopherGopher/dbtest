@@ -84,8 +84,9 @@ what to do if it affects you.
 - When `Start` and `PullImage` calls in one process need the same missing
   image, they share one pull. A pull that fails because a registry is
   briefly down, or because of its rate limit, is tried again for up to about
-  a minute. A rate limit that outlasts those attempts is remembered for five
-  minutes, and pulls of that image fail at once until then.
+  a minute. If the rate limit refuses every attempt, pulls of that image in
+  the process fail at once for the next five minutes, so later tests do not
+  wait again; the error still matches `dockerclient.ErrRateLimited`.
 - `dockerclient.ErrRateLimited` matches a pull that a registry refused
   because of its rate limit, from `dockerapi` or `mobyclient`. For the
   official image, the error suggests `mongod.ImagePublicECR`.

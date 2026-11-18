@@ -97,11 +97,8 @@ func TestAPullThatARetryCannotFixFailsAtOnce(t *testing.T) {
 	}
 }
 
-// Docker Hub counts its limit per address over hours, so waiting rarely
-// helps, and every later start in the run would wait as well.
-// A rate limit that outlasts every attempt is spent for a while. Remembering
-// it keeps a run of sequential tests from each waiting out the retries
-// against a quota that will not clear.
+// A rate limit that outlasts every attempt is remembered, so a run of tests
+// does not wait out the attempts again in each test.
 func TestASpentRateLimitIsRememberedForAWhile(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
 	mongod.SetRateLimitMemory(t, time.Hour)
@@ -134,11 +131,11 @@ func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
 		return nil
 	}
 	opts := mongod.DefaultOptions().WithDocker(m)
-	require.ErrorIs(t, mongod.PullImage(context.Background(), opts), dockerclient.ErrRateLimited, "the limit is spent")
+	require.ErrorIs(t, mongod.PullImage(context.Background(), opts), dockerclient.ErrRateLimited, "the first pull uses up its attempts on the limit")
 	limited = false
 	time.Sleep(10 * time.Millisecond)
 
-	assert.NoError(t, mongod.PullImage(context.Background(), opts), "once the memory of the limit has passed, the registry is asked again")
+	assert.NoError(t, mongod.PullImage(context.Background(), opts), "once the limit is forgotten, the next pull asks the registry")
 }
 
 func TestARateLimitCutShortByTheCallerIsNotRemembered(t *testing.T) {
@@ -159,7 +156,7 @@ func TestARateLimitCutShortByTheCallerIsNotRemembered(t *testing.T) {
 	limited = false
 
 	assert.NoError(t, mongod.PullImage(context.Background(), opts),
-		"the attempts did not run out, so nothing is known about the limit and the next pull asks the registry")
+		"a pull cut short is not remembered, so the next pull asks the registry")
 }
 
 func TestRetryingStopsWhenTheTimeRunsOut(t *testing.T) {
