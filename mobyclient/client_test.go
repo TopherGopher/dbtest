@@ -167,6 +167,30 @@ func TestMapErrorClassifiesDaemonErrors(t *testing.T) {
 			wantSent:   nil,
 			wantMsg:    "bad request",
 		},
+		{
+			name:       "resource exhausted is a rate limit at 429",
+			err:        fmt.Errorf("Error response from daemon: %w", cerrdefs.ErrResourceExhausted.WithMessage("too many requests")),
+			wantStatus: http.StatusTooManyRequests,
+			wantSent:   dockerclient.ErrRateLimited,
+			wantMsg:    "too many requests",
+		},
+		{
+			// Daemons report a registry's failure, a rate limit included, as
+			// a 500 whose message carries the registry's answer. Keep it a
+			// StatusError, as dockerapi does, so the rate limit can be
+			// recognised from its message.
+			name:       "internal keeps its 500",
+			err:        fmt.Errorf("Error response from daemon: %w", cerrdefs.ErrInternal.WithMessage("unexpected status from HEAD request: 429 Too Many Requests")),
+			wantStatus: http.StatusInternalServerError,
+			wantSent:   dockerclient.ErrRateLimited,
+			wantMsg:    "unexpected status from HEAD request: 429 Too Many Requests",
+		},
+		{
+			name:       "unavailable keeps its 503",
+			err:        fmt.Errorf("Error response from daemon: %w", cerrdefs.ErrUnavailable.WithMessage("not ready")),
+			wantStatus: http.StatusServiceUnavailable,
+			wantMsg:    "not ready",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

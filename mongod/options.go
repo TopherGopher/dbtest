@@ -209,7 +209,8 @@ func (o Options) WithStartTimeout(d time.Duration) Options {
 }
 
 // WithPullTimeout sets how long a pull of a missing image may take, by a
-// start or by PullImage. Zero means DefaultPullTimeout.
+// start or by PullImage. Zero means DefaultPullTimeout. A call that joins a
+// pull another call started waits no longer than that call's timeout.
 func (o Options) WithPullTimeout(d time.Duration) Options {
 	o.pullTimeout = d
 	return o

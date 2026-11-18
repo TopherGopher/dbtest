@@ -200,7 +200,12 @@ func TestIntegrationUnreachableDaemonMessage(t *testing.T) {
 func TestIntegrationParallelContainers(t *testing.T) {
 	c, ctx := liveClient(t)
 	img := integrationImage()
-	require.NoError(t, c.ImagePull(ctx, img), "pulling %s before the parallel runs", img)
+	// Check whether the daemon has the image first, as mongod.PullImage does:
+	// pulling an image it already has still counts against Docker Hub's rate
+	// limit.
+	if _, err := c.ImageInspect(ctx, img); err != nil {
+		require.NoError(t, c.ImagePull(ctx, img), "pulling %s before the parallel runs", img)
+	}
 
 	run := func(t testing.TB, tag string) {
 		t.Helper()

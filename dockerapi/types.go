@@ -70,6 +70,7 @@ var (
 	ErrDaemonResponse   = dockerclient.ErrDaemonResponse
 	ErrStream           = dockerclient.ErrStream
 	ErrPull             = dockerclient.ErrPull
+	ErrRateLimited      = dockerclient.ErrRateLimited
 	ErrExecUnfinished   = dockerclient.ErrExecUnfinished
 
 	// ErrNoCommand is returned by Exec and ExecCreate with no program.

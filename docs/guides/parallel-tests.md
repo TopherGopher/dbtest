@@ -93,6 +93,7 @@ func dbNameFor(t *testing.T) string {
 
 `go test ./...` runs packages concurrently, and each package's test binary
 starts its own containers. If the machine runs short of memory, lower `-p` or
-`-parallel` rather than sharing containers between packages. Call
-`mongod.PullImage` in `TestMain`, so parallel tests do not each find the image
-missing; see [Which image](../reference/mongod.md#which-image).
+`-parallel` rather than sharing containers between packages. Parallel tests
+in one package that need a missing image share one pull. Separate packages
+are separate processes, so each pulls a missing image on its own; see
+[Which image](../reference/mongod.md#which-image).

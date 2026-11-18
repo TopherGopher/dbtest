@@ -79,9 +79,20 @@ what to do if it affects you.
   then `c.URI()`.
 - `mongod.DefaultOptions()` chooses the image, a replica set, credentials and
   more; the package documentation lists them.
-- `mongod.PullImage` fetches the image before the tests need it, and leaves
-  an image the daemon already has alone. Call it once in `TestMain`, so tests
-  that start in parallel do not each find the image missing.
+- `mongod.PullImage` fetches the image before the tests need it, and does
+  nothing if the daemon already has it.
+- When `Start` and `PullImage` calls in one process need the same missing
+  image, they share one pull. A pull that fails because a registry is
+  briefly down, or because of its rate limit, is tried again for up to about
+  a minute. If the rate limit refuses every attempt, pulls of that image in
+  the process fail at once for the next five minutes, so later tests do not
+  wait again; the error still matches `dockerclient.ErrRateLimited`.
+- `dockerclient.ErrRateLimited` matches a pull that a registry refused
+  because of its rate limit, from `dockerapi` or `mobyclient`. For the
+  official image, the error suggests `mongod.ImagePublicECR`.
+- `mobyclient` reports a daemon's 429, 500 and 503 as a `StatusError` with
+  that code, as `dockerapi` does, so they no longer match
+  `ErrDaemonResponse`. Match `ErrRateLimited`, or read `StatusError.StatusCode`.
 - `Options.WithPullTimeout` bounds a pull of a missing image, ten minutes by
   default, separately from the wait for mongod.
 - When a container exits before mongod is ready, the error now ends with the

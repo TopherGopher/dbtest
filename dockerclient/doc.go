@@ -58,6 +58,8 @@
 //     body the client could not interpret.
 //   - ErrStream (StreamError), ErrPull (PullError): an exec output stream or
 //     a pull progress stream reported a problem.
+//   - ErrRateLimited (StatusError or PullError): a registry refused a pull
+//     because too many came from this address or account.
 //
 // # Conformance
 //

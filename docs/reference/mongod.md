@@ -110,10 +110,17 @@ through a mirror, name the image there:
 mongod.DefaultOptions().WithImage("mirror.corp.example/mongo")
 ```
 
-A start pulls an image the daemon does not have. `PullImage` does that ahead
-of time, for the image a start with the same options would run, and leaves
-alone an image the daemon already has. Call it once in `TestMain`, so that
-tests starting in parallel do not each find the image missing:
+A start pulls an image the daemon does not have. Calls to `Start` and
+`PullImage` in one process that need the same image share one pull. A pull
+that fails because a registry is briefly down, or because of its rate limit,
+is tried again for up to about a minute. If the rate limit refuses every
+attempt, pulls of that image in this process fail at once for the next five
+minutes, so later tests do not wait again. The error still matches
+`dockerclient.ErrRateLimited`.
+`PullImage` pulls ahead of time, for the image a start with
+the same options would run, and does nothing if the daemon already has it.
+Call it once in `TestMain`, so the download happens before any test starts
+and no test's own deadline has to allow for it:
 
 ```go
 func TestMain(m *testing.M) {
