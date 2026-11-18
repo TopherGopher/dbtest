@@ -23,7 +23,7 @@ func TestRegisteringWhileEverySignalIsIgnoredInstallsNothing(t *testing.T) {
 	}
 	signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 
-	Register("container", func(context.Context) error { return nil })
+	Register("container", func(context.Context) error { return nil }, nil)
 
 	assert.False(t, Installed(), "there is nothing to listen for, so no handler is claimed")
 	assert.True(t, signal.Ignored(syscall.SIGINT), "and the signal is still ignored")

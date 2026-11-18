@@ -38,9 +38,9 @@ func TestReapRunsEveryTeardown(t *testing.T) {
 			return nil
 		}
 	}
-	Register("first", tear("first"))
-	Register("second", tear("second"))
-	Register("third", tear("third"))
+	Register("first", tear("first"), nil)
+	Register("second", tear("second"), nil)
+	Register("third", tear("third"), nil)
 
 	require.NoError(t, Reap(context.Background()), "every teardown succeeds, so the reap does")
 
@@ -53,10 +53,10 @@ func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
 	first := errors.New("first cannot be removed")
 	second := errors.New("second cannot be removed")
 	var ran atomic.Int32
-	Register("ok-before", func(context.Context) error { ran.Add(1); return nil })
-	Register("fails-one", func(context.Context) error { ran.Add(1); return first })
-	Register("ok-between", func(context.Context) error { ran.Add(1); return nil })
-	Register("fails-two", func(context.Context) error { ran.Add(1); return second })
+	Register("ok-before", func(context.Context) error { ran.Add(1); return nil }, nil)
+	Register("fails-one", func(context.Context) error { ran.Add(1); return first }, nil)
+	Register("ok-between", func(context.Context) error { ran.Add(1); return nil }, nil)
+	Register("fails-two", func(context.Context) error { ran.Add(1); return second }, nil)
 
 	err := Reap(context.Background())
 
@@ -69,7 +69,7 @@ func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
 func TestReapNamesWhatFailed(t *testing.T) {
 	resetForTest(t)
 	busy := errors.New("device or resource busy")
-	Register("mongotest-1a2b3c4d", func(context.Context) error { return busy })
+	Register("mongotest-1a2b3c4d", func(context.Context) error { return busy }, nil)
 
 	err := Reap(context.Background())
 
@@ -83,7 +83,7 @@ func TestReapListsFailuresInRegistrationOrder(t *testing.T) {
 	resetForTest(t)
 	failure := errors.New("cannot be removed")
 	for _, name := range []string{"first", "second", "third"} {
-		Register(name, func(context.Context) error { return failure })
+		Register(name, func(context.Context) error { return failure }, nil)
 	}
 
 	err := Reap(context.Background())
@@ -115,14 +115,14 @@ func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-	})
+	}, nil)
 	for range others {
 		Register("fine", func(context.Context) error {
 			if removed.Add(1) == others {
 				close(othersRemoved)
 			}
 			return nil
-		})
+		}, nil)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -138,8 +138,8 @@ func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
 func TestATeardownThatPanicsIsReportedAndTheRestStillRun(t *testing.T) {
 	resetForTest(t)
 	removed := false
-	Register("panics", func(context.Context) error { panic("nil map") })
-	Register("fine", func(context.Context) error { removed = true; return nil })
+	Register("panics", func(context.Context) error { panic("nil map") }, nil)
+	Register("fine", func(context.Context) error { removed = true; return nil }, nil)
 
 	err := Reap(context.Background())
 
@@ -160,7 +160,7 @@ func TestWhatIsLeftBehindIsEveryFailureAndEverythingUnfinished(t *testing.T) {
 			{Name: "mongotest-1a2b3c4d", Err: context.DeadlineExceeded},
 			{Name: "mongotest-5e6f7a8b", Err: context.DeadlineExceeded},
 		},
-		unfinished: []string{"mongotest-9c0d1e2f"},
+		unfinished: []entry{{name: "mongotest-9c0d1e2f"}},
 	}
 
 	assert.Equal(t, []string{"mongotest-1a2b3c4d", "mongotest-5e6f7a8b", "mongotest-9c0d1e2f"}, left.names(),
@@ -185,7 +185,7 @@ func TestASignalsReapWritesWhatItLeftBehind(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			resetForTest(t)
-			Register("mongotest-1a2b3c4d", tc.teardown)
+			Register("mongotest-1a2b3c4d", tc.teardown, nil)
 			var out bytes.Buffer
 
 			reapAndReport(tc.ctx, syscall.SIGINT, &out)
@@ -204,7 +204,7 @@ func TestReapStopsAtTheContextDeadline(t *testing.T) {
 	Register("hangs", func(context.Context) error {
 		<-released
 		return nil
-	})
+	}, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -226,7 +226,7 @@ func TestReapStopsAtTheContextDeadline(t *testing.T) {
 func TestUnregisterKeepsAReapFromTouchingIt(t *testing.T) {
 	resetForTest(t)
 	torn := false
-	handle := Register("stopped-already", func(context.Context) error { torn = true; return nil })
+	handle := Register("stopped-already", func(context.Context) error { torn = true; return nil }, nil)
 
 	assert.True(t, Unregister(handle), "the handle was registered, so unregistering it reports that it did something")
 	require.NoError(t, Reap(context.Background()), "there is nothing left to reap")
@@ -237,8 +237,8 @@ func TestUnregisterKeepsAReapFromTouchingIt(t *testing.T) {
 
 func TestNamesReportsWhatWouldBeReaped(t *testing.T) {
 	resetForTest(t)
-	Register("first", func(context.Context) error { return nil })
-	second := Register("second", func(context.Context) error { return nil })
+	Register("first", func(context.Context) error { return nil }, nil)
+	second := Register("second", func(context.Context) error { return nil }, nil)
 
 	assert.Equal(t, []string{"first", "second"}, Names(), "Names is in registration order, because that is the order they were started in")
 
@@ -248,9 +248,9 @@ func TestNamesReportsWhatWouldBeReaped(t *testing.T) {
 
 func TestHandlesAreNotReused(t *testing.T) {
 	resetForTest(t)
-	first := Register("first", func(context.Context) error { return nil })
+	first := Register("first", func(context.Context) error { return nil }, nil)
 	Unregister(first)
-	second := Register("second", func(context.Context) error { return nil })
+	second := Register("second", func(context.Context) error { return nil }, nil)
 
 	assert.NotEqual(t, first, second,
 		"handles are never reused, so a stale Unregister from a container that already stopped cannot remove a different container that started afterwards")
@@ -260,7 +260,7 @@ func TestRegisterInstallsTheHandlerLazily(t *testing.T) {
 	resetForTest(t)
 	assert.False(t, Installed(), "nothing is installed until something is registered: importing this package must not change how a binary responds to Ctrl-C")
 
-	Register("first", func(context.Context) error { return nil })
+	Register("first", func(context.Context) error { return nil }, nil)
 
 	assert.True(t, Installed(), "the first registration installs the handler, because only then is there anything to reap")
 }
@@ -282,7 +282,7 @@ func TestRegisterIsSafeUnderConcurrentUse(t *testing.T) {
 				defer mu.Unlock()
 				torn[name] = true
 				return nil
-			})
+			}, nil)
 			// Half of them stop normally, as a passing test would.
 			if i%2 == 0 {
 				Unregister(handle)
@@ -309,9 +309,9 @@ func TestReapUntilEmptyTearsDownWhatRegistersWhileItRuns(t *testing.T) {
 	Register("first", func(context.Context) error {
 		// What a parallel test does when a signal lands mid-start: its
 		// container comes into existence while the reap is already running.
-		Register("late", func(context.Context) error { late = true; return nil })
+		Register("late", func(context.Context) error { late = true; return nil }, nil)
 		return nil
-	})
+	}, nil)
 
 	require.Empty(t, reapUntilEmpty(context.Background()), "both teardowns succeed")
 
@@ -335,10 +335,10 @@ func TestReapUntilEmptyGivesUpAtItsDeadline(t *testing.T) {
 		if attempts == rounds {
 			cancel()
 		}
-		Register("again", again) // something that keeps coming back
+		Register("again", again, nil) // something that keeps coming back
 		return failure
 	}
-	Register("again", again)
+	Register("again", again, nil)
 
 	failures := reapUntilEmpty(ctx)
 
@@ -355,7 +355,7 @@ func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
 		close(started)
 		<-release
 		return nil
-	})
+	}, nil)
 	// What a TestMain does at the end of a run.
 	go func() { _ = Reap(context.Background()) }()
 	<-started
@@ -385,7 +385,7 @@ func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
 // a container as leaked after its failure was already reported.
 func TestAFailedTeardownIsNotKept(t *testing.T) {
 	resetForTest(t)
-	Register("mongotest-1a2b3c4d", func(context.Context) error { return errors.New("the daemon refused") })
+	Register("mongotest-1a2b3c4d", func(context.Context) error { return errors.New("the daemon refused") }, nil)
 
 	require.ErrorIs(t, Reap(context.Background()), ErrReap, "the failure is reported")
 
@@ -404,7 +404,7 @@ func TestWhatIsLeftBehindIncludesARemovalAnotherReapHasNotFinished(t *testing.T)
 		close(started)
 		<-release
 		return nil
-	})
+	}, nil)
 	go func() { _ = Reap(context.Background()) }()
 	<-started
 
@@ -425,7 +425,7 @@ func TestAStuckRemovalIsNamedOnce(t *testing.T) {
 	Register("mongotest-1a2b3c4d", func(context.Context) error {
 		<-release
 		return nil
-	})
+	}, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

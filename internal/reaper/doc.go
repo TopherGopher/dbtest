@@ -2,7 +2,7 @@
 // to stop, so an interrupted test run does not leave containers behind. It
 // is internal: mongod registers with it.
 //
-//	handle := reaper.Register("mongotest-1a2b3c4d", container.Stop)
+//	handle := reaper.Register("mongotest-1a2b3c4d", container.Stop, logger)
 //	defer reaper.Unregister(handle)
 //
 // [Reap] runs every registered teardown at the same time, and needs no

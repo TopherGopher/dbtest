@@ -98,3 +98,6 @@ what to do if it affects you.
 - When a container exits before mongod is ready, the error now ends with the
   last of what mongod wrote, which usually says why.
   `ContainerExitedError.Output` holds the same text.
+- If Ctrl-C stops a test run and a container cannot be removed, the logger
+  given to `mongod.WithLogger` for that container now gets an Error record
+  naming it. The report on stderr is unchanged.

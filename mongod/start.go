@@ -166,7 +166,7 @@ func newContainer(host string, cfg config, docker dockerclient.Client, certs *ce
 	// moment Register returns.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.reaperHandle = reaper.Register(c.name, c.stop)
+	c.reaperHandle = reaper.Register(c.name, c.stop, cfg.logger)
 	return c
 }
 
