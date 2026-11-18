@@ -26,9 +26,21 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
+        # The newest patch release of that version, for its security fixes.
+        check-latest: true
 
     - name: Get dependencies
       run: go mod download
+
+    # gofmt reads files, not modules, so one run covers all three.
+    - name: Check formatting
+      run: |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "These files need gofmt -w:"
+          echo "$unformatted"
+          exit 1
+        fi
 
     - name: Vet
       run: go vet -v ./...
@@ -36,8 +48,10 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    # mobyclient is its own module, so the root ./... does not reach it.
-    # It stays a separate step until #45 adds a go.work; see #46.
+    # Each module is built and tested from its own go.mod, so CI tests the
+    # dependency versions its users get. No go.work is committed: in a
+    # workspace the root would be tested against the other modules' newer
+    # versions. The root ./... does not reach the other modules.
     - name: Vet and build mobyclient
       working-directory: ./mobyclient
       run: |
@@ -64,8 +78,22 @@ jobs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
+        # The newest patch release of that version, for its security fixes.
+        check-latest: true
     - name: Get dependencies
       run: go mod download
+
+    # dockerapi's integration tests call ImagePull directly, which tries once,
+    # so a brief refusal from Docker Hub would fail the run. mongod's own
+    # pulls retry. Pulling the image here first, with retries, keeps the run
+    # from depending on the registry's mood.
+    - name: Pull the image the integration tests use
+      run: |
+        for attempt in 1 2 3 4 5; do
+          docker pull mongo:8 && exit 0
+          sleep $((attempt * 15))
+        done
+        exit 1
 
     - name: Test package
       run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
@@ -74,18 +102,19 @@ jobs:
     # benchmark suites are the same ones dockerapi runs.
     - name: Test mobyclient
       working-directory: ./mobyclient
-      run: go test -v -race ./...
+      run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     - name: Test exporter
       working-directory: ./exporter
-      run: go test -v -race ./...
+      run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
-    - name: Upload code coverage to Coveralls for package
+    - name: Upload code coverage to Coveralls for every module
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # The profile "Test package" writes, read as Go's own format.
-        file: coverage.out
+        # The profiles the three test steps write, read as Go's own format
+        # and reported together.
+        files: coverage.out mobyclient/coverage.out exporter/coverage.out
         format: golang
         # The reporter this action downloads; without it, the newest one.
         coverage-reporter-version: v0.6.22

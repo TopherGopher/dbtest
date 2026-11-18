@@ -5,3 +5,8 @@ site/
 
 # Local Python environment for building the docs.
 .venv/
+
+# Each module is built from its own go.mod; a workspace would test the root
+# against the other modules' newer dependencies. See docs/project/contributing.md.
+go.work
+go.work.sum
