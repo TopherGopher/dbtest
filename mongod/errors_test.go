@@ -18,7 +18,7 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 		HostSource: "WithHostIP", Timeout: time.Minute, Cause: context.DeadlineExceeded,
 	}
 	stuck, ended := notReady, notReady
-	stuck.LastErr = mongod.ErrLoopbackOnly
+	stuck.LastErr = mongod.ErrHelloRefused
 	ended.ContextEnded = true
 	cases := []struct {
 		name     string
@@ -30,7 +30,7 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 		{"no published port", &mongod.UnpublishedPortError{Port: "27017/tcp", Name: "orders-db", ID: containerID},
 			[]string{"orders-db", "27017/tcp"}},
 		{"not ready in time", &notReady, []string{"orders-db", "172.17.0.1:32768"}},
-		{"not ready, with what the wait last saw", &stuck, []string{"orders-db", "172.17.0.1:32768", mongod.ErrLoopbackOnly.Error()}},
+		{"not ready, with what the wait last saw", &stuck, []string{"orders-db", "172.17.0.1:32768", mongod.ErrHelloRefused.Error()}},
 		{"not ready because the caller's context ended", &ended, []string{"orders-db", "172.17.0.1:32768"}},
 		{"not ready before the container had an id or a port",
 			&mongod.NotReadyError{Name: "orders-db", Timeout: time.Minute, Cause: context.DeadlineExceeded}, []string{"orders-db"}},

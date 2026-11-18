@@ -20,6 +20,8 @@ const (
 	opMsg = 2013
 	// helloID is the id the hello is sent with, which the reply quotes.
 	helloID = 1
+	// authCheckID is the id getCmdLineOpts is sent with.
+	authCheckID = 2
 	// helloTimeout bounds one attempt, so a port that accepts and then says
 	// nothing cannot use up the whole start timeout.
 	helloTimeout = 2 * time.Second
@@ -38,11 +40,17 @@ const (
 const helloElements = "\x10hello\x00\x01\x00\x00\x00" +
 	"\x02$db\x00\x06\x00\x00\x00admin\x00"
 
-// helloDocument wraps the fields as BSON does: the document's own length
-// first, counted here so it cannot disagree with them, and a zero last.
-func helloDocument() []byte {
-	doc := binary.LittleEndian.AppendUint32(nil, uint32(len(helloElements)+emptyDocumentLen))
-	doc = append(doc, helloElements...)
+// authCheckElements are the fields of {getCmdLineOpts: 1, $db: "admin"}.
+// mongod answers it only to a client that has authenticated, unless it lets
+// anyone in.
+const authCheckElements = "\x10getCmdLineOpts\x00\x01\x00\x00\x00" +
+	"\x02$db\x00\x06\x00\x00\x00admin\x00"
+
+// wrapDocument wraps fields as BSON does: the document's own length first,
+// counted here so it cannot disagree with them, and a zero last.
+func wrapDocument(elements string) []byte {
+	doc := binary.LittleEndian.AppendUint32(nil, uint32(len(elements)+emptyDocumentLen))
+	doc = append(doc, elements...)
 	return append(doc, 0)
 }
 
@@ -52,14 +60,20 @@ var (
 	errNoReply      = errors.New("nothing answered a MongoDB command at the address")
 	errNotMongod    = errors.New("something answered at the address, but not as mongod does")
 	errHelloRefused = errors.New("mongod answered, but with an error")
+	// errAuthUnknown: mongod answered the hello, but not the command that
+	// shows whether it makes clients authenticate.
+	errAuthUnknown = errors.New("mongod did not say whether it makes clients authenticate")
 )
 
 // helloMessage returns a complete hello command.
-func helloMessage() []byte {
+func helloMessage() []byte { return commandMessage(helloID, helloElements) }
+
+// commandMessage returns a complete command with the given id and fields.
+func commandMessage(id uint32, elements string) []byte {
 	le := binary.LittleEndian
-	document := helloDocument()
+	document := wrapDocument(elements)
 	msg := le.AppendUint32(nil, uint32(messageHeaderLen+flagsAndKindLen+len(document)))
-	msg = le.AppendUint32(msg, helloID)
+	msg = le.AppendUint32(msg, id)
 	msg = le.AppendUint32(msg, 0) // answers nothing
 	msg = le.AppendUint32(msg, opMsg)
 	msg = le.AppendUint32(msg, 0) // no flags
@@ -67,11 +81,14 @@ func helloMessage() []byte {
 	return append(msg, document...)
 }
 
-// hello sends mongod a command over the published port and reads the reply.
-// A connection alone proves nothing: Docker accepts on a published port from
-// the moment the container exists, and hangs up if no mongod is listening
-// behind it.
-func (p readyProbe) hello(ctx context.Context) error {
+// ask sends mongod a hello over the published port and reads the reply. A
+// connection alone proves nothing: Docker refuses connections on a published
+// port for a moment after the container starts, then accepts them and hangs
+// up while no mongod is listening behind it.
+//
+// When the container has credentials, the same connection then asks for
+// getCmdLineOpts without them, to learn whether mongod enforces them.
+func (p readyProbe) ask(ctx context.Context) error {
 	conn, err := p.dial(ctx)
 	if err != nil {
 		return err
@@ -85,7 +102,23 @@ func (p readyProbe) hello(ctx context.Context) error {
 	if _, err := conn.Write(helloMessage()); err != nil {
 		return fmt.Errorf("%w: %w", errNoReply, err)
 	}
-	return readHelloReply(conn)
+	if err := readHelloReply(conn); err != nil || !p.requireAuth {
+		return err
+	}
+	return p.checkAuth(conn)
+}
+
+// checkAuth asks for getCmdLineOpts on a connection that has not
+// authenticated. A mongod that answers is one anyone can use.
+func (p readyProbe) checkAuth(conn net.Conn) error {
+	if _, err := conn.Write(commandMessage(authCheckID, authCheckElements)); err != nil {
+		return fmt.Errorf("%w: %v", errAuthUnknown, err)
+	}
+	open, err := readAuthReply(conn)
+	if open {
+		return &AuthNotEnforcedError{Name: p.name, ID: p.id}
+	}
+	return err
 }
 
 // dial connects to the published port, over TLS when mongod requires it.
@@ -123,31 +156,63 @@ func (p readyProbe) handshake(ctx context.Context, conn net.Conn) (net.Conn, err
 // readHelloReply reads one reply and says what it means: nil for a serving
 // mongod, or one of the three errors above.
 func readHelloReply(peer io.Reader) error {
-	body, err := readReplyBody(peer)
+	reply, err := readReply(peer, helloID)
 	if err != nil {
 		return err
 	}
+	return reply.verdict()
+}
+
+// codeUnauthorized is how mongod refuses a client that has not
+// authenticated.
+const codeUnauthorized = "Unauthorized"
+
+// readAuthReply reads the reply to getCmdLineOpts. It reports open when
+// mongod answered it, and nil when mongod refused it as unauthorized. Any
+// other outcome is errAuthUnknown: mongod is answering at this address, so
+// the address is not in doubt, and the next poll asks again.
+func readAuthReply(peer io.Reader) (open bool, err error) {
+	reply, err := readReply(peer, authCheckID)
+	switch {
+	case err != nil:
+		return false, fmt.Errorf("%w: %v", errAuthUnknown, err)
+	case reply.ok:
+		return true, nil
+	case reply.codeName == codeUnauthorized:
+		return false, nil
+	}
+	return false, fmt.Errorf("%w: %s: %q", errAuthUnknown,
+		truncate(reply.codeName, maxCodeNameLen), truncate(reply.errmsg, maxErrmsgLen))
+}
+
+// readReply reads the reply to the command sent with id. Anything that is
+// not a well-formed reply to it is errNotMongod.
+func readReply(peer io.Reader, id uint32) (helloReply, error) {
+	body, err := readReplyBody(peer, id)
+	if err != nil {
+		return helloReply{}, err
+	}
 	elements, wellFormed := replyElements(body)
 	if !wellFormed {
-		return errNotMongod
+		return helloReply{}, errNotMongod
 	}
 	reply, wellFormed := parseHelloReply(elements)
 	if !wellFormed {
-		return errNotMongod
+		return helloReply{}, errNotMongod
 	}
-	return reply.verdict()
+	return reply, nil
 }
 
 // readReplyBody reads a message's header and then exactly the bytes the
 // header promises. The length comes from the peer, so it is checked against
 // maxReplyLen before a byte of the body is read or a buffer made for it.
-func readReplyBody(peer io.Reader) ([]byte, error) {
+func readReplyBody(peer io.Reader, id uint32) ([]byte, error) {
 	var header [messageHeaderLen]byte
 	if _, err := io.ReadFull(peer, header[:]); err != nil {
 		return nil, headerError(err)
 	}
 	length := binary.LittleEndian.Uint32(header[0:4])
-	if !plausibleLength(length) || !answersHello(header) {
+	if !plausibleLength(length) || !answers(header, id) {
 		return nil, errNotMongod
 	}
 	body := make([]byte, length-messageHeaderLen)
@@ -171,10 +236,11 @@ func plausibleLength(length uint32) bool {
 	return length >= minReplyLen && length <= maxReplyLen
 }
 
-// answersHello reports whether a message header is a reply to the hello.
-func answersHello(header [messageHeaderLen]byte) bool {
+// answers reports whether a message header is a reply to the command sent
+// with id.
+func answers(header [messageHeaderLen]byte, id uint32) bool {
 	le := binary.LittleEndian
-	return le.Uint32(header[8:12]) == helloID && le.Uint32(header[12:16]) == opMsg
+	return le.Uint32(header[8:12]) == id && le.Uint32(header[12:16]) == opMsg
 }
 
 // replyElements returns the fields of the one document a reply carries,
@@ -187,7 +253,7 @@ func replyElements(body []byte) ([]byte, bool) {
 	return documentElements(body[flagsAndKindLen:])
 }
 
-// helloReply is what mongod said to the hello.
+// helloReply is what mongod said to a command.
 type helloReply struct {
 	hasOK    bool
 	ok       bool

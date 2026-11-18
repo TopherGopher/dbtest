@@ -23,17 +23,16 @@ func exitedWithCode(code int) dockerclient.ContainerInspect {
 }
 
 // exitsAfterStarting makes m's container exit with code 2 once the start has
-// seen its port, as mongod does when it rejects a flag.
-func exitsAfterStarting(m *dockermock.Mock, port int) {
+// seen its port, as mongod does when it rejects a flag. Nothing answers on
+// the port, as nothing does once a container has exited.
+func exitsAfterStarting(t testing.TB, m *dockermock.Mock) {
+	port := closedPort(t)
 	inspects := 0
 	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
 		if inspects++; inspects == 1 {
 			return running(port), nil
 		}
 		return exitedWithCode(2), nil
-	}
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-		return dockerclient.Top{}, errors.New("container is not running")
 	}
 }
 
@@ -62,8 +61,8 @@ func startUntilExited(t *testing.T, m *dockermock.Mock, opts mongod.Options) *mo
 }
 
 func TestAContainerThatExitsReportsWhatItWrote(t *testing.T) {
-	m, port := readyMock(t)
-	exitsAfterStarting(m, port)
+	m, _ := readyMock(t)
+	exitsAfterStarting(t, m)
 	m.ContainerLogsToFunc = writing("Error parsing command line: unrecognised option '--notaflag'\n", "", nil)
 
 	exited := startUntilExited(t, m, mongod.DefaultOptions())
@@ -87,8 +86,8 @@ func TestTheOutputOfAnExitedContainerKeepsItsEnd(t *testing.T) {
 	}
 	for name, logs := range cases {
 		t.Run(name, func(t *testing.T) {
-			m, port := readyMock(t)
-			exitsAfterStarting(m, port)
+			m, _ := readyMock(t)
+			exitsAfterStarting(t, m)
 			m.ContainerLogsToFunc = logs
 
 			exited := startUntilExited(t, m, mongod.DefaultOptions())
@@ -101,8 +100,8 @@ func TestTheOutputOfAnExitedContainerKeepsItsEnd(t *testing.T) {
 }
 
 func TestTheOutputOfAnExitedContainerStartsAtAWholeCharacter(t *testing.T) {
-	m, port := readyMock(t)
-	exitsAfterStarting(m, port)
+	m, _ := readyMock(t)
+	exitsAfterStarting(t, m)
 	// One long line of three-byte characters, with no line break to cut at.
 	m.ContainerLogsToFunc = writing("x"+strings.Repeat("日", mongod.ExitOutputLimit), "", nil)
 
@@ -112,8 +111,8 @@ func TestTheOutputOfAnExitedContainerStartsAtAWholeCharacter(t *testing.T) {
 }
 
 func TestStderrIsPartOfTheOutput(t *testing.T) {
-	m, port := readyMock(t)
-	exitsAfterStarting(m, port)
+	m, _ := readyMock(t)
+	exitsAfterStarting(t, m)
 	m.ContainerLogsToFunc = writing("", "exec: mongod: not found\n", nil)
 
 	exited := startUntilExited(t, m, mongod.DefaultOptions())
@@ -131,8 +130,8 @@ func TestAFailedLogReadStillReportsTheExit(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			m, port := readyMock(t)
-			exitsAfterStarting(m, port)
+			m, _ := readyMock(t)
+			exitsAfterStarting(t, m)
 			m.ContainerLogsToFunc = tc.logs
 
 			exited := startUntilExited(t, m, mongod.DefaultOptions())
@@ -143,16 +142,14 @@ func TestAFailedLogReadStillReportsTheExit(t *testing.T) {
 }
 
 func TestARemovedContainerHasNoLogToRead(t *testing.T) {
-	m, port := readyMock(t)
+	m, _ := readyMock(t)
+	port := closedPort(t)
 	inspects := 0
 	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
 		if inspects++; inspects == 1 {
 			return running(port), nil
 		}
 		return dockerclient.ContainerInspect{}, dockerclient.ErrNotFound
-	}
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-		return dockerclient.Top{}, errors.New("no such container")
 	}
 
 	exited := startUntilExited(t, m, mongod.DefaultOptions())
@@ -162,8 +159,8 @@ func TestARemovedContainerHasNoLogToRead(t *testing.T) {
 }
 
 func TestReadingTheLogEndsWithTheStartTimeout(t *testing.T) {
-	m, port := readyMock(t)
-	exitsAfterStarting(m, port)
+	m, _ := readyMock(t)
+	exitsAfterStarting(t, m)
 	m.ContainerLogsToFunc = func(ctx context.Context, _ string, out, _ io.Writer) error {
 		select { // a daemon that never finishes sending the log
 		case <-ctx.Done():

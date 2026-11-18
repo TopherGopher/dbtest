@@ -18,165 +18,175 @@ import (
 	"github.com/tophergopher/mongotest/mongod"
 )
 
-// startWith starts a container whose process listing is scripted. The
-// published port always answers, as it does from the moment a real container
-// is created, so only the listing decides whether the start succeeds.
-func startWith(t *testing.T, opts mongod.Options, commands func(poll int) []string) error {
-	t.Helper()
-	m, _ := readyMock(t)
-	polls := 0
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-		polls++
-		return processes(commands(polls)...), nil
-	}
-	_, err := start(t, m, opts)
-	return err
-}
+// The error reports what the last completed poll found. A poll the timeout
+// cuts short says nothing new, so it does not replace that; a poll that
+// completes does, so a stale finding is not reported.
+func TestTheErrorReportsWhatTheLastCompletedPollFound(t *testing.T) {
+	refusal := answerWithError("InterruptedAtShutdown", "shutting down")
 
-// always is a process listing that never changes.
-func always(command string) func(int) []string {
-	return func(int) []string { return []string{command} }
-}
-
-// The command lines are the ones each image was seen running during a start.
-func TestStartCountsOnlyAMongodThePortCanReach(t *testing.T) {
-	cases := []struct {
-		name    string
-		command string
-		ready   bool
-	}{
-		{"official image serving", "mongod --bind_ip_all", true},
-		{"serving with auth and a replica set", "mongod --auth --replSet rs0 --keyFile /etc/keyfile --bind_ip_all", true},
-		{"Atlas Local serving", "mongod --replSet 142b --keyFile /data/configdb/keyfile --bind_ip_all --auth", true},
-		{"an explicit wildcard address", "mongod --bind_ip 0.0.0.0", true},
-		{"an address list reaching beyond loopback", "mongod --bind_ip=localhost,172.17.0.2", true},
-		{"flags with one dash", "mongod -bind_ip_all", true},
-		{"a configuration file alone", "mongod --config /etc/mongod.conf", true},
-		{"a configuration file, short flag", "mongod -f /etc/mongod.conf", true},
-		{"given by path", "/usr/bin/mongod --bind_ip_all", true},
-
-		{"official image creating its root user", "mongod --bind_ip 127.0.0.1 --port 27017 --fork", false},
-		{"community image creating its root user", "/usr/bin/mongod --bind_ip 127.0.0.1 --port 27017 --fork", false},
-		{"temporary mongod that was given a config file", "mongod --auth --config /tmp/temp-config.json --bind_ip 127.0.0.1 --fork", false},
-		{"Atlas Local initiating its replica set", "mongod --replSet 142b --keyFile /data/configdb/keyfile --transitionToAuth", false},
-		{"the entrypoint stopping its temporary mongod", "mongod --bind_ip_all --shutdown", false},
-		{"loopback addresses and a socket", "mongod --bind_ip localhost,::1,/tmp/mongod.sock", false},
-		{"an address flag with no address", "mongod --bind_ip --quiet", false},
-		{"no flags, so mongod's localhost default", "mongod", false},
-		{"the entrypoint script, not mongod", "bash /usr/local/bin/docker-entrypoint.sh mongod", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			timeout := 5 * time.Second
-			if !tc.ready {
-				timeout = 60 * time.Millisecond
-			}
-			err := startWith(t, mongod.DefaultOptions().WithStartTimeout(timeout), always(tc.command))
-
-			if tc.ready {
-				assert.NoError(t, err, "a published port leads to this mongod")
+	t.Run("a poll cut short keeps what the one before found", func(t *testing.T) {
+		var connections atomic.Int32
+		m, _ := servingMock(t, func(conn net.Conn) {
+			if connections.Add(1) == 1 {
+				refusal(conn)
 				return
 			}
-			assert.ErrorIs(t, err, mongod.ErrNotReady, "nothing outside the container can reach this process")
+			_, _ = io.Copy(io.Discard, conn) // reads, and never answers
 		})
-	}
-}
 
-func TestStartFindsTheCommandColumnInAnyListing(t *testing.T) {
-	const serving = "mongod --bind_ip_all"
-	cases := []struct {
-		name string
-		top  dockerclient.Top
-	}{
-		{"the command first", dockerclient.Top{
-			Titles: []string{"COMMAND", "PID", "USER"}, Processes: [][]string{{serving, "1", "mongodb"}}}},
-		{"a title in lower case", dockerclient.Top{
-			Titles: []string{"pid", "command", "user"}, Processes: [][]string{{"1", serving, "mongodb"}}}},
-		{"the ARGS title", dockerclient.Top{
-			Titles: []string{"PID", "ARGS", "USER"}, Processes: [][]string{{"1", serving, "mongodb"}}}},
-		{"no title it knows, so the last column", dockerclient.Top{
-			Titles: []string{"PID", "WHAT"}, Processes: [][]string{{"1", serving}}}},
-		{"no titles at all", dockerclient.Top{Processes: [][]string{{serving}}}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			m, _ := readyMock(t)
-			m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return tc.top, nil }
+		_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
-			_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(5*time.Second))
-
-			assert.NoError(t, err, "a daemon may title and order the columns its own way")
-		})
-	}
-}
-
-func TestStartWaitsPastTheTemporaryMongod(t *testing.T) {
-	sawFinal := false
-	err := startWith(t, mongod.DefaultOptions().WithStartTimeout(10*time.Second), func(poll int) []string {
-		if poll <= 3 {
-			return []string{"bash docker-entrypoint.sh mongod", "mongod --bind_ip 127.0.0.1 --fork"}
-		}
-		sawFinal = true
-		return []string{"mongod --bind_ip_all"}
+		assert.ErrorIs(t, err, mongod.ErrHelloRefused, "what the wait last learned is kept, not replaced by the timeout that ended it")
 	})
 
-	require.NoError(t, err, "the final mongod arrives inside the timeout")
-	assert.True(t, sawFinal, "the temporary mongod is about to be shut down, so it does not count")
+	t.Run("a completed poll replaces what the one before found", func(t *testing.T) {
+		var connections atomic.Int32
+		m, _ := servingMock(t, func(conn net.Conn) {
+			if connections.Add(1) == 1 {
+				refusal(conn)
+				return
+			}
+			_ = conn.Close() // mongod went away: Docker accepts and hangs up
+		})
+
+		_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(150*time.Millisecond))
+
+		require.ErrorIs(t, err, mongod.ErrNoReply, "the last poll found nothing answering")
+		assert.NotErrorIs(t, err, mongod.ErrHelloRefused, "so the earlier refusal is not reported")
+		var notReady *mongod.NotReadyError
+		require.ErrorAs(t, err, &notReady, "with the details")
+		assert.True(t, notReady.AddressInDoubt(), "nothing answering is what a wrong address looks like")
+	})
 }
 
-func TestAMongodStuckOnLoopbackIsNamedInTheError(t *testing.T) {
-	err := startWith(t, mongod.DefaultOptions().WithStartTimeout(60*time.Millisecond), always("mongod --bind_ip 127.0.0.1"))
+// A connection string with credentials must not hide an open database.
+func TestAMongodThatIgnoresItsCredentialsIsRefused(t *testing.T) {
+	m, _ := servingMock(t, openMongod)
+	started := time.Now()
 
-	require.ErrorIs(t, err, mongod.ErrNotReady, "it never became reachable")
-	assert.ErrorIs(t, err, mongod.ErrLoopbackOnly, "so the caller can tell this from a mongod that never started")
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(time.Minute).WithAuth("admin", "secret"))
+
+	require.ErrorIs(t, err, mongod.ErrAuthNotEnforced, "an open mongod must not be returned behind a URI that claims credentials")
+	assert.NotErrorIs(t, err, mongod.ErrNotReady, "so a caller that retries until ready does not retry an open database")
+	var open *mongod.AuthNotEnforcedError
+	require.ErrorAs(t, err, &open, "the error names the container")
+	assert.Equal(t, containerID, open.ID, "by the id the daemon gave it")
+	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the open container is removed, not left running")
+	assert.Less(t, time.Since(started), 10*time.Second, "this mongod will not change, so there is nothing to wait for")
 }
 
-func TestALoopbackOnlyMongodIsStillNamedWhenTheTimeoutCutsAPollShort(t *testing.T) {
-	m, _ := readyMock(t)
-	polls := 0
-	m.ContainerTopFunc = func(ctx context.Context, _ string) (dockerclient.Top, error) {
-		polls++
-		if polls == 1 {
-			return processes("mongod --bind_ip 127.0.0.1"), nil
-		}
-		<-ctx.Done() // every later listing is still in flight when the timeout passes
-		return dockerclient.Top{}, ctx.Err()
-	}
-
-	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
-
-	assert.ErrorIs(t, err, mongod.ErrLoopbackOnly, "what the wait last learned is kept, not replaced by the timeout that ended it")
-}
-
-func TestStartRequiresAuthWhenCredentialsWereSet(t *testing.T) {
+// Readiness is decided by asking mongod, so a daemon that will not list a
+// container's processes, as some socket proxies refuse to, does not matter.
+func TestStartDoesNotNeedTheProcessList(t *testing.T) {
+	refused := errors.New("the proxy refused GET /containers/{id}/top")
 	cases := []struct {
-		name     string
-		command  string
-		enforced bool
+		name string
+		mock func(testing.TB) (*dockermock.Mock, int)
+		opts mongod.Options
+		top  func(context.Context, string) (dockerclient.Top, error)
 	}{
-		{"--auth", "mongod --auth --bind_ip_all", true},
-		{"a key file implies it", "mongod --replSet rs0 --keyFile /etc/keyfile --bind_ip_all", true},
-		{"the image ignored the credentials", "mongod --bind_ip_all", false},
-		{"a configuration file, which cannot be read to check", "mongod --config /etc/mongod.conf --bind_ip_all", false},
-		{"Atlas Local without a root user", "mongod --replSet 1f3c --keyFile /data/keyfile --bind_ip_all --transitionToAuth", false},
+		{"without credentials", readyMock, mongod.DefaultOptions(),
+			func(context.Context, string) (dockerclient.Top, error) { return dockerclient.Top{}, refused }},
+		{"with credentials", authMock, mongod.DefaultOptions().WithAuth("admin", "secret"),
+			func(context.Context, string) (dockerclient.Top, error) { return dockerclient.Top{}, refused }},
+		{"with credentials set in a configuration file", authMock, mongod.DefaultOptions().WithAuth("admin", "secret"),
+			func(context.Context, string) (dockerclient.Top, error) {
+				return processes("mongod --config /etc/mongod.conf --bind_ip_all"), nil
+			}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			started := time.Now()
-			err := startWith(t, mongod.DefaultOptions().WithStartTimeout(time.Minute).WithAuth("admin", "secret"), always(tc.command))
+			m, _ := tc.mock(t)
+			m.ContainerTopFunc = tc.top
 
-			if tc.enforced {
-				assert.NoError(t, err, "this mongod makes clients authenticate")
-				return
-			}
-			require.ErrorIs(t, err, mongod.ErrAuthNotEnforced, "an open mongod must not be returned behind a URI that claims credentials")
-			assert.Less(t, time.Since(started), 10*time.Second, "this mongod will not change, so there is nothing to wait for")
+			_, err := start(t, m, tc.opts.WithStartTimeout(10*time.Second))
+
+			assert.NoError(t, err, "a mongod that answers, and enforces any credentials it was given, is ready")
 		})
 	}
 }
 
-// Docker accepts connections on a published port from the moment the
-// container exists, so a connection alone says nothing about mongod.
+// helloThen is a stand-in for mongod that answers hello, and every other
+// command as other does.
+func helloThen(other func(conn net.Conn) bool) func(net.Conn) {
+	return func(conn net.Conn) {
+		defer conn.Close()
+		if !answerOne(conn, func(string) string { return okField }) {
+			return
+		}
+		for other(conn) {
+		}
+	}
+}
+
+// When mongod's answer to the check of its credentials says neither yes nor
+// no, it is asked again; if that never settles, the start is not ready.
+func TestAnUnsettledCredentialsCheckIsNotReady(t *testing.T) {
+	cases := map[string]func(net.Conn) bool{
+		"an error other than Unauthorized": func(conn net.Conn) bool {
+			return answerOne(conn, func(string) string {
+				return notOKField + stringField("errmsg", "shutting down") + stringField("codeName", "InterruptedAtShutdown")
+			})
+		},
+		"a hang-up":   func(net.Conn) bool { return false },
+		"not a reply": func(conn net.Conn) bool { answerWithGarbage(conn); return false },
+	}
+	for name, other := range cases {
+		t.Run(name, func(t *testing.T) {
+			m, _ := servingMock(t, helloThen(other))
+
+			_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(300*time.Millisecond).WithAuth("admin", "secret"))
+
+			require.ErrorIs(t, err, mongod.ErrNotReady, "an unsettled check is waited on, until the timeout")
+			assert.NotErrorIs(t, err, mongod.ErrAuthNotEnforced, "an unsettled check is not a mongod that ignores its credentials")
+			assert.ErrorIs(t, err, mongod.ErrAuthUnknown, "the error says the credentials check was what never settled")
+			var notReady *mongod.NotReadyError
+			require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+			assert.False(t, notReady.AddressInDoubt(), "mongod answered at that address, so advice to correct it would mislead")
+			assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the container is removed")
+		})
+	}
+}
+
+// One unsettled answer does not end the start: the next poll asks again.
+func TestACredentialsCheckThatSettlesLaterIsReady(t *testing.T) {
+	var asked atomic.Int32
+	m, _ := servingMock(t, helloThen(func(conn net.Conn) bool {
+		if asked.Add(1) <= 2 {
+			return false // hang up the first times
+		}
+		return answerOne(conn, func(string) string {
+			return notOKField + int32Field("code", 13) + stringField("codeName", "Unauthorized")
+		})
+	}))
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(10*time.Second).WithAuth("admin", "secret"))
+
+	assert.NoError(t, err, "once mongod refuses an unauthenticated command, it enforces its credentials")
+}
+
+// A failed hello whose inspect also fails says nothing about the container,
+// so the wait goes on.
+func TestAContainerThatCannotBeInspectedIsWaitedOn(t *testing.T) {
+	m := notReadyMock(t)
+	var inspected atomic.Int32
+	running := m.ContainerInspectFunc
+	m.ContainerInspectFunc = func(ctx context.Context, id string) (dockerclient.ContainerInspect, error) {
+		if inspected.Add(1) == 1 {
+			return running(ctx, id) // the inspect that reads the published port
+		}
+		return dockerclient.ContainerInspect{}, errors.New("the daemon is busy")
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(200*time.Millisecond))
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "nothing showed the container had gone, so the start waited")
+	assert.NotErrorIs(t, err, mongod.ErrContainerExited, "an inspect that failed is not a container that exited")
+}
+
+// Docker accepts connections on a published port soon after the container
+// starts, and hangs up while nothing listens behind it, so a connection
+// alone says nothing about mongod.
 func TestAPortThatOnlyAcceptsConnectionsIsNotReady(t *testing.T) {
 	m, _ := readyMock(t)
 	port := acceptOnlyPort(t)
@@ -248,18 +258,6 @@ func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {
 	assert.ErrorIs(t, err, mongod.ErrNotReady, "the image never said its mongod was usable")
 }
 
-func TestAMongodThatWentAwayIsNotReportedAsStuckOnLoopback(t *testing.T) {
-	err := startWith(t, mongod.DefaultOptions().WithStartTimeout(150*time.Millisecond), func(poll int) []string {
-		if poll == 1 {
-			return []string{"mongod --bind_ip 127.0.0.1 --fork"}
-		}
-		return []string{"bash docker-entrypoint.sh mongod"}
-	})
-
-	require.ErrorIs(t, err, mongod.ErrNotReady, "it never became reachable")
-	assert.NotErrorIs(t, err, mongod.ErrLoopbackOnly, "when the wait ended no mongod was running, so advice about its bind address would mislead")
-}
-
 func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 	m, _ := readyMock(t)
 	port := serve(t, func(conn net.Conn) {
@@ -326,9 +324,6 @@ func TestAMongodTooOldToKnowTheCommandIsStillReady(t *testing.T) {
 func TestAFailureToAskTheDaemonIsNotBlamedOnTheAddress(t *testing.T) {
 	refused := errors.New("EOF")
 	failures := map[string]func(*dockermock.Mock, int){
-		"listing the processes": func(m *dockermock.Mock, _ int) {
-			m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return dockerclient.Top{}, refused }
-		},
 		"reading the health check": func(m *dockermock.Mock, port int) {
 			inspections := 0
 			m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {

@@ -24,7 +24,10 @@ var (
 	ErrNotReady = errors.New("mongod did not become ready in time")
 	// ErrLoopbackOnly: when the wait ended, the only mongod running was
 	// listening on the container's own loopback, where no published port
-	// reaches. It accompanies ErrNotReady.
+	// reaches.
+	//
+	// Deprecated: Start no longer reads mongod's flags, so nothing returns
+	// this. It will be removed in the next release that breaks compatibility.
 	ErrLoopbackOnly = errors.New("mongod is listening only on the container's own loopback, " +
 		"which a published port cannot reach; it needs --bind_ip_all, which the image's entrypoint normally adds")
 	// ErrUnresolvedHost: the address to reach the container on could not be
@@ -354,9 +357,9 @@ type AuthNotEnforcedError struct {
 }
 
 func (e *AuthNotEnforcedError) Error() string {
-	return fmt.Sprintf("mongod: container %s (%s) was created with credentials, but its mongod runs without --auth: "+
-		"the image did not create a root user from its environment. "+
-		"Use an image that does, or pass WithoutAuth to accept a mongod anyone can use",
+	return fmt.Sprintf("mongod: container %s (%s) was created with credentials, but its mongod answered a command "+
+		"that needs them from a client that gave none: the image or its flags let anyone in. "+
+		"Use an image that enforces the credentials, or pass WithoutAuth to accept a mongod anyone can use",
 		e.Name, container.ShortID(e.ID))
 }
 

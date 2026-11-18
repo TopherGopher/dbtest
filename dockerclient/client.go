@@ -52,9 +52,7 @@ type Client interface {
 	// for a container created without a TTY, as mongotest creates them.
 	ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error
 
-	// ContainerTop lists the processes running inside a container. It is the
-	// only way to tell that the process a container was started for is
-	// actually running: a published port is bound before that happens.
+	// ContainerTop lists the processes running inside a container.
 	ContainerTop(ctx context.Context, id string) (Top, error)
 
 	// CopyToContainer writes files under destDir inside the container. It

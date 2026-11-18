@@ -5,6 +5,22 @@ what to do if it affects you.
 
 ## Unreleased
 
+### `mongod.Start` asks mongod whether it is ready, and no longer reads its flags
+
+- **A mongod whose flags are set in a configuration file now starts.**
+  `Start` used to read mongod's command line from the container's process
+  list, and refused a mongod whose `--auth` it could not see.
+- **A container created with credentials** is now checked by asking mongod,
+  without them, for its command-line options. A mongod that answers lets
+  anyone in, so `Start` removes the container and returns
+  `ErrAuthNotEnforced`, as before. `AuthNotEnforcedError`'s message now says
+  what was seen.
+- **`ErrLoopbackOnly` is deprecated.** Nothing returns it any more. It will
+  be removed in the next release that breaks compatibility; code that
+  matches it can stop.
+- **A daemon or socket proxy that refuses to list a container's processes**
+  no longer stops a start.
+
 ### mongotest needs Go 1.26 or newer
 
 - **Every module declares `go 1.26`,** the oldest release the Go team still

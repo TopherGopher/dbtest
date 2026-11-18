@@ -196,8 +196,10 @@ the container has them.
 a network you trust. Creating the user makes a start a few seconds slower,
 which is why a loopback container gets none unless you ask.
 
-If the image does not create the user, the start removes the container and
-returns `ErrAuthNotEnforced` rather than hand back an open `mongod`.
+If `mongod` lets in a client without the credentials, because the image did
+not create the user or a flag such as `--transitionToAuth` opens it, the
+start removes the container and returns `ErrAuthNotEnforced` rather than
+hand back an open `mongod`.
 
 Anyone who can use the daemon can read the credentials. Traffic is not
 encrypted unless you ask for [TLS](#tls).

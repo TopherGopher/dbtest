@@ -230,8 +230,7 @@ func TestStartTimesOutWhenNothingAnswers(t *testing.T) {
 }
 
 func TestStartStopsWaitingWhenTheCallerCancels(t *testing.T) {
-	m, _ := readyMock(t)
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
+	m := notReadyMock(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(50*time.Millisecond, cancel)
 
@@ -245,8 +244,7 @@ func TestStartStopsWaitingWhenTheCallerCancels(t *testing.T) {
 
 func TestAnAddressFromTheEnvironmentIsReportedAsComingFromIt(t *testing.T) {
 	t.Setenv(mongod.EnvHostIP, "127.0.0.1")
-	m, _ := readyMock(t)
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
+	m := notReadyMock(t)
 
 	_, err := mongod.StartWithOptions(context.Background(), mongod.DefaultOptions().WithDocker(m).WithStartTimeout(50*time.Millisecond))
 
@@ -274,7 +272,8 @@ func TestStartFailsAtOnceWhenTheContainerHasExited(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.status, func(t *testing.T) {
-			m, port := readyMock(t)
+			m, _ := readyMock(t)
+			port := closedPort(t) // nothing answers once the container is gone
 			inspects := 0
 			m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
 				inspects++
@@ -282,9 +281,6 @@ func TestStartFailsAtOnceWhenTheContainerHasExited(t *testing.T) {
 					return running(port), nil // the start's own look at the ports
 				}
 				return tc.inspect()
-			}
-			m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-				return dockerclient.Top{}, errors.New("container is not running")
 			}
 
 			started := time.Now()
@@ -299,22 +295,6 @@ func TestStartFailsAtOnceWhenTheContainerHasExited(t *testing.T) {
 			assert.Less(t, time.Since(started), 10*time.Second, "without waiting out the start timeout")
 		})
 	}
-}
-
-func TestStartKeepsWaitingWhileTheContainerIsStillStarting(t *testing.T) {
-	m, _ := readyMock(t)
-	tops := 0
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-		tops++
-		if tops < 3 {
-			return dockerclient.Top{}, errors.New("container is not running")
-		}
-		return processes("mongod --bind_ip_all"), nil
-	}
-
-	_, err := start(t, m, mongod.DefaultOptions())
-
-	assert.NoError(t, err, "a container that has not started yet is not a failure")
 }
 
 func TestStopRemovesTheContainerAndItsVolumes(t *testing.T) {
@@ -419,8 +399,7 @@ func TestStopStillRemovesTheContainerWhenItsContextHasAlreadyEnded(t *testing.T)
 }
 
 func TestAWaitEndedByTheCallersDeadlineSaysSo(t *testing.T) {
-	m, _ := readyMock(t)
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
+	m := notReadyMock(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -434,8 +413,7 @@ func TestAWaitEndedByTheCallersDeadlineSaysSo(t *testing.T) {
 }
 
 func TestAWaitEndedByTheStartTimeoutSaysSo(t *testing.T) {
-	m, _ := readyMock(t)
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
+	m := notReadyMock(t)
 
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(50*time.Millisecond))
 
@@ -474,7 +452,7 @@ func TestThePortIsPublishedWhereItWillBeDialled(t *testing.T) {
 			_, err := start(t, m, mongod.DefaultOptions().WithHostIP(host).WithStartTimeout(20*time.Millisecond))
 
 			var notReady *mongod.NotReadyError
-			require.ErrorAs(t, err, &notReady, "this daemon never reports a mongod")
+			require.ErrorAs(t, err, &notReady, "nothing answers at that address")
 			binding := created(t, m).HostConfig.PortBindings["27017/tcp"][0]
 			assert.Equal(t, "0.0.0.0", binding.HostIP, "the daemon's host may not be able to bind %s itself", host)
 			assert.Equal(t, host, notReady.Host, "and the address is dialled as given")

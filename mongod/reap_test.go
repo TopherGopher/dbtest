@@ -3,6 +3,8 @@ package mongod_test
 import (
 	"context"
 	"errors"
+	"net"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,15 +24,19 @@ func TestAContainerIsRegisteredForReapingUntilItIsStopped(t *testing.T) {
 }
 
 func TestAContainerIsRegisteredBeforeMongodIsReady(t *testing.T) {
-	m, _ := readyMock(t)
+	var mu sync.Mutex
 	var registeredDuringTheWait []string
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-		registeredDuringTheWait = reaper.Names()
-		return processes("mongod --bind_ip_all"), nil
-	}
+	m, _ := servingMock(t, func(conn net.Conn) {
+		mu.Lock()
+		registeredDuringTheWait = reaper.Names() // while the start waits for this answer
+		mu.Unlock()
+		openMongod(conn)
+	})
 
 	c := mustStart(t, m, mongod.DefaultOptions())
 
+	mu.Lock()
+	defer mu.Unlock()
 	assert.Contains(t, registeredDuringTheWait, c.Name(), "a signal during the readiness wait must not leave the container running")
 }
 

@@ -140,7 +140,7 @@ against it never imports an implementation:
 | --- | --- |
 | `ContainerConfig`, `HostConfig`, `PortBinding` | What to create. Unset fields take the daemon's defaults. |
 | `ContainerInspect`, `ContainerState`, `NetworkSettings` | What came back. `ContainerInspect.HostPort("27017/tcp")` finds the published port. |
-| `Top` | The processes in a container. The only reliable way to know `mongod` itself is up. |
+| `Top` | The processes in a container. |
 | `File` | A name, mode and content to copy in. |
 | `ExecConfig`, `ExecInspect`, `ExecResult` | Running a command and reading its result. A non-zero exit code is data, not an error. |
 | `Logger` | Four methods, satisfied by `*slog.Logger`. `NopLogger()` discards. |

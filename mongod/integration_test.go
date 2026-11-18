@@ -375,22 +375,6 @@ func runIn(t testing.TB, ctx context.Context, docker dockerclient.Client, c *mon
 // an authenticated user may have, and returns the name of the error or "open".
 const anonymousListDatabases = `try { db.getSiblingDB("admin").runCommand({listDatabases: 1}); "open" } catch (e) { e.codeName }`
 
-// servingCommand returns the command line of the mongod that the published
-// port leads to, or "" when the container is not running one.
-func servingCommand(t testing.TB, ctx context.Context, docker dockerclient.Client, id string) string {
-	t.Helper()
-	top, err := docker.ContainerTop(ctx, id)
-	require.NoError(t, err, "listing the container's processes must succeed")
-	for _, process := range top.Processes {
-		for _, field := range process {
-			if strings.Contains(field, "mongod") && strings.Contains(field, "--bind_ip_all") {
-				return field
-			}
-		}
-	}
-	return ""
-}
-
 // The credentials have to do two things for real: let their holder in, and
 // keep everyone else out. And Start has to return only once the mongod that
 // enforces them is the one running, because every image creates its user with
@@ -414,8 +398,8 @@ func TestIntegrationWithAuthIsEnforced(t *testing.T) {
 			require.NoError(t, err, "mongod integration: %s must start with credentials", tc.image)
 			t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
-			assert.NotEmpty(t, servingCommand(t, ctx, docker, c.ID()),
-				"Start returned, so the mongod listening on every interface is the one running; the one that creates the user listens on the container's loopback only and is gone seconds later")
+			assert.NoError(t, askHello(net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))),
+				"Start returned, so the mongod the published port leads to is serving")
 			assert.Equal(t, "1", evalIn(t, ctx, docker, c, "db.runCommand({ping:1}).ok"), "the root user is let in on the first ask")
 			assert.Equal(t, "Unauthorized", evalAnonymously(t, ctx, docker, c, anonymousListDatabases),
 				"a connection without the credentials is refused what the root user is allowed")
