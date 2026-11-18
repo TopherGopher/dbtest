@@ -4,15 +4,24 @@
 //
 //	c, err := mongod.Start(ctx) // or any server's connection string
 //	...
-//	n, err := exporter.New(c.URI(), "app", "people").WriteJSON(file, exporter.JSONOptions{})
+//	n, err := exporter.New(c.URI(), "app", "people").WriteJSON(ctx, file, exporter.JSONOptions{})
+//
+// The context bounds how long an export waits to reach the server, and
+// stops an export between documents once it ends. It cannot interrupt a read
+// the server never answers, because mongoexport does not pass it to the
+// driver.
 package exporter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongoexport"
@@ -73,7 +82,8 @@ type JSONOptions struct {
 
 // WriteJSON writes the documents to w as Extended JSON, and returns how many
 // documents it wrote. If it fails partway, w holds what was written so far.
-func (e Exporter) WriteJSON(w io.Writer, opts JSONOptions) (documents int64, err error) {
+// See the package documentation for what ctx can and cannot stop.
+func (e Exporter) WriteJSON(ctx context.Context, w io.Writer, opts JSONOptions) (documents int64, err error) {
 	format := []string{"--type=json"}
 	if opts.Array {
 		format = append(format, "--jsonArray")
@@ -84,15 +94,16 @@ func (e Exporter) WriteJSON(w io.Writer, opts JSONOptions) (documents int64, err
 	if opts.Canonical {
 		format = append(format, "--jsonFormat=canonical")
 	}
-	return e.export(w, format)
+	return e.export(ctx, w, format)
 }
 
 // WriteCSV writes the documents to w as CSV: a header naming the fields,
 // then a row for each document. It returns how many documents it wrote.
 // fields must not be empty; name a nested field with dots, as in
-// "address.city".
-func (e Exporter) WriteCSV(w io.Writer, fields []string) (documents int64, err error) {
-	return e.export(w, []string{"--type=csv", "--fields=" + strings.Join(fields, ",")})
+// "address.city". See the package documentation for what ctx can and cannot
+// stop.
+func (e Exporter) WriteCSV(ctx context.Context, w io.Writer, fields []string) (documents int64, err error) {
+	return e.export(ctx, w, []string{"--type=csv", "--fields=" + strings.Join(fields, ",")})
 }
 
 // errEmptyName is why an export with an empty connection string, database
@@ -101,11 +112,15 @@ func (e Exporter) WriteCSV(w io.Writer, fields []string) (documents int64, err e
 var errEmptyName = errors.New("the connection string, database and collection given to New must not be empty")
 
 // export runs mongoexport with the format's arguments and the export's own.
-func (e Exporter) export(w io.Writer, format []string) (int64, error) {
+func (e Exporter) export(ctx context.Context, w io.Writer, format []string) (int64, error) {
 	if e.uri == "" || e.database == "" || e.collection == "" {
 		return 0, e.failed(errEmptyName)
 	}
-	opts, err := mongoexport.ParseOptions(append(format, e.args()...), "mongotest", "")
+	if err := ctx.Err(); err != nil {
+		return 0, e.failed(err)
+	}
+	args := append(format, e.args(ctx)...)
+	opts, err := mongoexport.ParseOptions(args, "mongotest", "")
 	if err != nil {
 		return 0, e.failed(err)
 	}
@@ -115,11 +130,65 @@ func (e Exporter) export(w io.Writer, format []string) (int64, error) {
 	}
 	stopProgressBar(export)
 	defer export.Close()
-	n, err := export.Export(w)
+	n, err := export.Export(contextWriter{ctx: ctx, w: w})
 	if err != nil {
-		return n, e.failed(err)
+		return n, e.failed(withContextError(ctx, err))
 	}
 	return n, nil
+}
+
+// contextWriter refuses to write once ctx has ended. mongoexport writes one
+// document at a time, so this stops an export between documents. It cannot
+// stop a read blocked on the server: mongo-tools passes no context to the
+// driver, and closing its client from another goroutine would race.
+type contextWriter struct {
+	ctx context.Context
+	w   io.Writer
+}
+
+func (c contextWriter) Write(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.w.Write(p)
+}
+
+// withContextError adds ctx's error to err once ctx has ended, since
+// mongoexport may report the failed write without wrapping its cause.
+func withContextError(ctx context.Context, err error) error {
+	if ctx.Err() == nil || errors.Is(err, ctx.Err()) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ctx.Err(), err)
+}
+
+// selectionTimeout returns mongoexport's --serverSelectionTimeout for ctx's
+// deadline, in whole seconds rounded up, and false when ctx has none or the
+// connection string sets its own, which mongoexport refuses to have
+// overridden. mongoexport reads zero as the driver's thirty seconds, so the
+// least it returns is one.
+func selectionTimeout(ctx context.Context, uri string) (int, bool) {
+	deadline, ok := ctx.Deadline()
+	if !ok || setsSelectionTimeout(uri) {
+		return 0, false
+	}
+	seconds := int(math.Ceil(time.Until(deadline).Seconds()))
+	return max(seconds, 1), true
+}
+
+// setsSelectionTimeout reports whether a connection string sets its own
+// server selection timeout.
+func setsSelectionTimeout(uri string) bool {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return false
+	}
+	for key := range u.Query() {
+		if strings.EqualFold(key, "serverSelectionTimeoutMS") {
+			return true
+		}
+	}
+	return false
 }
 
 // stopProgressBar stops the progress bar mongoexport starts, which nothing
@@ -138,8 +207,11 @@ func stopProgressBar(export *mongoexport.MongoExport) {
 // starts with a dash is not read as a flag. --quiet stops mongoexport writing
 // to standard error; it sets mongo-tools' log level for the whole process.
 // --assertExists makes a misspelt collection an error, not an empty export.
-func (e Exporter) args() []string {
+func (e Exporter) args(ctx context.Context) []string {
 	args := []string{"--quiet", "--assertExists", "--db=" + e.database, "--collection=" + e.collection}
+	if seconds, ok := selectionTimeout(ctx, e.uri); ok {
+		args = append(args, "--serverSelectionTimeout="+strconv.Itoa(seconds))
+	}
 	if e.query != "" {
 		args = append(args, "--query="+e.query)
 	}

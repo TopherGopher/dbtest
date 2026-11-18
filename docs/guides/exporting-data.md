@@ -27,7 +27,7 @@ n, err := exporter.New(c.URI(), "app", "people").
     Query(`{"city": "Gotham"}`).
     Sort(`{"name": 1}`).
     Limit(100).
-    WriteJSON(f, exporter.JSONOptions{Canonical: true})
+    WriteJSON(t.Context(), f, exporter.JSONOptions{Canonical: true})
 require.NoError(t, err)
 ```
 
@@ -46,7 +46,7 @@ several exports.
 
 ## Formats
 
-`WriteJSON(w, opts)` writes
+`WriteJSON(ctx, w, opts)` writes
 [MongoDB Extended JSON](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/).
 By default it writes relaxed Extended JSON, one document per line.
 `JSONOptions` changes that:
@@ -57,9 +57,13 @@ By default it writes relaxed Extended JSON, one document per line.
 | `Pretty` | Indented, for a person to read. |
 | `Canonical` | Canonical Extended JSON, which keeps every BSON type exactly, such as `{"n": {"$numberInt": "1"}}`. Use it for fixtures you will import again. |
 
-`WriteCSV(w, fields)` writes a header naming the fields, then a row for each
-document. It needs at least one field. Name a nested field with dots, such as
-`address.city`.
+`WriteCSV(ctx, w, fields)` writes a header naming the fields, then a row for
+each document. It needs at least one field. Name a nested field with dots,
+such as `address.city`.
+
+The context bounds how long an export waits to reach the server, and stops
+an export between documents once it ends. It cannot interrupt a read the
+server never answers, because mongoexport does not pass it to the driver.
 
 ## Files and compression
 
@@ -72,7 +76,7 @@ require.NoError(t, err)
 t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 compressed := gzip.NewWriter(f)
-_, err = exporter.New(c.URI(), "app", "people").WriteJSON(compressed, exporter.JSONOptions{})
+_, err = exporter.New(c.URI(), "app", "people").WriteJSON(t.Context(), compressed, exporter.JSONOptions{})
 require.NoError(t, err)
 require.NoError(t, compressed.Close())
 require.NoError(t, f.Close())
@@ -106,5 +110,5 @@ string the old `conn` used is `conn.URI()`.
 | `Database(name)`, `Collection(name)` | Pass them to `New`. |
 | `ToJSONFile(...)`, which wrote to a temporary file and returned its path | `os.CreateTemp`, then `WriteJSON` into it. |
 | `ToJSONFile`'s `compressToGZIP` argument | Wrap the file in `gzip.NewWriter`. |
-| `CSVFile()`, which could not be given fields | `WriteCSV(w, fields)` |
+| `CSVFile()`, which could not be given fields | `WriteCSV(ctx, w, fields)` |
 | `Filepath(path)` | `os.Create(path)`, then write into it. |
