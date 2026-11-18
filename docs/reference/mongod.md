@@ -112,11 +112,20 @@ mongod.DefaultOptions().WithImage("mirror.corp.example/mongo")
 
 A start pulls an image the daemon does not have. Calls to `Start` and
 `PullImage` in one process that need the same image share one pull. A pull
-that fails because a registry is briefly down, or because of its rate limit,
-is tried again for up to about a minute. If the rate limit refuses every
-attempt, pulls of that image in this process fail at once for the next five
-minutes, so later tests do not wait again. The error still matches
-`dockerclient.ErrRateLimited`.
+that fails because a registry is briefly down is tried again for up to about
+a minute.
+
+When Docker Hub's rate limit refuses one of its official images, such as
+`mongo`, the same image is pulled from Amazon ECR Public instead. One of
+MongoDB's own images, such as `mongodb/mongodb-community-server`, comes from
+`quay.io/mongodb`. For the next five minutes, pulls of that image in this
+process go straight to the mirror. The image is not renamed, so the container
+is created from the mirror's reference, and `Container.Image` reports it. To
+be sure a mirror serves the same content, name the image by digest.
+
+Any other image that the rate limit refuses is tried again, and fails with an
+error that matches `dockerclient.ErrRateLimited`. So does a pull whose mirror
+fails too; its error carries both failures.
 `PullImage` pulls ahead of time, for the image a start with
 the same options would run, and does nothing if the daemon already has it.
 Call it once in `TestMain`, so the download happens before any test starts

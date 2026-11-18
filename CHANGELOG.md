@@ -5,6 +5,17 @@ what to do if it affects you.
 
 ## Unreleased
 
+### A rate-limited pull comes from a mirror
+
+- **When Docker Hub's rate limit refuses an image,** an official image such
+  as `mongo` is pulled from Amazon ECR Public, and one of MongoDB's images
+  from `quay.io/mongodb`. Nothing has to be set. The container is created
+  from the mirror's reference, which `Container.Image` reports.
+- **When the mirror fails too,** the error carries both failures and still
+  matches `dockerclient.ErrRateLimited`.
+- **`mongod.UnresolvedHostError`'s message no longer begins with `mongod:`.**
+  The type, `ErrUnresolvedHost` and `EnvHostIP` are unchanged.
+
 ### The root package is rebuilt on the new `mongod` package
 
 - **New entry points.** `mongotest.Run(t)` starts a container, connects a
@@ -83,13 +94,9 @@ what to do if it affects you.
   nothing if the daemon already has it.
 - When `Start` and `PullImage` calls in one process need the same missing
   image, they share one pull. A pull that fails because a registry is
-  briefly down, or because of its rate limit, is tried again for up to about
-  a minute. If the rate limit refuses every attempt, pulls of that image in
-  the process fail at once for the next five minutes, so later tests do not
-  wait again; the error still matches `dockerclient.ErrRateLimited`.
+  briefly down is tried again for up to about a minute.
 - `dockerclient.ErrRateLimited` matches a pull that a registry refused
-  because of its rate limit, from `dockerapi` or `mobyclient`. For the
-  official image, the error suggests `mongod.ImagePublicECR`.
+  because of its rate limit, from `dockerapi` or `mobyclient`.
 - `mobyclient` reports a daemon's 429, 500 and 503 as a `StatusError` with
   that code, as `dockerapi` does, so they no longer match
   `ErrDaemonResponse`. Match `ErrRateLimited`, or read `StatusError.StatusCode`.

@@ -20,6 +20,7 @@ type Container struct {
 	id         string
 	name       string
 	image      MongoImage
+	ref        string // the reference the container was created from
 	replicaSet string
 	username   string
 	password   string
@@ -60,11 +61,13 @@ func (c *Container) ID() string { return c.id }
 //	mongotest-1a2b3c4d
 func (c *Container) Name() string { return c.name }
 
-// Image returns the reference of the image the container runs.
+// Image returns the reference of the image the container runs. When Docker
+// Hub's rate limit refused the image, this is the mirror's reference for
+// the same image.
 //
 //	docker.io/library/mongo:8.0
 //	public.ecr.aws/docker/library/mongo:8.0
-func (c *Container) Image() string { return c.image.Reference() }
+func (c *Container) Image() string { return c.ref }
 
 // MongoImage returns the image in its three parts.
 //

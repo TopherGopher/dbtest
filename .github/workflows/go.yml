@@ -87,13 +87,12 @@ jobs:
     - name: Get dependencies
       run: go mod download
 
-    # Docker Hub limits anonymous pulls, and a spent limit fails the run.
-    # Amazon ECR Public mirrors the official image, so it is pulled from
-    # there, with retries, and also tagged with the Docker Hub name the tests
-    # ask for. A test that pulls only a missing image then finds it and asks
-    # no registry. Tag 8 is integrationImage in dockerapi/integration_test.go;
-    # tag 8.0 is mongod's default version.
-    - name: Pull the official image from ECR Public
+    # Docker Hub limits anonymous pulls. Its images are pulled from the
+    # registries that mirror them, with retries, and tagged with the Docker
+    # Hub name the tests ask for. A test that pulls only a missing image then
+    # finds it, so CI asks Docker Hub for nothing. mongo:8 is what
+    # mobyclient's tests run; the rest are mongod's defaults for each image.
+    - name: Pull the test images from their mirrors
       run: |
         pull() {
           for attempt in 1 2 3 4 5; do
@@ -102,10 +101,15 @@ jobs:
           done
           return 1
         }
-        for tag in 8 8.0; do
-          pull "public.ecr.aws/docker/library/mongo:$tag"
-          docker tag "public.ecr.aws/docker/library/mongo:$tag" "mongo:$tag"
-        done
+        while read -r mirror name; do
+          pull "$mirror"
+          docker tag "$mirror" "$name"
+        done <<'IMAGES'
+        public.ecr.aws/docker/library/mongo:8 mongo:8
+        public.ecr.aws/docker/library/mongo:8.0 mongo:8.0
+        quay.io/mongodb/mongodb-community-server:8.0-ubi9 mongodb/mongodb-community-server:8.0-ubi9
+        quay.io/mongodb/mongodb-atlas-local:8.0 mongodb/mongodb-atlas-local:8.0
+        IMAGES
 
     # The reaper's tests start two helper programs, reaphelper and
     # ignorehelper, and go test does not count coverage in programs the tests

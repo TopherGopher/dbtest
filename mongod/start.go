@@ -103,7 +103,7 @@ func PullImage(ctx context.Context, opts Options) error {
 		return nil
 	}
 	cfg.logger.Info(pullingMessage, "image", image)
-	if err := pullShared(ctx, docker, image, cfg.pullTimeout, false); err != nil {
+	if _, err := pullShared(ctx, docker, image, cfg.pullTimeout, false); err != nil {
 		return &StartError{Op: OpPullImage, Image: image, Err: err}
 	}
 	return nil
@@ -159,7 +159,7 @@ func (c config) client() (dockerclient.Client, error) {
 // otherwise leave the container behind. See createOnce.
 func newContainer(host string, cfg config, docker dockerclient.Client, certs *certificates) *Container {
 	c := &Container{
-		name: cfg.name, image: cfg.image, replicaSet: cfg.replicaSet,
+		name: cfg.name, image: cfg.image, ref: cfg.image.Reference(), replicaSet: cfg.replicaSet,
 		username: cfg.username, password: cfg.password,
 		host: host, certs: certs, docker: docker, logger: cfg.logger,
 	}
@@ -201,9 +201,14 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 		return deadline, err
 	}
 	c.logger.Info(pullingMessage, "image", request.Image)
-	if err := pullShared(ctx, c.docker, request.Image, cfg.pullTimeout, true); err != nil {
+	pulled, err := pullShared(ctx, c.docker, request.Image, cfg.pullTimeout, true)
+	if err != nil {
 		return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: request.Image, Err: err}
 	}
+	// A mirror's copy keeps the mirror's name: it is not tagged with the
+	// name asked for, so the container is created from the mirror's.
+	request.Image = pulled
+	c.ref = pulled
 	return c.createWithin(ctx, cfg, request)
 }
 

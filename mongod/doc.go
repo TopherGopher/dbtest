@@ -50,12 +50,20 @@
 //
 // A start pulls an image the daemon does not have. Calls to Start and
 // [PullImage] in one process that need the same image share one pull. A pull
-// that fails because a registry is briefly down, or because of its rate
-// limit, is tried again for up to about a minute. If the rate limit refuses
-// every attempt, pulls of that image in this process fail at once for the
-// next five minutes, so later tests do not wait again; the error still
-// matches dockerclient.ErrRateLimited. Call PullImage in TestMain, so the download happens
-// before any test starts. A pull may take up to ten minutes, which
+// that fails because a registry is briefly down is tried again for up to
+// about a minute.
+//
+// When Docker Hub's rate limit refuses an official image, it is pulled from
+// Amazon ECR Public instead, and one of MongoDB's own images from quay.io.
+// For the next five minutes, pulls of that image in this process go
+// straight there. The container is then created from the mirror's
+// reference, which [Container.Image] reports. Name an image by digest to be
+// sure a mirror serves the same content. Any other image that the limit
+// refuses is tried again, and its error matches dockerclient.ErrRateLimited,
+// as does the error when the mirror fails too.
+//
+// Call PullImage in TestMain, so the download happens before any test
+// starts. A pull may take up to ten minutes, which
 // [Options.WithPullTimeout] changes, and does not count against the wait
 // for mongod.
 //
