@@ -11,3 +11,8 @@ site/
 # newer dependencies that the other modules require.
 go.work
 go.work.sum
+
+# Coverage profiles that go test and CI write; never committed.
+coverage.out
+helpers.out
+merged.out
