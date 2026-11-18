@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"testing"
 	"time"
@@ -43,6 +42,8 @@ func replyToAuthCheck(document string) []byte {
 // length is never followed past the cap.
 func FuzzAuthCheckReply(f *testing.F) {
 	f.Add(replyToAuthCheck(okReply))
+	f.Add(replyToAuthCheck(document("\x04argv\x00\x13\x00\x00\x00\x020\x00\x07\x00\x00\x00mongod\x00\x00" +
+		"\x03parsed\x00\x0c\x00\x00\x00\x08auth\x00\x00\x00" + "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f")))
 	f.Add(replyToAuthCheck(refusal(codeUnauthorized, "requires authentication")))
 	f.Add(replyToAuthCheck(errorReply))
 	f.Add(replyToAuthCheck(okReply)[:20])
@@ -53,11 +54,10 @@ func FuzzAuthCheckReply(f *testing.F) {
 		after := &endless{}
 		peer := io.MultiReader(bytes.NewReader(reply), after)
 
-		open, err := readAuthReply(peer)
+		err := readAuthReply(peer)
 
-		settled := err == nil
-		assert.True(t, settled || errors.Is(err, errAuthUnknown), "every reply is open, enforced, or unknown: got %v", err)
-		assert.False(t, open && err != nil, "an open mongod is reported without an error alongside")
+		known := err == nil || isOneOf(err, errAuthOpen, errAuthUnknown)
+		assert.True(t, known, "every reply is open, enforced, or unknown: got %v", err)
 		assert.False(t, isOneOf(err, errNoReply, errNotMongod), "mongod answered the hello, so nothing here puts the address in doubt")
 		assert.LessOrEqual(t, after.read, maxReplyLen, "a peer's stated length is never followed past the cap")
 	})

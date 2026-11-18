@@ -59,20 +59,37 @@ func TestTheErrorReportsWhatTheLastCompletedPollFound(t *testing.T) {
 	})
 }
 
-// A connection string with credentials must not hide an open database.
+// A connection string with credentials must not hide an open database. A
+// mongod that stays open until the start timeout is not returned.
 func TestAMongodThatIgnoresItsCredentialsIsRefused(t *testing.T) {
 	m, _ := servingMock(t, openMongod)
-	started := time.Now()
 
-	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(time.Minute).WithAuth("admin", "secret"))
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(300*time.Millisecond).WithAuth("admin", "secret"))
 
 	require.ErrorIs(t, err, mongod.ErrAuthNotEnforced, "an open mongod must not be returned behind a URI that claims credentials")
-	assert.NotErrorIs(t, err, mongod.ErrNotReady, "so a caller that retries until ready does not retry an open database")
+	assert.ErrorIs(t, err, mongod.ErrNotReady, "it was waited on, in case it was an image's set-up mongod")
 	var open *mongod.AuthNotEnforcedError
 	require.ErrorAs(t, err, &open, "the error names the container")
 	assert.Equal(t, containerID, open.ID, "by the id the daemon gave it")
 	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the open container is removed, not left running")
-	assert.Less(t, time.Since(started), 10*time.Second, "this mongod will not change, so there is nothing to wait for")
+}
+
+// An image first runs a mongod without authentication to create the user.
+// Where a runtime lets the published port reach it, that mongod answers
+// the credentials check, and the start waits for the one that replaces it.
+func TestAnOpenSetUpMongodIsWaitedPast(t *testing.T) {
+	var connections atomic.Int32
+	m, _ := servingMock(t, func(conn net.Conn) {
+		if connections.Add(1) <= 2 {
+			openMongod(conn) // the set-up mongod
+			return
+		}
+		enforcingMongod(conn) // the final one
+	})
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(10*time.Second).WithAuth("admin", "secret"))
+
+	assert.NoError(t, err, "the final mongod enforces the credentials, so the start succeeds")
 }
 
 // Readiness is decided by asking mongod, so a daemon that will not list a

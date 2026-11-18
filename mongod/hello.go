@@ -40,9 +40,9 @@ const (
 const helloElements = "\x10hello\x00\x01\x00\x00\x00" +
 	"\x02$db\x00\x06\x00\x00\x00admin\x00"
 
-// authCheckElements are the fields of {getCmdLineOpts: 1, $db: "admin"}.
-// mongod answers it only to a client that has authenticated, unless it lets
-// anyone in.
+// authCheckElements are the fields of {getCmdLineOpts: 1, $db: "admin"}, a
+// command that changes nothing and needs authentication. Only whether mongod
+// answers it matters, not what it says.
 const authCheckElements = "\x10getCmdLineOpts\x00\x01\x00\x00\x00" +
 	"\x02$db\x00\x06\x00\x00\x00admin\x00"
 
@@ -54,15 +54,15 @@ func wrapDocument(elements string) []byte {
 	return append(doc, 0)
 }
 
-// Why a hello did not find a mongod ready, inside the NotReadyError a caller
-// sees. The first two put the address in doubt; the third does not.
+// Why mongod was not found ready, inside the NotReadyError a caller sees.
+// Only the first two put the address in doubt.
 var (
 	errNoReply      = errors.New("nothing answered a MongoDB command at the address")
 	errNotMongod    = errors.New("something answered at the address, but not as mongod does")
 	errHelloRefused = errors.New("mongod answered, but with an error")
-	// errAuthUnknown: mongod answered the hello, but not the command that
-	// shows whether it makes clients authenticate.
-	errAuthUnknown = errors.New("mongod did not say whether it makes clients authenticate")
+	// errAuthUnknown: mongod answered the hello but did not say whether it
+	// enforces the credentials.
+	errAuthUnknown = errors.New("mongod did not say whether it enforces the credentials")
 )
 
 // helloMessage returns a complete hello command.
@@ -86,7 +86,7 @@ func commandMessage(id uint32, elements string) []byte {
 // port for a moment after the container starts, then accepts them and hangs
 // up while no mongod is listening behind it.
 //
-// When the container has credentials, the same connection then asks for
+// When the container has credentials, the same connection then sends
 // getCmdLineOpts without them, to learn whether mongod enforces them.
 func (p readyProbe) ask(ctx context.Context) error {
 	conn, err := p.dial(ctx)
@@ -108,14 +108,17 @@ func (p readyProbe) ask(ctx context.Context) error {
 	return p.checkAuth(conn)
 }
 
-// checkAuth asks for getCmdLineOpts on a connection that has not
-// authenticated. A mongod that answers is one anyone can use.
+// checkAuth sends getCmdLineOpts on a connection that has not
+// authenticated. A mongod that answers does not enforce the credentials.
 func (p readyProbe) checkAuth(conn net.Conn) error {
+	_ = conn.SetDeadline(time.Now().Add(helloTimeout))
 	if _, err := conn.Write(commandMessage(authCheckID, authCheckElements)); err != nil {
+		// %v, not %w: mongod answered the hello, so a failure here must not
+		// match errNoReply and put the address in doubt.
 		return fmt.Errorf("%w: %v", errAuthUnknown, err)
 	}
-	open, err := readAuthReply(conn)
-	if open {
+	err := readAuthReply(conn)
+	if errors.Is(err, errAuthOpen) {
 		return &AuthNotEnforcedError{Name: p.name, ID: p.id}
 	}
 	return err
@@ -167,38 +170,43 @@ func readHelloReply(peer io.Reader) error {
 // authenticated.
 const codeUnauthorized = "Unauthorized"
 
-// readAuthReply reads the reply to getCmdLineOpts. It reports open when
-// mongod answered it, and nil when mongod refused it as unauthorized. Any
-// other outcome is errAuthUnknown: mongod is answering at this address, so
-// the address is not in doubt, and the next poll asks again.
-func readAuthReply(peer io.Reader) (open bool, err error) {
+// errAuthOpen: mongod answered a client that gave no credentials.
+var errAuthOpen = errors.New("mongod answered a client that gave no credentials")
+
+// readAuthReply reads the reply to getCmdLineOpts. It returns nil when
+// mongod refused as unauthorized, and errAuthOpen when mongod answered. Any
+// other outcome returns errAuthUnknown, which does not put the address in
+// doubt; the next poll asks again.
+func readAuthReply(peer io.Reader) error {
 	reply, err := readReply(peer, authCheckID)
 	switch {
 	case err != nil:
-		return false, fmt.Errorf("%w: %v", errAuthUnknown, err)
+		// %v, not %w, for the reason given in checkAuth.
+		return fmt.Errorf("%w: %v", errAuthUnknown, err)
 	case reply.ok:
-		return true, nil
+		return errAuthOpen
 	case reply.codeName == codeUnauthorized:
-		return false, nil
+		return nil
 	}
-	return false, fmt.Errorf("%w: %s: %q", errAuthUnknown,
+	return fmt.Errorf("%w: %s: %q", errAuthUnknown,
 		truncate(reply.codeName, maxCodeNameLen), truncate(reply.errmsg, maxErrmsgLen))
 }
 
-// readReply reads the reply to the command sent with id. Anything that is
-// not a well-formed reply to it is errNotMongod.
-func readReply(peer io.Reader, id uint32) (helloReply, error) {
+// readReply reads the reply to the command sent with id. No reply is
+// errNoReply; anything else that is not a well-formed reply to it is
+// errNotMongod.
+func readReply(peer io.Reader, id uint32) (commandReply, error) {
 	body, err := readReplyBody(peer, id)
 	if err != nil {
-		return helloReply{}, err
+		return commandReply{}, err
 	}
 	elements, wellFormed := replyElements(body)
 	if !wellFormed {
-		return helloReply{}, errNotMongod
+		return commandReply{}, errNotMongod
 	}
-	reply, wellFormed := parseHelloReply(elements)
+	reply, wellFormed := parseCommandReply(elements)
 	if !wellFormed {
-		return helloReply{}, errNotMongod
+		return commandReply{}, errNotMongod
 	}
 	return reply, nil
 }
@@ -253,18 +261,18 @@ func replyElements(body []byte) ([]byte, bool) {
 	return documentElements(body[flagsAndKindLen:])
 }
 
-// helloReply is what mongod said to a command.
-type helloReply struct {
+// commandReply is what mongod said to a command.
+type commandReply struct {
 	hasOK    bool
 	ok       bool
 	codeName string
 	errmsg   string
 }
 
-// parseHelloReply reads the fields a verdict needs from a reply's elements.
+// parseCommandReply reads the fields a verdict needs from a reply's elements.
 // It reports false for anything that is not well-formed BSON.
-func parseHelloReply(elements []byte) (helloReply, bool) {
-	var reply helloReply
+func parseCommandReply(elements []byte) (commandReply, bool) {
+	var reply commandReply
 	wellFormed := eachElement(elements, func(kind byte, name string, value []byte) {
 		switch name {
 		case "ok":
@@ -291,7 +299,7 @@ const codeCommandNotFound = "CommandNotFound"
 //
 // A server from before the hello command answers that it does not know it.
 // That counts as ready: only a serving mongod can say so.
-func (r helloReply) verdict() error {
+func (r commandReply) verdict() error {
 	if r.ok || r.codeName == codeCommandNotFound {
 		return nil
 	}

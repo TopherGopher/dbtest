@@ -68,19 +68,14 @@ func (p readyProbe) wait(ctx context.Context) error {
 	}
 }
 
-// check makes one attempt. Each step answers what the one before cannot:
-// asking mongod says the published address reaches it, that it is serving,
-// and that it enforces any credentials the container was created with; the
-// image's health check says an image that replaces its mongod has finished
-// starting.
+// check makes one attempt. Asking mongod shows that the published address
+// reaches it, that it is serving, and that it enforces any credentials the
+// container was created with. The image's health check, when it has one,
+// shows that an image which restarts mongod after creating the user has
+// finished starting.
 func (p readyProbe) check(ctx context.Context) (ready bool, err error) {
 	if err := p.ask(ctx); err != nil {
-		// Nothing answering means a container still starting, or one that
-		// has died. Only the second is worth stopping for.
-		if exited := p.exitedError(ctx, err); exited != nil {
-			return false, exited
-		}
-		return false, err
+		return false, p.unlessExited(ctx, err)
 	}
 	if err := p.healthy(ctx); err != nil {
 		return false, err
@@ -122,9 +117,23 @@ func declaresHealthCheck(status string) bool {
 	return status != "" && status != "none"
 }
 
-// isFinal reports whether waiting longer cannot help.
+// unlessExited returns err, or the container's exit when nothing answering
+// was because the container has died rather than because it is starting.
+func (p readyProbe) unlessExited(ctx context.Context, err error) error {
+	if !errors.Is(err, errNoReply) {
+		return err // something answered, so the container is running
+	}
+	if exited := p.exitedError(ctx, err); exited != nil {
+		return exited
+	}
+	return err
+}
+
+// isFinal reports whether waiting longer cannot help. A mongod that lets
+// anyone in is not final: it may be an image's set-up mongod, which a
+// runtime may let the published port reach, about to be replaced.
 func isFinal(err error) bool {
-	return errors.Is(err, ErrAuthNotEnforced) || errors.Is(err, ErrContainerExited)
+	return errors.Is(err, ErrContainerExited)
 }
 
 // exitedError returns an error if the container can never become ready

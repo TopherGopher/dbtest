@@ -168,7 +168,8 @@ A start that fails removes the container it created. The error says which
 step failed, and matches a sentinel such as `ErrNotReady` or
 `ErrContainerExited` with `errors.Is`. When `mongod` was not ready in time,
 the message says which of these happened: nothing answered at the address,
-something answered that is not `mongod`, or `mongod` answered with an error.
+something answered that is not `mongod`, `mongod` answered with an error, or
+`mongod` did not say whether it enforces the credentials.
 A start that gets no answer from the daemon ends at the start timeout, unless
 it is pulling an image: the start timeout does not cover a pull, which has
 its own limit, ten minutes by default; see `WithPullTimeout`.
@@ -196,10 +197,11 @@ the container has them.
 a network you trust. Creating the user makes a start a few seconds slower,
 which is why a loopback container gets none unless you ask.
 
-If `mongod` lets in a client without the credentials, because the image did
-not create the user or a flag such as `--transitionToAuth` opens it, the
-start removes the container and returns `ErrAuthNotEnforced` rather than
-hand back an open `mongod`.
+If `mongod` answers a client that gives no credentials, the start removes
+the container and returns `ErrAuthNotEnforced` rather than hand back an open
+`mongod`. That happens when the image did not create the user, or when a
+flag such as `--transitionToAuth` turns authentication off. Use an image that
+creates the user, drop the flag, or pass `WithoutAuth`.
 
 Anyone who can use the daemon can read the credentials. Traffic is not
 encrypted unless you ask for [TLS](#tls).

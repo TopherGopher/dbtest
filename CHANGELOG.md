@@ -5,19 +5,23 @@ what to do if it affects you.
 
 ## Unreleased
 
-### `mongod.Start` asks mongod whether it is ready, and no longer reads its flags
+### `mongod.Start` no longer reads mongod's flags from the container's process list
 
 - **A mongod whose flags are set in a configuration file now starts.**
-  `Start` used to read mongod's command line from the container's process
-  list, and refused a mongod whose `--auth` it could not see.
-- **A container created with credentials** is now checked by asking mongod,
-  without them, for its command-line options. A mongod that answers lets
-  anyone in, so `Start` removes the container and returns
-  `ErrAuthNotEnforced`, as before. `AuthNotEnforcedError`'s message now says
-  what was seen.
-- **`ErrLoopbackOnly` is deprecated.** Nothing returns it any more. It will
-  be removed in the next release that breaks compatibility; code that
-  matches it can stop.
+  `Start` used to read mongod's command line, and refused a mongod whose
+  `--auth` it could not see.
+- **A container created with credentials is now checked by sending mongod a
+  command that needs them, without giving them.** If mongod answers, `Start`
+  removes the container and returns `ErrAuthNotEnforced`, as before.
+  `AuthNotEnforcedError`'s message has changed; match the error with
+  `errors.Is`, not its text.
+- **A start can now end in `ErrNotReady` because mongod never said whether it
+  enforces the credentials,** such as a mongod shutting down for the whole
+  start timeout.
+- **`ErrLoopbackOnly` is deprecated.** Nothing returns it. A mongod that
+  listens only on the container's loopback now ends in `ErrNotReady`, with
+  nothing answering at the address. It will be removed in the next release
+  that breaks compatibility.
 - **A daemon or socket proxy that refuses to list a container's processes**
   no longer stops a start.
 
