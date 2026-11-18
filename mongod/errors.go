@@ -223,8 +223,8 @@ type UnpublishedPortError = container.UnpublishedPortError
 // the start saw. Name, ID, Host and Port say where it waited. ID is empty
 // and Port zero if time ran out before the container was created or its
 // port published. HostSource says what chose Host, such as WithHostIP.
-// ContextEnded is true if the caller's context, not the start timeout,
-// ended the wait. Cause is the context's error. LastErr is the last
+// Timeout is the start timeout. ContextEnded is true if the caller's
+// context, not the start timeout, ended the wait. Cause is the context's error. LastErr is the last
 // failure, such as the [StartError] of a step cut short.
 type NotReadyError = container.NotReadyError
 
@@ -235,13 +235,15 @@ func (c config) notReadyAdvice(lastErr error) string {
 	case errors.Is(lastErr, ErrAuthNotEnforced):
 		return "" // the error from the credentials check says what to do
 	case !addressInDoubt(lastErr):
-		return "Allow longer with WithStartTimeout"
+		return allowLonger
 	case c.hostSource != "":
-		return "The address came from " + c.hostSource +
-			". Allow longer with WithStartTimeout, or correct the address with WithHostIP or " + EnvHostIP
+		return "The address came from " + c.hostSource + ". " + allowLonger + ", or correct the address with WithHostIP or " + EnvHostIP
 	}
-	return "Allow longer with WithStartTimeout, or correct the address with WithHostIP or " + EnvHostIP
+	return allowLonger + ", or correct the address with WithHostIP or " + EnvHostIP
 }
+
+// allowLonger is the advice for a start that may only have been slow.
+const allowLonger = "Allow longer with WithStartTimeout or " + EnvStartTimeout
 
 // addressInDoubt reports whether the last attempt failed in a way a wrong
 // address would explain: nothing answered there, or something that is not
@@ -296,8 +298,8 @@ type AuthNotEnforcedError struct {
 }
 
 func (e *AuthNotEnforcedError) Error() string {
-	return fmt.Sprintf("mongod: container %s (%s) was created with credentials, but its mongod answered a client "+
-		"that gave none, so anyone can use it. The image, or a flag passed with WithMongodArgs, turned authentication off. "+
+	return fmt.Sprintf("container %s (%s) was created with credentials, but its mongod answered a client that gave none, "+
+		"so anyone can use it. The image, or a flag passed with WithMongodArgs, turned authentication off. "+
 		"Use an image that enforces the credentials, remove the flag, or pass WithoutAuth to accept a mongod anyone can use",
 		e.Name, container.ShortID(e.ID))
 }

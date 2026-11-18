@@ -30,3 +30,7 @@ var (
 
 // ExitOutputLimit is how much of an exited container's output is kept.
 const ExitOutputLimit = container.ExitOutputLimit
+
+// NotReadyAdvice is the advice a start that ran out of time gives, after
+// lastErr.
+func NotReadyAdvice(lastErr error) string { return config{}.notReadyAdvice(lastErr) }

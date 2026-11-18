@@ -61,3 +61,14 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 		})
 	}
 }
+
+// When a start runs out of time, the advice suits what went wrong: the
+// address is in doubt only when nothing, or something other than mongod,
+// answered; and a mongod that ignores its credentials needs no longer wait.
+func TestTheAdviceForAStartThatRanOutOfTimeSuitsTheFailure(t *testing.T) {
+	assert.Contains(t, mongod.NotReadyAdvice(mongod.ErrNoReply), mongod.EnvHostIP, "nothing answering may be a wrong address")
+	assert.Contains(t, mongod.NotReadyAdvice(mongod.ErrNotMongod), mongod.EnvHostIP, "so may something other than mongod answering")
+	assert.NotContains(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), mongod.EnvHostIP, "mongod answered, so the address is right")
+	assert.NotEmpty(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), "but a longer wait may help")
+	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}), "a mongod that ignores its credentials will not change with a longer wait")
+}

@@ -54,8 +54,8 @@ what to do if it affects you.
 
 ### Start errors no longer begin with `mongod:`
 
-- **`StartError`, `NotReadyError` and `UnpublishedPortError`** no longer
-  begin with `mongod:`. `NotReadyError` says "the caller's context" rather
+- **`StartError`, `NotReadyError`, `UnpublishedPortError` and
+  `AuthNotEnforcedError`** no longer begin with `mongod:`. `NotReadyError` says "the caller's context" rather
   than "the context passed to Start". `ErrNotReady`'s own text is now "the
   container did not become ready in time". Errors about options still begin
   with `mongod:`.
@@ -97,7 +97,11 @@ what to do if it affects you.
   `Instance` embeds the driver's client. Calls through easymongo stop
   compiling: `conn.D("db").C("coll")` becomes `inst.Database("db").Collection("coll")`,
   `conn.MongoDriverClient()` becomes `inst.Client`, and `conn.MongoURI()`
-  becomes `inst.URI()`. `EasyMongoWithContainer` is removed; use `Run`.
+  becomes `inst.URI()`. `conn.Database("db")` still compiles but now
+  returns the driver's `*mongo.Database`, so a following `.C("coll")` fails;
+  write `.Collection("coll")`, or keep easymongo with
+  `easymongo.ConnectWith(inst.URI()).FromMongoDriverClient(inst.Client)`.
+  `EasyMongoWithContainer` is removed; use `Run`.
 - **`DatabaseExporter` is removed.** It moves to its own module,
   `github.com/tophergopher/mongotest/exporter`, which writes to any
   `io.Writer`; its [guide](https://tophergopher.github.io/mongotest/guides/exporting-data/#moving-from-databaseexporter)

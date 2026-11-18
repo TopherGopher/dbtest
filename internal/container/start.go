@@ -208,6 +208,9 @@ func (s *start) run(ctx context.Context) (dockerclient.ContainerInspect, error) 
 		return dockerclient.ContainerInspect{}, s.stepError(OpStart, err)
 	}
 	info, err := s.c.docker.ContainerInspect(ctx, s.c.id)
+	if dockerclient.IsNotFound(err) {
+		return dockerclient.ContainerInspect{}, s.c.removedError(err)
+	}
 	if err != nil {
 		return dockerclient.ContainerInspect{}, s.stepError(OpInspect, err)
 	}
