@@ -137,6 +137,34 @@ func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
 	assert.NoError(t, mongod.PullImage(context.Background(), opts), "once the limit is forgotten, the next pull asks the registry")
 }
 
+func TestASpentRateLimitIsKeptToItsDaemonAndImage(t *testing.T) {
+	mongod.SetPullWait(t, noWait)
+	mongod.SetRateLimitMemory(t, time.Hour)
+	limitedOnlyForTheDefault := func(_ context.Context, image string) error {
+		if image == defaultImage {
+			return rateLimitedInTheStream
+		}
+		return nil
+	}
+	m := pullMock(t)
+	missingImage(m)
+	m.ImagePullFunc = limitedOnlyForTheDefault
+	require.ErrorIs(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m)), dockerclient.ErrRateLimited,
+		"the limit is spent for the default image on this daemon")
+	attempts := len(m.CallsTo("ImagePull"))
+
+	assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage("7.0")),
+		"another image on the same daemon is still pulled")
+	assert.Len(t, m.CallsTo("ImagePull"), attempts+1, "with a pull of its own")
+
+	other := &dockermock.Mock{HostFunc: func() string { return t.Name() + "-other" }}
+	missingImage(other)
+	other.ImagePullFunc = func(context.Context, string) error { return nil }
+	assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(other)),
+		"the same image from another daemon is still pulled")
+	assert.Len(t, other.CallsTo("ImagePull"), 1, "with a pull of its own")
+}
+
 func TestARateLimitCutShortByTheCallerIsNotRemembered(t *testing.T) {
 	cases := map[string]struct {
 		opts   mongod.Options
