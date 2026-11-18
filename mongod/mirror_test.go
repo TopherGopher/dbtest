@@ -154,3 +154,20 @@ func TestAContainerIsCreatedFromTheMirrorsImage(t *testing.T) {
 		"the image is not tagged with Docker Hub's name, so the container is created from the mirror's")
 	assert.Equal(t, "public.ecr.aws/docker/library/mongo:8.0", c.Image(), "and the container reports the image it runs")
 }
+
+func TestAMirrorsCopyOnTheDaemonIsNotPulledAgain(t *testing.T) {
+	m := pullMock(t)
+	m.ImageInspectFunc = func(_ context.Context, ref string) (dockerclient.ImageInspect, error) {
+		if strings.HasPrefix(ref, "docker.io/") {
+			return dockerclient.ImageInspect{}, dockerclient.ErrNotFound
+		}
+		return dockerclient.ImageInspect{}, nil // an earlier run pulled the mirror's copy
+	}
+	rateLimitedOnDockerHub(m, nil)
+
+	err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m))
+
+	require.NoError(t, err, "the image is on the daemon, under its mirror's name")
+	assert.Equal(t, []string{"docker.io/library/mongo:8.0"}, pulled(m),
+		"Docker Hub is asked once, and the mirror's copy is used without downloading it again")
+}

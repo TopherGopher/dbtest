@@ -53,10 +53,11 @@ var rateLimitMemory = 5 * time.Minute
 
 // Shared pulls image, or joins a pull of it from the same daemon that is
 // already in progress, and waits for it within ctx and timeout. If Docker
-// Hub's rate limit refuses it, the image comes from the first of mirrors
-// that has it. Shared returns the reference the image was pulled as, which
-// is the mirror's when it came from there. A pull the timeout cut short
-// returns a *TimeoutError.
+// Hub's rate limit refuses it, it comes instead from the name the first of
+// mirrors gives it; a copy already on the daemon by that name is used as
+// it is.
+// Shared returns the reference the image is on the daemon as. A pull the
+// timeout cut short returns a *TimeoutError.
 func Shared(ctx context.Context, docker dockerclient.Client, image string, timeout time.Duration, mirrors ...Mirror) (string, error) {
 	key := pullKey{host: docker.Host(), image: image}
 	p := join(ctx, docker, key, timeout, firstMirror(mirrors, image))
@@ -95,7 +96,7 @@ func join(ctx context.Context, docker dockerclient.Client, key pullKey, timeout 
 // one that failed too, ends with the earlier failure without asking any
 // registry. The caller holds the lock.
 func startUnlessSpentLocked(ctx context.Context, docker dockerclient.Client, key pullKey, timeout time.Duration, mirror string) *sharedPull {
-	r := route{image: key.image, mirror: mirror}
+	r := route{key: key, mirror: mirror}
 	if spent := pulls.spent[key]; spent != nil && time.Now().Before(spent.until) {
 		if !spent.leavesMirror(mirror) {
 			return endedPull(spent)
@@ -123,10 +124,9 @@ func startPull(ctx context.Context, docker dockerclient.Client, key pullKey, tim
 	p := &sharedPull{cancel: cancel, done: make(chan struct{}), timeout: timeout, pause: pullWait}
 	go func() {
 		defer cancel()
-		got := p.fetch(bounded, docker, r)
-		p.ref, p.err = got.ref, got.err
+		p.ref, p.err = p.fetch(bounded, docker, r)
 		p.timedOut = p.err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded)
-		finish(key, p, got.spentLimit(bounded.Err() == nil))
+		finish(key, p, spentLimit(r, p.err, bounded.Err() == nil))
 		close(p.done)
 	}()
 	return p
@@ -145,16 +145,29 @@ func leave(key pullKey, p *sharedPull) {
 	p.cancel()
 }
 
-// finish removes p from the pulls in progress, and remembers a refusal by a
-// rate limit, if there was one.
+// finish removes p from the pulls in progress, and remembers how a rate
+// limit ended it, if one did.
 func finish(key pullKey, p *sharedPull, spent *spentLimitError) {
 	pulls.Lock()
 	defer pulls.Unlock()
 	forgetLocked(key, p)
 	if spent != nil {
-		spent.until = time.Now().Add(rateLimitMemory)
-		pulls.spent[key] = spent
+		rememberLocked(key, spent)
 	}
+}
+
+// remember records that a rate limit refused key, so later pulls go straight
+// to its mirror until the refusal is forgotten.
+func remember(key pullKey, refusal error) {
+	pulls.Lock()
+	defer pulls.Unlock()
+	rememberLocked(key, &spentLimitError{err: refusal})
+}
+
+// rememberLocked records spent from now. The caller holds the lock.
+func rememberLocked(key pullKey, spent *spentLimitError) {
+	spent.until = time.Now().Add(rateLimitMemory)
+	pulls.spent[key] = spent
 }
 
 // spentLimitError is a refusal by a rate limit that is still remembered. It
@@ -228,41 +241,43 @@ func withCause(ended, last error) error {
 // route is where a pull goes: the image itself, unless a rate limit has
 // already refused it, and then the mirror, if there is one.
 type route struct {
-	image  string
+	key    pullKey
 	mirror string // "" when no registry mirrors the image
 	// limited is a remembered refusal, which sends the pull straight to
 	// the mirror.
 	limited error
 }
 
-// fetched is how a pull ended.
-type fetched struct {
-	ref string
-	err error
-	// limited is the rate limit's refusal, if one sent the pull to the
-	// mirror; mirrored says the mirror was then tried.
-	limited  error
-	mirrored bool
-}
-
-// fetch pulls the image, and pulls the mirror's copy instead if a rate
-// limit refuses it. A rate limit lasts hours, so it is not waited out when
-// there is a mirror; any other failure that may pass is tried again where
-// it happened.
-func (p *sharedPull) fetch(ctx context.Context, docker dockerclient.Client, r route) fetched {
+// fetch pulls the image, and the mirror's copy instead if a rate limit
+// refuses it. It returns the reference the image is on the daemon as. A rate
+// limit lasts hours, so it is not waited out when there is a mirror; any
+// other failure that may pass is tried again where it happened.
+func (p *sharedPull) fetch(ctx context.Context, docker dockerclient.Client, r route) (string, error) {
 	limited := r.limited
 	if limited == nil {
-		err := p.pullWithRetries(ctx, docker, r.image, r.mirror != "")
+		err := p.pullWithRetries(ctx, docker, r.key.image, r.mirror != "")
 		if !mirrorFor(err, r.mirror) {
-			return fetched{ref: r.image, err: err}
+			return r.key.image, err
 		}
+		// Remembered at once, so a pull that starts while this one is at
+		// the mirror goes there too.
+		remember(r.key, err)
 		limited = err
 	}
-	if err := p.pullWithRetries(ctx, docker, r.mirror, false); err != nil {
-		failed := &mirrorError{image: r.image, mirror: r.mirror, limited: limited, mirrored: err}
-		return fetched{err: failed, limited: limited, mirrored: true}
+	// An earlier pull may have left the mirror's copy on the daemon.
+	if onDaemon(ctx, docker, r.mirror) {
+		return r.mirror, nil
 	}
-	return fetched{ref: r.mirror, limited: limited}
+	if err := p.pullWithRetries(ctx, docker, r.mirror, false); err != nil {
+		return "", &MirrorError{Image: r.key.image, Mirror: r.mirror, Limited: limited, Mirrored: err}
+	}
+	return r.mirror, nil
+}
+
+// onDaemon reports whether the daemon has the image ref names.
+func onDaemon(ctx context.Context, docker dockerclient.Client, ref string) bool {
+	_, err := docker.ImageInspect(ctx, ref)
+	return err == nil
 }
 
 // mirrorFor reports whether a failed pull should go to mirror: only a rate
@@ -271,28 +286,27 @@ func mirrorFor(err error, mirror string) bool {
 	return mirror != "" && errors.Is(err, dockerclient.ErrRateLimited)
 }
 
-// spentLimit returns what to remember of the pull, or nil. complete says no
-// timeout cut the pull short. A refusal that sent the pull to a mirror is
-// remembered, and so is the mirror's failure, when it ran its course. With
-// no mirror, a rate limit is remembered only if it refused every attempt,
-// which a pull cut short does not show.
-func (f fetched) spentLimit(complete bool) *spentLimitError {
-	if f.limited != nil {
-		return &spentLimitError{err: f.rememberedErr(complete), mirrorFailed: f.mirrored && complete}
+// spentLimit returns what to remember of a pull that ended with err, or nil.
+// complete says no timeout cut it short. A mirror that failed is remembered,
+// so later pulls fail at once. The refusal that sent the pull there was
+// remembered when it happened, and a pull through the mirror does not renew
+// it. With no mirror, a rate limit is remembered only if it refused every
+// attempt, which a pull cut short does not show.
+func spentLimit(r route, err error, complete bool) *spentLimitError {
+	var mirrorFailed *MirrorError
+	if errors.As(err, &mirrorFailed) && complete {
+		return &spentLimitError{err: err, mirrorFailed: true}
 	}
-	if complete && errors.Is(f.err, dockerclient.ErrRateLimited) {
-		return &spentLimitError{err: f.err}
+	if r.mirror == "" && refusedEveryAttempt(err, complete) {
+		return &spentLimitError{err: err}
 	}
 	return nil
 }
 
-// rememberedErr is the error a later pull reports while the refusal is
-// remembered: the mirror's failure too, if the mirror ran its course.
-func (f fetched) rememberedErr(complete bool) error {
-	if f.mirrored && complete {
-		return f.err
-	}
-	return f.limited
+// refusedEveryAttempt reports whether a rate limit refused every attempt of
+// a pull: it ended refused, and no timeout cut it short.
+func refusedEveryAttempt(err error, complete bool) bool {
+	return complete && errors.Is(err, dockerclient.ErrRateLimited)
 }
 
 // The daemon already retries a failed request a few times within a second
@@ -329,12 +343,15 @@ func (p *sharedPull) pullWithRetries(ctx context.Context, docker dockerclient.Cl
 				return withCause(waitErr, err)
 			}
 		}
-		if err = docker.ImagePull(ctx, image); !worthRetrying(err, stopAtLimit) {
+		err = docker.ImagePull(ctx, image)
+		if err != nil {
+			pulls.Lock()
+			p.last = err
+			pulls.Unlock()
+		}
+		if !worthRetrying(err, stopAtLimit) {
 			return err
 		}
-		pulls.Lock()
-		p.last = err
-		pulls.Unlock()
 	}
 	return err
 }

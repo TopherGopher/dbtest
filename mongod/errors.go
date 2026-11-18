@@ -309,7 +309,9 @@ func (e *NotReadyError) Unwrap() []error {
 func (e *NotReadyError) Is(target error) bool { return target == ErrNotReady }
 
 // UnresolvedHostError reports that this process is in a container and the
-// address of the daemon's host could not be found from inside it. It matches
+// address of the daemon's host could not be found from inside it. Read
+// Evidence for what showed this process is in a container, DockerHost for
+// the daemon address, and Err for why the gateway lookup failed. It matches
 // ErrUnresolvedHost and dockerclient.ErrInvalidArgument.
 type UnresolvedHostError = hostaddr.UnresolvedError
 

@@ -87,11 +87,12 @@ jobs:
     - name: Get dependencies
       run: go mod download
 
-    # Docker Hub limits anonymous pulls. Its images are pulled from the
-    # registries that mirror them, with retries, and tagged with the Docker
-    # Hub name the tests ask for. A test that pulls only a missing image then
-    # finds it, so CI asks Docker Hub for nothing. mongo:8 is what
-    # mobyclient's tests run; the rest are mongod's defaults for each image.
+    # Docker Hub limits anonymous pulls. So that no run depends on Docker Hub
+    # at all, the test images are pulled from the registries that mirror
+    # them, with retries, and tagged with the Docker Hub names the tests ask
+    # for. The tests pull only images the daemon lacks, so they find these
+    # and never ask Docker Hub. mongo:8 is what mobyclient's tests run; the
+    # rest are mongod's defaults for each image the tests start.
     - name: Pull the test images from their mirrors
       run: |
         pull() {

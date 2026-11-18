@@ -50,17 +50,23 @@
 //
 // A start pulls an image the daemon does not have. Calls to Start and
 // [PullImage] in one process that need the same image share one pull. A pull
-// that fails because a registry is briefly down is tried again for up to
-// about a minute.
+// that fails because a registry is briefly down is tried again for about a
+// minute.
 //
-// When Docker Hub's rate limit refuses an official image, it is pulled from
-// Amazon ECR Public instead, and one of MongoDB's own images from quay.io.
-// For the next five minutes, pulls of that image in this process go
-// straight there. The container is then created from the mirror's
-// reference, which [Container.Image] reports. Name an image by digest to be
-// sure a mirror serves the same content. Any other image that the limit
-// refuses is tried again, and its error matches dockerclient.ErrRateLimited,
-// as does the error when the mirror fails too.
+// When Docker Hub's rate limit refuses a pull, a Docker official image such
+// as mongo is pulled from Amazon ECR Public instead. An image under
+// mongodb/, such as mongodb/mongodb-community-server, is pulled from
+// quay.io/mongodb. For the next five minutes, pulls of that image in this
+// process go straight to the mirror. The container runs the image under the
+// mirror's name, which [Container.Image] returns. Name an image by digest to
+// be sure a mirror serves exactly that content. There is no option to turn
+// this off; an image on any other registry is pulled from there alone.
+//
+// A Docker Hub image with no mirror is tried again for about a minute. If
+// the limit still refuses it, the error matches
+// [github.com/tophergopher/mongotest/dockerclient.ErrRateLimited], and later
+// pulls of that image in this process fail at once for five minutes. So does
+// an image whose mirror fails too, and that error names both failures.
 //
 // Call PullImage in TestMain, so the download happens before any test
 // starts. A pull may take up to ten minutes, which

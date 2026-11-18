@@ -7,14 +7,21 @@ what to do if it affects you.
 
 ### A rate-limited pull comes from a mirror
 
-- **When Docker Hub's rate limit refuses an image,** an official image such
-  as `mongo` is pulled from Amazon ECR Public, and one of MongoDB's images
-  from `quay.io/mongodb`. Nothing has to be set. The container is created
-  from the mirror's reference, which `Container.Image` reports.
-- **When the mirror fails too,** the error carries both failures and still
-  matches `dockerclient.ErrRateLimited`.
-- **`mongod.UnresolvedHostError`'s message no longer begins with `mongod:`.**
-  The type, `ErrUnresolvedHost` and `EnvHostIP` are unchanged.
+- **When Docker Hub's rate limit refuses a pull,** a Docker official image
+  such as `mongo` is pulled from Amazon ECR Public instead. An image under
+  `mongodb/` is pulled from `quay.io/mongodb`. Nothing has to be set.
+- **Before, such a pull failed** with `dockerclient.ErrRateLimited`. Now it
+  fails only when the mirror fails too. That error carries both failures,
+  and still matches `dockerclient.ErrRateLimited`.
+- **The container runs the image under the mirror's name,** which
+  `Container.Image` returns. A test that compares `Container.Image` with the
+  name it asked for may now see the mirror's name. `Container.MongoImage`
+  still returns the image asked for.
+
+### `mongod.UnresolvedHostError`'s message no longer begins with `mongod:`
+
+- The type, `ErrUnresolvedHost` and `EnvHostIP` are unchanged. Code that
+  matched the message text should use `errors.Is(err, mongod.ErrUnresolvedHost)`.
 
 ### The root package is rebuilt on the new `mongod` package
 

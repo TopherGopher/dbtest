@@ -22,9 +22,15 @@ func Waiters(host, image string) int {
 // SetWait replaces the wait between pull attempts until the test ends, so a
 // test of the retry does not sleep for real.
 func SetWait(t interface{ Cleanup(func()) }, wait func(ctx context.Context, d time.Duration) error) {
+	pulls.Lock()
 	saved := pullWait
 	pullWait = wait
-	t.Cleanup(func() { pullWait = saved })
+	pulls.Unlock()
+	t.Cleanup(func() {
+		pulls.Lock()
+		defer pulls.Unlock()
+		pullWait = saved
+	})
 }
 
 // ForgetSpentLimits forgets every spent rate limit, so none carries into the

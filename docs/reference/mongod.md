@@ -112,20 +112,25 @@ mongod.DefaultOptions().WithImage("mirror.corp.example/mongo")
 
 A start pulls an image the daemon does not have. Calls to `Start` and
 `PullImage` in one process that need the same image share one pull. A pull
-that fails because a registry is briefly down is tried again for up to about
-a minute.
+that fails because a registry is briefly down is tried again for about a
+minute.
 
-When Docker Hub's rate limit refuses one of its official images, such as
-`mongo`, the same image is pulled from Amazon ECR Public instead. One of
-MongoDB's own images, such as `mongodb/mongodb-community-server`, comes from
-`quay.io/mongodb`. For the next five minutes, pulls of that image in this
-process go straight to the mirror. The image is not renamed, so the container
-is created from the mirror's reference, and `Container.Image` reports it. To
-be sure a mirror serves the same content, name the image by digest.
+When Docker Hub's rate limit refuses a pull, a Docker official image such as
+`mongo` is pulled from Amazon ECR Public instead. An image under `mongodb/`,
+such as `mongodb/mongodb-community-server`, is pulled from `quay.io/mongodb`.
+For the next five minutes, pulls of that image in this process go straight to
+the mirror. The container runs the image under the mirror's name, such as
+`public.ecr.aws/docker/library/mongo:8.0`, and `Container.Image` returns that
+name. To be sure a mirror serves exactly the content you expect, name the
+image by digest. These fallbacks are for Docker Hub's images only, and cannot
+be turned off. An image you name on another registry, such as
+`mirror.corp.example`, is pulled from there alone.
 
-Any other image that the rate limit refuses is tried again, and fails with an
-error that matches `dockerclient.ErrRateLimited`. So does a pull whose mirror
-fails too; its error carries both failures.
+A Docker Hub image with no mirror is tried again for about a minute. If the
+limit still refuses it, the error matches `dockerclient.ErrRateLimited`, and
+later pulls of that image in this process fail at once for five minutes. So
+does an image whose mirror fails too, and that error names both failures.
+
 `PullImage` pulls ahead of time, for the image a start with
 the same options would run, and does nothing if the daemon already has it.
 Call it once in `TestMain`, so the download happens before any test starts

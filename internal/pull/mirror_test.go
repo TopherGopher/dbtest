@@ -34,6 +34,9 @@ func TestAnImageOffDockerHubOrOutsideTheNamespaceHasNoMirror(t *testing.T) {
 		"quay.io/mongodb/mongodb-community-server:8.0-ubi9",
 		"localhost/mongo:7", // a local registry, though its name has no dot
 		"registry.example.com:5000/mongo:7",
+		"registry.example.com/library/mongo:7", // the namespace, on another registry
+		"localhost:5000/mongodb/x:1",
+		"Docker.io/library/mongo:7", // docker would take this for another registry
 		"Not A Reference",
 	} {
 		_, ok := OfficialImages(ref)
@@ -53,13 +56,15 @@ func FuzzHubMirror(f *testing.F) {
 	} {
 		f.Add(seed)
 	}
+	mongoDB := HubMirror("mongodb", "quay.io")
 	f.Fuzz(func(t *testing.T, ref string) {
-		mirrored, ok := OfficialImages(ref)
-		if !ok {
-			return
+		if mirrored, ok := OfficialImages(ref); ok {
+			assert.True(t, strings.HasPrefix(mirrored, "public.ecr.aws/docker/library/"), "an official image is found only on ECR Public")
+			_, again := OfficialImages(mirrored)
+			assert.False(t, again, "and a mirror's name is not mirrored again")
 		}
-		assert.True(t, strings.HasPrefix(mirrored, "public.ecr.aws/docker/library/"), "an official image is found on ECR Public")
-		_, again := OfficialImages(mirrored)
-		assert.False(t, again, "and a mirror's name is not mirrored again")
+		if mirrored, ok := mongoDB(ref); ok {
+			assert.True(t, strings.HasPrefix(mirrored, "quay.io/mongodb/"), "a MongoDB image is found only on quay.io")
+		}
 	})
 }

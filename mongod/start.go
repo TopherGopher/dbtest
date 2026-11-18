@@ -103,9 +103,11 @@ func PullImage(ctx context.Context, opts Options) error {
 		return nil
 	}
 	cfg.logger.Info(pullingMessage, "image", image)
-	if _, err := pullShared(ctx, docker, image, cfg.pullTimeout, false); err != nil {
+	pulled, err := pullShared(ctx, docker, image, cfg.pullTimeout, false)
+	if err != nil {
 		return &StartError{Op: OpPullImage, Image: image, Err: err}
 	}
+	announceMirror(cfg.logger, image, pulled)
 	return nil
 }
 
@@ -207,6 +209,7 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 	}
 	// A mirror's copy keeps the mirror's name: it is not tagged with the
 	// name asked for, so the container is created from the mirror's.
+	announceMirror(c.logger, request.Image, pulled)
 	request.Image = pulled
 	c.ref = pulled
 	return c.createWithin(ctx, cfg, request)

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/internal/hostaddr"
 )
 
 // Environment variables that configure a whole suite without editing code.
@@ -23,7 +22,7 @@ const (
 	// EnvStartTimeout is how long to wait for mongod, as a Go duration: "90s".
 	EnvStartTimeout = "MONGOTEST_START_TIMEOUT"
 	// EnvHostIP is the address containers are reachable at; see WithHostIP.
-	EnvHostIP = hostaddr.EnvHostIP
+	EnvHostIP = "MONGOTEST_HOST_IP"
 )
 
 const (

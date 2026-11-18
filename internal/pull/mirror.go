@@ -1,6 +1,7 @@
 package pull
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -9,8 +10,8 @@ import (
 )
 
 // A Mirror returns another registry's name for an image, if it has one.
-// When Docker Hub's rate limit refuses a pull, the image is pulled from
-// there instead.
+// When Docker Hub's rate limit refuses a pull, the image is pulled by that
+// name instead.
 type Mirror func(ref string) (string, bool)
 
 // OfficialImages finds Docker Hub's official images, such as mongo, on
@@ -23,7 +24,7 @@ var dockerHubNames = []string{"docker.io", "index.docker.io", "registry-1.docker
 // HubMirror returns a Mirror for one Docker Hub namespace, which the mirror
 // serves under prefix: HubMirror("mongodb", "quay.io") finds
 // docker.io/mongodb/x:1 at quay.io/mongodb/x:1. The tag or digest is kept,
-// so a pull by digest gets the same content from either registry.
+// so a pull by digest gets exactly that content from the mirror, or fails.
 func HubMirror(namespace, prefix string) Mirror {
 	return func(ref string) (string, bool) {
 		path, ok := dockerHubPath(ref)
@@ -34,7 +35,8 @@ func HubMirror(namespace, prefix string) Mirror {
 	}
 }
 
-// firstMirror returns the first of mirrors that has a name for ref, or "".
+// firstMirror returns the name the first of mirrors gives ref, or "" if
+// none has one.
 func firstMirror(mirrors []Mirror, ref string) string {
 	for _, mirror := range mirrors {
 		if name, ok := mirror(ref); ok {
@@ -62,9 +64,9 @@ func dockerHubPath(ref string) (string, bool) {
 	return path + versionSuffix(parsed), true
 }
 
-// splitRegistry separates the registry from a repository name. As docker
-// reads a name, the first part is a registry only if it has a dot or a port,
-// or is localhost; otherwise the name is on Docker Hub.
+// splitRegistry separates the registry from a repository name. Docker treats
+// the first part of a name as a registry only if it has a dot or a port, or
+// is localhost; otherwise the name is on Docker Hub.
 func splitRegistry(name string) (registry, path string) {
 	first, rest, found := strings.Cut(name, "/")
 	if found && isRegistryHost(first) {
@@ -90,17 +92,34 @@ func versionSuffix(ref dockerclient.ImageRef) string {
 	return suffix
 }
 
-// mirrorError is a pull that Docker Hub's rate limit refused and its mirror
-// failed too. It matches both failures, and so dockerclient.ErrRateLimited.
-type mirrorError struct {
-	image, mirror     string
-	limited, mirrored error
+// MirrorError is a pull that Docker Hub's rate limit refused and whose
+// mirror failed too. errors.Is matches either failure, so it matches
+// dockerclient.ErrRateLimited.
+type MirrorError struct {
+	Image    string // the reference asked for, on Docker Hub
+	Mirror   string // the mirror's name for it
+	Limited  error  // Docker Hub's refusal
+	Mirrored error  // the mirror's failure
 }
 
-func (e *mirrorError) Error() string {
-	return fmt.Sprintf("Docker Hub's rate limit refused %s (%v), and pulling the same image from %s failed too (%v). "+
-		"Wait for the limit to reset, log the Docker daemon in to Docker Hub, or pull the image before the tests run",
-		e.image, e.limited, e.mirror, e.mirrored)
+func (e *MirrorError) Error() string {
+	return fmt.Sprintf("Docker Hub's rate limit refused %s, and its mirror %s failed too: %s",
+		e.Image, e.Mirror, daemonMessage(e.Mirrored))
 }
 
-func (e *mirrorError) Unwrap() []error { return []error{e.limited, e.mirrored} }
+func (e *MirrorError) Unwrap() []error { return []error{e.Limited, e.Mirrored} }
+
+// daemonMessage returns what the daemon said about a failed pull, without
+// the advice a client adds to it, which is about the image asked for rather
+// than its mirror.
+func daemonMessage(err error) string {
+	var pull *dockerclient.PullError
+	if errors.As(err, &pull) {
+		return pull.Message
+	}
+	var status *dockerclient.StatusError
+	if errors.As(err, &status) {
+		return status.Message
+	}
+	return err.Error()
+}
