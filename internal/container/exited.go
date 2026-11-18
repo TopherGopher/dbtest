@@ -13,7 +13,7 @@ import (
 
 // ErrExited: the container stopped or was removed before it was ready, so
 // waiting longer would not have helped.
-var ErrExited = errors.New("the container exited before it was ready")
+var ErrExited = errors.New("the container exited before the server in it was ready")
 
 // ExitOutputLimit is the most bytes of an exited container's output that
 // ExitedError keeps, enough for the last several lines of a log.
@@ -35,6 +35,8 @@ type ExitedError struct {
 	// container stopped. It is empty if the container was removed or its
 	// log could not be read.
 	Output string
+	// logErr is why the container's log could not be read, if it could not.
+	logErr error
 	// Err is what the wait for readiness saw that led to the container
 	// being inspected, or nil.
 	Err error
@@ -42,14 +44,14 @@ type ExitedError struct {
 
 func (e *ExitedError) Error() string {
 	if !e.HasExitCode {
-		return fmt.Sprintf("container %s was removed before it was ready: Stop was called, the process was signalled, "+
-			"or something else, such as docker rm, removed it", e.where())
+		return fmt.Sprintf("container %s was removed before the server in it was ready: ReapRunningContainers was called, "+
+			"the process was signalled, or something else, such as docker rm, removed it", e.where())
 	}
 	verb := "exited"
 	if e.Status == "dead" {
 		verb = "died"
 	}
-	return fmt.Sprintf("container %s %s with code %d before it was ready. %s",
+	return fmt.Sprintf("container %s %s with code %d before the server in it was ready. %s",
 		e.where(), verb, e.ExitCode, e.why())
 }
 
@@ -64,8 +66,11 @@ func (e *ExitedError) where() string {
 // why shows the end of what the container wrote, which usually says why it
 // stopped, or how to find out when there is nothing to show.
 func (e *ExitedError) why() string {
-	if e.Output == "" {
-		return "Its log was empty or could not be read. To see why it stopped, run the same image by hand with the same options"
+	switch {
+	case e.Output == "" && e.logErr != nil:
+		return fmt.Sprintf("Its log, which usually says why, could not be read: %v", e.logErr)
+	case e.Output == "":
+		return "It wrote nothing before it stopped. To see why, run the same image by hand with docker run"
 	}
 	return "The end of what the container wrote:\n" + strings.TrimRight(e.Output, "\n")
 }
@@ -82,10 +87,11 @@ func HasExited(state dockerclient.ContainerState) bool {
 // NewExitedError reports a container that exited before it was ready, with
 // the end of what it wrote, which usually says why.
 func NewExitedError(ctx context.Context, docker dockerclient.Client, name, id string, state dockerclient.ContainerState, cause error) *ExitedError {
+	output, logErr := lastOutput(ctx, docker, id)
 	return &ExitedError{
 		Name: name, ID: id, Status: state.Status,
 		ExitCode: state.ExitCode, HasExitCode: true,
-		Output: lastOutput(ctx, docker, id), Err: cause,
+		Output: output, logErr: logErr, Err: cause,
 	}
 }
 
@@ -99,12 +105,13 @@ func ShortID(id string) string {
 }
 
 // lastOutput returns the end of what a container wrote, up to
-// ExitOutputLimit bytes. A read that fails part way still returns what it
-// read: the container is about to be removed, so this is the last chance.
-func lastOutput(ctx context.Context, docker dockerclient.Client, id string) string {
+// ExitOutputLimit bytes, and why the read failed if it did. A read that
+// fails part way still returns what it read: the container is about to be
+// removed, so this is the last chance.
+func lastOutput(ctx context.Context, docker dockerclient.Client, id string) (string, error) {
 	end := &tail{limit: ExitOutputLimit}
-	_ = docker.ContainerLogsTo(ctx, id, end, end)
-	return end.String()
+	err := docker.ContainerLogsTo(ctx, id, end, end)
+	return end.String(), err
 }
 
 // tail keeps the last limit bytes written to it, so a log of any length can

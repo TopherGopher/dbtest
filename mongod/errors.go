@@ -366,7 +366,8 @@ func (e *AuthNotEnforcedError) Is(target error) bool { return target == ErrAuthN
 // before mongod was ready. It matches ErrContainerExited. Status is "exited",
 // "dead" or "removed". ExitCode is set only when HasExitCode is true, which
 // is when Status is not "removed". Output is the end of what the container
-// wrote, at most 8 KiB, and usually says why mongod stopped.
+// wrote, at most 8 KiB, and usually says why mongod stopped. Err is what
+// the readiness check last saw, if anything.
 type ContainerExitedError = container.ExitedError
 
 // addr joins a host and port, bracketing an IPv6 address.
