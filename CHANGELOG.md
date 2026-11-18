@@ -31,12 +31,14 @@ what to do if it affects you.
 
 ### `mongod.ContainerExitedError`'s message no longer begins with `mongod:`
 
-- The type, its fields and `ErrContainerExited` are unchanged. Code that
-  matched the message text should use
+- It now begins with `container <name>`, and `ErrContainerExited`'s text
+  says "before it was ready" rather than "before mongod was ready". The type,
+  its fields and `ErrContainerExited` itself are unchanged, so `errors.Is` and
+  `errors.As` match as before. Code that matched the message text should use
   `errors.Is(err, mongod.ErrContainerExited)`.
-- When the container wrote nothing before it exited, the message no longer
-  guesses at a rejected flag. It says to run the image by hand with the same
-  settings to see why.
+- When the container wrote nothing before it exited, the message used to
+  suggest a flag or replica set name that mongod rejects. Now it says to run
+  the same image by hand with the same options to see why it stopped.
 
 ### The root package is rebuilt on the new `mongod` package
 

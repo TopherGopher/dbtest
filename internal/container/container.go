@@ -17,26 +17,28 @@ const CleanupTimeout = 30 * time.Second
 // Container is a container this module creates and removes. It knows
 // nothing about the image it runs.
 //
-// Every method is safe to call from several goroutines.
+// Every method except ID is safe to call from several goroutines.
 type Container struct {
 	name   string
 	docker dockerclient.Client
 	logger dockerclient.Logger
 
-	// mu guards id, stopped and reaperHandle. Stop can be called from a
-	// defer, a test cleanup and the reaper at once, and holds mu while it
-	// waits for the daemon; see lockContext.
+	// mu guards stopped and reaperHandle, and the writing of id, which
+	// Create does once; after that id is read without the lock. Stop can be
+	// called from a defer, a test cleanup and the reaper at once, and holds
+	// mu while it waits for the daemon; see lockContext.
 	mu           sync.Mutex
 	id           string
 	stopped      bool
 	reaperHandle reaper.Handle
-	// stopWanted says a teardown has asked for the container. A creation
-	// reads it to learn that one arrived while the daemon was at work.
+	// stopWanted says Stop has been called, by the caller or the reaper.
+	// Create's caller reads it to learn that Stop came while the daemon was
+	// creating the container.
 	stopWanted atomic.Bool
 }
 
 // New describes a container that is about to be created, and registers it
-// for removal should the process be signalled.
+// with the reaper, which removes it if the process is signalled.
 //
 // It registers before the daemon is asked, because a signal between the
 // daemon creating the container and this process hearing of it would
@@ -51,24 +53,40 @@ func New(name string, docker dockerclient.Client, logger dockerclient.Logger) *C
 	return c
 }
 
-// ID returns the id the daemon assigned, or "" before Create succeeds.
-// Only the goroutine that called Create may read it while Create can run.
-func (c *Container) ID() string { return c.id }
+// ID returns the id the daemon assigned, or "" before Create succeeds. Read
+// it only after Create has returned, or from the goroutine that called Create.
+func (c *Container) ID() string {
+	if c == nil {
+		return ""
+	}
+	return c.id
+}
 
-// Name returns the container's name.
-func (c *Container) Name() string { return c.name }
+// Name returns the container's name. ID and Name return "" on a nil
+// Container, so an image package's zero value still prints.
+func (c *Container) Name() string {
+	if c == nil {
+		return ""
+	}
+	return c.name
+}
 
-// StopWanted reports whether a teardown has asked for the container, so a
-// creation can learn that one arrived while the daemon was at work.
+// StopWanted reports whether Stop has been called, by the caller or by the
+// reaper. If it is true once Create has succeeded, Stop came while the daemon
+// was creating the container: that Stop removes it, and the start should give
+// up rather than use it.
 func (c *Container) StopWanted() bool { return c.stopWanted.Load() }
 
-// Create asks the daemon for the container and records its id, holding the
-// container's lock until the daemon has answered. A teardown that arrives
-// meanwhile waits for the id: asked sooner, the daemon might not know the
-// container yet, and the teardown would leave it behind.
+// Create asks the daemon for the container and records its id. Stop waits
+// until Create returns: a removal sent before the daemon knows the container
+// would find nothing, and leave it behind.
 //
-// ctx should carry a deadline, because the wait under the lock has to end.
-// A container already stopped is not created.
+// Give ctx a deadline, because Stop waits for Create and Create waits for the
+// daemon. If Stop has already been called, Create creates nothing and returns
+// an *ExitedError with Status "removed".
+//
+// If Create fails, call Forget. If ctx ended first, the daemon may have
+// created the container all the same, so call RemoveUnconfirmed first.
 func (c *Container) Create(ctx context.Context, request dockerclient.ContainerConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -81,7 +99,7 @@ func (c *Container) Create(ctx context.Context, request dockerclient.ContainerCo
 	}
 	c.id = id
 	for _, warning := range warnings {
-		c.logger.Warn("The Docker daemon created the container, but warned about it.", "container", c.name, "warning", warning)
+		c.logger.Warn("The Docker daemon created the container with a warning.", "container", c.name, "warning", warning)
 	}
 	return nil
 }
@@ -95,13 +113,13 @@ func (c *Container) Forget() {
 	reaper.Unregister(c.reaperHandle)
 }
 
-// Stop removes the container and its anonymous volumes. It is safe to call
-// twice, and a container that is already gone counts as stopped. If the
-// daemon refuses, or ctx ends while Stop is waiting, Stop returns the error
-// and can be called again.
+// Stop removes the container and its anonymous volumes, stopping it first if
+// it runs. It is safe to call more than once, and a container that is already
+// gone counts as removed. If the daemon refuses, or ctx ends while Stop is
+// waiting, Stop returns the error and can be called again.
 //
-// A context that has already ended still removes the container, so it can
-// be called from a test's cleanup with the test's context.
+// If ctx has already ended, Stop still tries for up to CleanupTimeout, so a
+// test's cleanup can pass the test's context.
 func (c *Container) Stop(ctx context.Context) error {
 	ctx, cancel := removalContext(ctx)
 	defer cancel()
@@ -118,8 +136,8 @@ func removalContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), CleanupTimeout)
 }
 
-// stop is Stop for a caller whose context is the limit, which is what the
-// reaper needs: a process dying of a signal must not wait past its deadline.
+// stop is Stop without the extra time for an ended context. The reaper uses
+// it, because a process ending on a signal must not outlive its deadline.
 func (c *Container) stop(ctx context.Context) error {
 	c.stopWanted.Store(true)
 	if err := lockContext(ctx, &c.mu); err != nil {
@@ -138,20 +156,27 @@ func (c *Container) stop(ctx context.Context) error {
 	return nil
 }
 
-// remove has the daemon remove the container. One the daemon was never
-// asked for is removed already.
+// remove has the daemon remove the container. If Create got no id, there is
+// nothing to remove.
 func (c *Container) remove(ctx context.Context) error {
 	if c.id == "" {
 		return nil
 	}
-	return c.RemoveByName(ctx, c.id)
+	return c.removeRef(ctx, c.id)
 }
 
-// RemoveByName has the daemon remove a container, named by its id or its
-// name, and its anonymous volumes. One the daemon does not have is removed
-// already. A creation that was cut short uses it, since the daemon may have
-// created the container all the same and its id never arrived.
-func (c *Container) RemoveByName(ctx context.Context, idOrName string) error {
+// RemoveUnconfirmed removes the container by its name, for when Create was
+// cut short: the daemon may have created it all the same, and its id never
+// arrived. Use it only for a name this module generated, since a name the
+// caller chose may belong to someone else's container.
+func (c *Container) RemoveUnconfirmed(ctx context.Context) error {
+	return c.removeRef(ctx, c.name)
+}
+
+// removeRef has the daemon remove a container, named by its id or its name,
+// and its anonymous volumes. A container the daemon does not have counts as
+// removed.
+func (c *Container) removeRef(ctx context.Context, idOrName string) error {
 	ctx, cancel := withRemovalDeadline(ctx)
 	defer cancel()
 	err := c.docker.ContainerRemove(ctx, idOrName, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
@@ -163,7 +188,7 @@ func (c *Container) RemoveByName(ctx context.Context, idOrName string) error {
 
 // withRemovalDeadline gives a removal a deadline when its caller set none.
 // The daemon is asked while the container's lock is held, so a daemon that
-// never answers must not be able to hold it for ever.
+// never answers must not be able to hold it forever.
 func withRemovalDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, bounded := ctx.Deadline(); bounded {
 		return ctx, func() {}

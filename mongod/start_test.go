@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tophergopher/mongotest/dockerclient"
 	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/mongotest/internal/reaper"
 	"github.com/tophergopher/mongotest/mongod"
 )
 
@@ -532,6 +533,37 @@ func TestAReapDuringThePullCreatesNothing(t *testing.T) {
 	require.ErrorIs(t, err, mongod.ErrContainerExited, "a start that was reaped does not carry on")
 	assert.Len(t, m.CallsTo("ContainerCreate"), 1, "the daemon is not asked again for a container nothing would remove")
 	assert.Empty(t, m.CallsTo("ContainerRemove"), "and there is nothing to remove")
+}
+
+// A reap with a short deadline can give up while the daemon is still
+// creating the container. The start, which learns of the reap when the
+// daemon answers, removes the container itself.
+func TestAReapThatGivesUpDuringCreationStillGetsTheContainerRemoved(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		_ = mongod.ReapRunningContainers(ctx) // gives up: this creation holds the container
+		return containerID, nil, nil
+	}
+
+	c, err := start(t, m, mongod.DefaultOptions())
+
+	require.ErrorIs(t, err, mongod.ErrContainerExited, "a container reaped while it was being created is not returned as running")
+	assert.Nil(t, c, "so the caller is handed nothing to use")
+	assert.Contains(t, removedContainers(m), containerID, "the start removes the container the reap could not wait for")
+}
+
+func TestAFailedCreationIsNotKeptForReaping(t *testing.T) {
+	m, _ := readyMock(t)
+	m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+		return "", nil, errors.New("the daemon refused")
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions())
+
+	require.Error(t, err, "the start fails")
+	assert.NotContains(t, reaper.Names(), createdName(t, m), "a container the daemon never created is not kept for the reaper")
 }
 
 func TestAFailedCreationLeavesNothingToReap(t *testing.T) {

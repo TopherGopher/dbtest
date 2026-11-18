@@ -236,8 +236,8 @@ func (c *Container) removeUnconfirmed(ctx context.Context, cfg config) {
 		return
 	}
 	// The context that was cut short cannot carry the request, and
-	// RemoveByName gives one with no deadline its own.
-	if err := c.ctr.RemoveByName(context.WithoutCancel(ctx), c.Name()); err != nil {
+	// RemoveUnconfirmed gives one with no deadline its own.
+	if err := c.ctr.RemoveUnconfirmed(context.WithoutCancel(ctx)); err != nil {
 		c.logger.Error("Creating a container was cut short, and it could not then be removed, so it may exist. "+
 			"Remove it by hand: docker rm -fv "+c.Name(),
 			"container", c.Name(), "error", err)

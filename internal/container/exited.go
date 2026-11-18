@@ -20,7 +20,8 @@ var ErrExited = errors.New("the container exited before it was ready")
 const ExitOutputLimit = 8 << 10
 
 // ExitedError reports that the container stopped, or was removed, before it
-// was ready. It matches ErrExited.
+// was ready. It matches ErrExited. Image packages re-export it and ErrExited under
+// their own names, so its fields and its message are public API.
 type ExitedError struct {
 	Name string
 	ID   string
@@ -34,27 +35,37 @@ type ExitedError struct {
 	// container stopped. It is empty if the container was removed or its
 	// log could not be read.
 	Output string
-	Err    error
+	// Err is what the wait for readiness saw that led to the container
+	// being inspected, or nil.
+	Err error
 }
 
 func (e *ExitedError) Error() string {
 	if !e.HasExitCode {
-		return fmt.Sprintf("container %s (%s) was removed before it was ready; something other than this start removed it",
-			e.Name, ShortID(e.ID))
+		return fmt.Sprintf("container %s was removed before it was ready: Stop was called, the process was signalled, "+
+			"or something else, such as docker rm, removed it", e.where())
 	}
 	verb := "exited"
 	if e.Status == "dead" {
 		verb = "died"
 	}
-	return fmt.Sprintf("container %s (%s) %s with code %d before it was ready. %s",
-		e.Name, ShortID(e.ID), verb, e.ExitCode, e.why())
+	return fmt.Sprintf("container %s %s with code %d before it was ready. %s",
+		e.where(), verb, e.ExitCode, e.why())
+}
+
+// where names the container, and its id once the daemon has assigned one.
+func (e *ExitedError) where() string {
+	if e.ID == "" {
+		return e.Name
+	}
+	return e.Name + " (" + ShortID(e.ID) + ")"
 }
 
 // why shows the end of what the container wrote, which usually says why it
 // stopped, or how to find out when there is nothing to show.
 func (e *ExitedError) why() string {
 	if e.Output == "" {
-		return "Its log was empty or could not be read, so run the image by hand with the same settings to see why"
+		return "Its log was empty or could not be read. To see why it stopped, run the same image by hand with the same options"
 	}
 	return "The end of what the container wrote:\n" + strings.TrimRight(e.Output, "\n")
 }
