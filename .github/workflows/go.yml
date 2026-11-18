@@ -69,8 +69,15 @@ jobs:
         go vet -v ./...
         go build -v ./...
   test:
-    name: Test
+    name: Test (Go ${{ matrix.go || 'from go.mod' }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Empty is the Go that go.mod gives. 1.26.x is the oldest supported
+        # release, which every module's go line allows, so a module that
+        # starts to need a newer Go fails here before its users notice.
+        go: ['', '1.26.x']
     steps:
     - name: Check out code into the Go module directory
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,9 +87,11 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        # The Go 1.27.x the runner image already has. check-latest is left
-        # off, so a new Go patch reaches CI when GitHub ships it in the
-        # runner image, not on the day it is released.
+        # go-version wins when it is set; otherwise the Go 1.27.x the runner
+        # image already has. check-latest is left off, so a new Go patch
+        # reaches CI when GitHub ships it in the runner image, not on the
+        # day it is released.
+        go-version: ${{ matrix.go }}
         go-version-file: go.mod
     - name: Get dependencies
       run: go mod download
@@ -150,7 +159,9 @@ jobs:
     # The total for each module, on the run's summary page. go tool cover runs
     # inside each module, because only that module's go.mod resolves its
     # packages.
+    # Coverage is reported once, from the Go that go.mod gives.
     - name: Write the coverage summary
+      if: matrix.go == ''
       run: |
         {
           echo "### Test coverage"
@@ -164,6 +175,7 @@ jobs:
         } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload code coverage to Coveralls for every module
+      if: matrix.go == ''
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}

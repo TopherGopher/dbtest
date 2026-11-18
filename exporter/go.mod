@@ -1,6 +1,6 @@
 module github.com/tophergopher/mongotest/exporter
 
-go 1.27
+go 1.26.8
 
 require (
 	github.com/mongodb/mongo-tools v0.0.0-20261117220938-eb3792147072

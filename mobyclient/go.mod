@@ -1,6 +1,6 @@
 module github.com/tophergopher/mongotest/mobyclient
 
-go 1.27
+go 1.26.0
 
 require (
 	github.com/containerd/errdefs v1.0.0

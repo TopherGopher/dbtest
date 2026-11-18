@@ -5,6 +5,12 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Go 1.26 is enough
+
+- **Every module now needs only Go 1.26,** the oldest supported release, not
+  Go 1.27. A module that requires mongotest, even only for its tests, no
+  longer has its own `go` line raised to 1.27 by `go mod tidy`.
+
 ### The root package is rebuilt on the new `mongod` package
 
 - **New entry points.** `mongotest.Run(t)` starts a container, connects a

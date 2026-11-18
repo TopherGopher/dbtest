@@ -2,7 +2,7 @@ package dockerapi
 
 import (
 	"bytes"
-	"encoding/json/v2"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,5 +120,5 @@ func noRequest(t testing.TB) func(*http.Request) (*http.Response, error) {
 // decodeBody decodes a JSON request body into v.
 func decodeBody(req *http.Request, v any) error {
 	defer req.Body.Close()
-	return json.UnmarshalRead(req.Body, v)
+	return json.NewDecoder(req.Body).Decode(v)
 }

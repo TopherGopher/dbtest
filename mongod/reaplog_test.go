@@ -3,7 +3,7 @@ package mongod_test
 import (
 	"bufio"
 	"context"
-	"encoding/json/v2"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"

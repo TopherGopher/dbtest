@@ -44,7 +44,7 @@ func TestInsertAndFind(t *testing.T) {
 }
 ```
 
-Fetch the dependencies and run the test. It needs Go 1.27 or newer and a
+Fetch the dependencies and run the test. It needs Go 1.26 or newer and a
 running Docker daemon:
 
 ```sh

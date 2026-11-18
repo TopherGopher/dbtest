@@ -53,7 +53,7 @@ container when the test ends.
 
 | Requirement | Why |
 | --- | --- |
-| **Go 1.27 or newer** | The module declares `go 1.27`. |
+| **Go 1.26 or newer** | The module declares `go 1.26.0`. |
 | **A Docker-compatible daemon** | Docker Engine, Docker Desktop or Podman. mongotest talks to the Engine API; it never shells out to the `docker` binary. |
 | **Network access to Docker Hub on the first run** | The `mongo` image is pulled once and cached by the daemon. Later runs need no network. |
 | **mongo-driver v1** | An instance embeds the driver's v1 `*mongo.Client`. Support for v2 is tracked in issue [#42](https://github.com/TopherGopher/mongotest/issues/42). |

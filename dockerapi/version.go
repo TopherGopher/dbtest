@@ -2,7 +2,7 @@ package dockerapi
 
 import (
 	"context"
-	"encoding/json/v2"
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -162,7 +162,7 @@ func (c *Client) askVersion(ctx context.Context) (string, error) {
 		return "", newStatusError(resp, http.MethodGet, "/version")
 	}
 	var v versionResponse
-	if err := json.UnmarshalRead(resp.Body, &v); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
 		return "", decodeError(http.MethodGet, "/version", err)
 	}
 	// The runtime is recorded before the window is checked, so that a
