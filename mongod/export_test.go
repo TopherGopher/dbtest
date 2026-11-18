@@ -13,3 +13,6 @@ var (
 
 // AddressInDoubt reports whether the error advises correcting the address.
 func (e *NotReadyError) AddressInDoubt() bool { return e.addressInDoubt() }
+
+// ExitOutputLimit is how much of an exited container's output is kept.
+const ExitOutputLimit = exitOutputLimit

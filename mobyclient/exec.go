@@ -72,7 +72,12 @@ func (c *Client) ExecStartTo(ctx context.Context, execID string, stdout, stderr 
 		return c.mapErr(http.MethodPost, "/exec/"+execID+"/start", err)
 	}
 	defer attached.Close()
-	if _, err := stdcopy.StdCopy(stdout, stderr, attached.Reader); err != nil {
+	return demux(stdout, stderr, attached.Reader)
+}
+
+// demux splits the daemon's framed stream into stdout and stderr.
+func demux(stdout, stderr io.Writer, framed io.Reader) error {
+	if _, err := stdcopy.StdCopy(stdout, stderr, framed); err != nil {
 		// stdcopy reports a daemon-side error frame as a plain error with a
 		// fixed prefix; reword it to match the message dockerapi produces
 		// for the same condition, so a caller sees the same text whichever

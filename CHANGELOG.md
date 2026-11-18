@@ -84,3 +84,6 @@ what to do if it affects you.
   that start in parallel do not each find the image missing.
 - `Options.WithPullTimeout` bounds a pull of a missing image, ten minutes by
   default, separately from the wait for mongod.
+- When a container exits before mongod is ready, the error now ends with the
+  last of what mongod wrote, which usually says why.
+  `ContainerExitedError.Output` holds the same text.

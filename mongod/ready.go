@@ -319,11 +319,8 @@ func (p readyProbe) exitedError(ctx context.Context, cause error) error {
 	if err != nil {
 		return nil // nothing is known, so keep waiting
 	}
-	if status := info.State.Status; status == "exited" || status == "dead" {
-		return &ContainerExitedError{
-			Name: p.name, ID: p.id, Status: status,
-			ExitCode: info.State.ExitCode, HasExitCode: true, Err: cause,
-		}
+	if hasExited(info.State) {
+		return newExitedError(ctx, p.docker, p.name, p.id, info.State, cause)
 	}
 	return nil
 }

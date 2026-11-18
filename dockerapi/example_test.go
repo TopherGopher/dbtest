@@ -414,6 +414,16 @@ func ExampleClient_ExecStart() {
 	// Output: stdout "1\n" stderr ""
 }
 
+func ExampleClient_ContainerLogsTo() {
+	c := exampleClient()
+	// ContainerLogsTo streams what the container has written so far,
+	// without holding it in memory, and returns once it is all read.
+	if err := c.ContainerLogsTo(context.Background(), "c0ffee1234ab", os.Stdout, os.Stderr); err != nil {
+		panic(err)
+	}
+	// Output: Waiting for connections
+}
+
 func ExampleClient_ExecStartTo() {
 	c := exampleClient()
 	ctx := context.Background()

@@ -209,6 +209,16 @@ func Benchmarks(b *testing.B, newClient BenchFactory) {
 		}
 	})
 
+	b.Run("ContainerLogsTo", func(b *testing.B) {
+		c, id := prepared(b)
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := c.ContainerLogsTo(ctx, id, io.Discard, io.Discard); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
 	b.Run("ExecInspect", func(b *testing.B) {
 		c, id := prepared(b)
 		execID, err := c.ExecCreate(ctx, id, dockerclient.ExecConfig{Cmd: []string{"echo", "hello"}})

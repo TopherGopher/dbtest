@@ -47,6 +47,9 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 			[]string{"orders-db", "14"}},
 		{"a container that was removed", &mongod.ContainerExitedError{Name: "orders-db", ID: containerID, Status: "removed"},
 			[]string{"orders-db"}},
+		{"a container that exited and said why", &mongod.ContainerExitedError{Name: "orders-db", ID: containerID, Status: "exited",
+			ExitCode: 2, HasExitCode: true, Output: "unrecognised option '--x'\n"},
+			[]string{"orders-db", "unrecognised option '--x'"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

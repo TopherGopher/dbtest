@@ -70,6 +70,7 @@ type Client interface {
     ContainerStart(ctx context.Context, id string) error
     ContainerRemove(ctx context.Context, id string, opts RemoveOptions) error
     ContainerInspect(ctx context.Context, id string) (ContainerInspect, error)
+    ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error
     ContainerTop(ctx context.Context, id string) (Top, error)
 
     CopyToContainer(ctx context.Context, id, destDir string, files []File) error

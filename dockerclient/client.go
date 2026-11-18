@@ -46,6 +46,12 @@ type Client interface {
 	// addresses its ports are published on.
 	ContainerInspect(ctx context.Context, id string) (ContainerInspect, error)
 
+	// ContainerLogsTo copies what a container has written so far, stdout
+	// and stderr each to its own writer, and returns. It does not wait for
+	// more output. Either writer may be nil to discard that stream. It is
+	// for a container created without a TTY, as mongotest creates them.
+	ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error
+
 	// ContainerTop lists the processes running inside a container. It is the
 	// only way to tell that the process a container was started for is
 	// actually running: a published port is bound before that happens.
