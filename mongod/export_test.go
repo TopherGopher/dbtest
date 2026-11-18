@@ -31,6 +31,14 @@ func SetPullWait(t interface{ Cleanup(func()) }, wait func(ctx context.Context, 
 	t.Cleanup(func() { pullWait = saved })
 }
 
+// ForgetSpentLimits forgets every spent rate limit, so none carries into the
+// next test.
+func ForgetSpentLimits() {
+	pulls.Lock()
+	defer pulls.Unlock()
+	clear(pulls.spent)
+}
+
 // SetRateLimitMemory sets how long a spent rate limit is remembered, for the
 // rest of the test. When the test ends it restores the default and forgets
 // every spent limit, so none carries into the next test.

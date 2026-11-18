@@ -35,6 +35,7 @@ func (h *heldPull) letGo() { h.once.Do(func() { close(h.release) }) }
 // progress are shared across the process by daemon address, so this keeps
 // a pull one test leaves behind from being joined by the next.
 func pullMock(t *testing.T) *dockermock.Mock {
+	t.Cleanup(mongod.ForgetSpentLimits)
 	return &dockermock.Mock{HostFunc: t.Name}
 }
 
