@@ -4,19 +4,20 @@
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
 
 version: 2
+# Every entry waits a week before proposing a new release, so one that turns
+# out to be compromised is usually withdrawn before it is pinned here.
+# Security updates are not held back.
 updates:
+  # Every go.mod in the repository, so a module added later is covered
+  # without editing this file.
   - package-ecosystem: "gomod"
-    directory: "/" # Location of package manifests
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "gomod"
-    directory: "/exporter" # its own module, for mongo-tools
+    directories:
+      - "/"
+      - "**/*"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
-  # A new release waits a week before it is proposed, so one that turns out
-  # to be compromised is usually withdrawn before it is pinned here.
   - package-ecosystem: "pip"
     directory: "/docs" # requirements.in, and the hash-pinned lock compiled from it
     schedule:

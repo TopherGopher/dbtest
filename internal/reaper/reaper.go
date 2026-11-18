@@ -455,10 +455,20 @@ func failuresOf(err error) []*TeardownError {
 	return nil
 }
 
+// BeforeReRaise, if set, runs just before the reaper sends a signal to the
+// process again. The test helper programs set it to write their coverage,
+// which Go otherwise writes only on a normal exit. Set it before the first
+// Register.
+var BeforeReRaise func()
+
 // reRaise sends the signal to this process again, now that nothing handles
-// it, so the process dies of what it was sent. If that somehow does not end
-// it, it exits with the status a shell reports for a signal death.
+// it, so the process dies of what it was sent. It first runs BeforeReRaise.
+// If the signal somehow does not end the process, it exits with the status a
+// shell reports for a signal death.
 func reRaise(sig os.Signal) {
+	if BeforeReRaise != nil {
+		BeforeReRaise()
+	}
 	if p, err := os.FindProcess(os.Getpid()); err == nil {
 		if err := p.Signal(sig); err == nil {
 			time.Sleep(reRaiseGrace) // delivery is asynchronous

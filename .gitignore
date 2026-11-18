@@ -5,3 +5,14 @@ site/
 
 # Local Python environment for building the docs.
 .venv/
+
+# A go.work is for local use only and is never committed. CI builds each
+# module from its own go.mod, and a workspace would test the root against
+# newer dependencies that the other modules require.
+go.work
+go.work.sum
+
+# Coverage profiles that go test and CI write; never committed.
+coverage.out
+helpers.out
+merged.out

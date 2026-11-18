@@ -34,9 +34,11 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
 
 ## Known traps
 
-- **Do not commit a `go.work`.** It breaks the root build. If `go work sync`
-  has rewritten `go.mod` and `go.sum`, restore them with
-  `git checkout -- go.mod go.sum`.
+- **Do not commit a `go.work`.** A local one is fine, and `.gitignore` keeps
+  it out. A workspace resolves all three modules' dependencies together, so
+  the root is tested against newer versions than its users get; CI tests each
+  module from its own `go.mod`. If `go work sync` has rewritten `go.mod` and
+  `go.sum`, restore them with `git checkout -- go.mod go.sum`.
 - **`mobyclient/go.mod` carries a `replace`** pointing at the repository root
   until a tag contains `dockerclient`. It is annotated in the file.
 

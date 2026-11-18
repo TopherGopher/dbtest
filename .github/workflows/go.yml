@@ -25,10 +25,24 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
+        # The Go 1.27.x the runner image already has. check-latest is left
+        # off, so a new Go patch reaches CI when GitHub ships it in the
+        # runner image, not on the day it is released.
         go-version-file: go.mod
 
     - name: Get dependencies
       run: go mod download
+
+    # gofmt works on files, not modules, so one run from the root checks
+    # all three modules.
+    - name: Check formatting
+      run: |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "These files need gofmt -w:"
+          echo "$unformatted"
+          exit 1
+        fi
 
     - name: Vet
       run: go vet -v ./...
@@ -36,8 +50,11 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    # mobyclient is its own module, so the root ./... does not reach it.
-    # It stays a separate step until #45 adds a go.work; see #46.
+    # The root ./... does not reach mobyclient or exporter, which have their
+    # own go.mod files, so each gets its own steps. Testing each module from
+    # its own go.mod tests the dependency versions that module's users get.
+    # A go.work would resolve all three modules' dependencies together, so
+    # the root could be tested against newer versions another module requires.
     - name: Vet and build mobyclient
       working-directory: ./mobyclient
       run: |
@@ -63,29 +80,96 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
+        # The Go 1.27.x the runner image already has. check-latest is left
+        # off, so a new Go patch reaches CI when GitHub ships it in the
+        # runner image, not on the day it is released.
         go-version-file: go.mod
     - name: Get dependencies
       run: go mod download
 
+    # Docker Hub limits anonymous pulls, and a spent limit fails the run.
+    # Amazon ECR Public mirrors the official image, so it is pulled from
+    # there, with retries, and also tagged with the Docker Hub name the tests
+    # ask for. A test that pulls only a missing image then finds it and asks
+    # no registry. Tag 8 is integrationImage in dockerapi/integration_test.go;
+    # tag 8.0 is mongod's default version.
+    - name: Pull the official image from ECR Public
+      run: |
+        pull() {
+          for attempt in 1 2 3 4 5; do
+            docker pull "$1" && return 0
+            sleep $((attempt * 15))
+          done
+          return 1
+        }
+        for tag in 8 8.0; do
+          pull "public.ecr.aws/docker/library/mongo:$tag"
+          docker tag "public.ecr.aws/docker/library/mongo:$tag" "mongo:$tag"
+        done
+
+    # The reaper's tests start two helper programs, reaphelper and
+    # ignorehelper, and go test does not count coverage in programs the tests
+    # start. Setting MONGOTEST_HELPER_COVERDIR makes the tests build the
+    # helpers with coverage and write it to that directory.
     - name: Test package
-      run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      env:
+        MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
+      run: |
+        mkdir -p "$MONGOTEST_HELPER_COVERDIR"
+        go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+
+    # Adds the helpers' coverage to coverage.out. The counts for each code
+    # block are summed, so code that only a helper runs is reported as
+    # covered. Only blocks already in coverage.out are added to, so the merge
+    # never adds code the tests' own profile does not count. The first line
+    # of each file is its coverage mode, and the two must match for the
+    # counts to add up.
+    - name: Add the helper programs' coverage
+      env:
+        MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
+      run: |
+        go tool covdata textfmt -i="$MONGOTEST_HELPER_COVERDIR" -o helpers.out
+        awk 'FNR == 1 { if (NR == 1) { mode = $0; print } else if ($0 != mode) { print "coverage modes differ: " $0 > "/dev/stderr"; failed = 1; exit 1 } next }
+             { key = $1 " " $2 }
+             NR == FNR { if (!(key in count)) order[++n] = key; count[key] += $3; next }
+             key in count { count[key] += $3 }
+             END { if (failed) exit 1; for (i = 1; i <= n; i++) print order[i], count[order[i]] }' \
+          coverage.out helpers.out > merged.out
+        mv merged.out coverage.out
 
     # Separate module, so it needs its own invocation. Its conformance and
     # benchmark suites are the same ones dockerapi runs.
     - name: Test mobyclient
       working-directory: ./mobyclient
-      run: go test -v -race ./...
+      run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     - name: Test exporter
       working-directory: ./exporter
-      run: go test -v -race ./...
+      run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
-    - name: Upload code coverage to Coveralls for package
+    # The total for each module, on the run's summary page. go tool cover runs
+    # inside each module, because only that module's go.mod resolves its
+    # packages.
+    - name: Write the coverage summary
+      run: |
+        {
+          echo "### Test coverage"
+          echo ""
+          echo "| Module | Statements covered |"
+          echo "| --- | --- |"
+          for dir in . mobyclient exporter; do
+            total=$(cd "$dir" && go tool cover -func=coverage.out | tail -n 1 | awk '{print $NF}')
+            echo "| ${dir/#./root} | $total |"
+          done
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload code coverage to Coveralls for every module
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # The profile "Test package" writes, read as Go's own format.
-        file: coverage.out
+        # The coverage profiles from the three test steps, in Go's format,
+        # sent as one report.
+        files: coverage.out mobyclient/coverage.out exporter/coverage.out
         format: golang
         # The reporter this action downloads; without it, the newest one.
         coverage-reporter-version: v0.6.22

@@ -29,7 +29,7 @@ func TestIgnoredSignalsAreLeftIgnored(t *testing.T) {
 	// exec so that the shell is replaced: the signal has to reach the process
 	// under test, not a shell that would decide for itself what to do with it.
 	cmd := exec.Command("/bin/sh", "-c", `trap '' INT; exec "$0"`, helper)
-	cmd.Env = append(os.Environ(), "IGNOREHELPER_MARKER="+marker)
+	cmd.Env = programEnv("IGNOREHELPER_MARKER=" + marker)
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err, "the test reads the helper's readiness line from stdout")
 	cmd.Stderr = os.Stderr
@@ -65,9 +65,33 @@ func TestIgnoredSignalsAreLeftIgnored(t *testing.T) {
 // buildIgnoreHelper compiles the helper for this test.
 func buildIgnoreHelper(t *testing.T) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "ignorehelper")
-	build := exec.Command("go", "build", "-o", binary, "github.com/tophergopher/mongotest/internal/ignorehelper")
-	build.Stderr = os.Stderr
-	require.NoError(t, build.Run(), "the helper binary must build")
-	return binary
+	return buildProgram(t, "github.com/tophergopher/mongotest/internal/ignorehelper")
+}
+
+// A program built with -cover writes its coverage only when it exits
+// normally. After its teardown, the reaper sends the signal to the program
+// again so that it dies of it, which would lose the coverage. CI counts the
+// reaper's signal path only because the helpers write their counters first,
+// through BeforeReRaise.
+func TestASignalledHelperKeepsItsCoverage(t *testing.T) {
+	coverDir := t.TempDir()
+	t.Setenv(helperCoverDirEnv, coverDir)
+	helper := buildIgnoreHelper(t)
+	cmd := exec.Command(helper)
+	cmd.Env = programEnv()
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err, "the test reads the helper's readiness line from stdout")
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Start(), "the helper binary must start")
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	require.Equal(t, "ready true", firstLine(t, stdout, 2*time.Minute), "the helper has registered its teardown, and the reaper's handler is installed")
+
+	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM), "sending SIGTERM to the helper must succeed")
+	state := waitFor(t, cmd, 60*time.Second)
+
+	status, ok := state.Sys().(syscall.WaitStatus)
+	require.True(t, ok && status.Signaled(), "the helper dies of the signal, as it would without coverage")
+	counters, err := filepath.Glob(filepath.Join(coverDir, "covcounters.*"))
+	require.NoError(t, err, "the coverage directory can be listed")
+	assert.NotEmpty(t, counters, "the coverage counters were written before the process died")
 }

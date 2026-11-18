@@ -22,11 +22,15 @@ import (
 // skip, when no daemon is reachable: mongotest is a Docker-based test helper
 // and a silently skipped suite would hide a broken client.
 
+// integrationImage is the image the tests pull and run. It comes from Amazon
+// ECR Public's mirror of the official image, because Docker Hub limits
+// anonymous pulls, and one test pulls every run: these tests are about the
+// client, not the registry.
 func integrationImage() string {
 	if img := os.Getenv("MONGOTEST_IMAGE"); img != "" {
 		return img
 	}
-	return "mongo:8"
+	return "public.ecr.aws/docker/library/mongo:8"
 }
 
 func freePort(t *testing.T) int {
