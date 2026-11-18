@@ -35,8 +35,10 @@ func SetPullWait(t interface{ Cleanup(func()) }, wait func(ctx context.Context, 
 // rest of the test. When the test ends it restores the default and forgets
 // every spent limit, so none carries into the next test.
 func SetRateLimitMemory(t interface{ Cleanup(func()) }, d time.Duration) {
+	pulls.Lock()
 	saved := rateLimitMemory
 	rateLimitMemory = d
+	pulls.Unlock()
 	t.Cleanup(func() {
 		pulls.Lock()
 		defer pulls.Unlock()

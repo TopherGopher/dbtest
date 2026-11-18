@@ -120,7 +120,7 @@ func TestASpentRateLimitIsRememberedForAWhile(t *testing.T) {
 
 func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
-	mongod.SetRateLimitMemory(t, time.Millisecond)
+	mongod.SetRateLimitMemory(t, 0)
 	m := pullMock(t)
 	missingImage(m)
 	limited := true
@@ -133,30 +133,52 @@ func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
 	opts := mongod.DefaultOptions().WithDocker(m)
 	require.ErrorIs(t, mongod.PullImage(context.Background(), opts), dockerclient.ErrRateLimited, "the first pull uses up its attempts on the limit")
 	limited = false
-	time.Sleep(10 * time.Millisecond)
 
 	assert.NoError(t, mongod.PullImage(context.Background(), opts), "once the limit is forgotten, the next pull asks the registry")
 }
 
 func TestARateLimitCutShortByTheCallerIsNotRemembered(t *testing.T) {
-	mongod.SetPullWait(t, waitForever)
-	mongod.SetRateLimitMemory(t, time.Hour)
-	m := pullMock(t)
-	missingImage(m)
-	limited := true
-	m.ImagePullFunc = func(context.Context, string) error {
-		if limited {
-			return rateLimitedInTheStream
-		}
-		return nil
+	cases := map[string]struct {
+		opts   mongod.Options
+		cancel bool
+		want   error
+	}{
+		"by its pull timeout": {opts: mongod.DefaultOptions().WithPullTimeout(50 * time.Millisecond), want: context.DeadlineExceeded},
+		"by its context":      {opts: mongod.DefaultOptions(), cancel: true, want: context.Canceled},
 	}
-	opts := mongod.DefaultOptions().WithDocker(m)
-	short := opts.WithPullTimeout(50 * time.Millisecond)
-	require.ErrorIs(t, mongod.PullImage(context.Background(), short), context.DeadlineExceeded, "the pull timeout ends the wait for another attempt")
-	limited = false
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// The caller's time runs out while the pull waits to try again.
+			ended := make(chan struct{})
+			mongod.SetPullWait(t, func(pullCtx context.Context, _ time.Duration) error {
+				if tc.cancel {
+					cancel()
+				}
+				defer close(ended)
+				return waitForever(pullCtx, 0)
+			})
+			mongod.SetRateLimitMemory(t, time.Hour)
+			m := pullMock(t)
+			missingImage(m)
+			limited := true
+			m.ImagePullFunc = func(context.Context, string) error {
+				if limited {
+					return rateLimitedInTheStream
+				}
+				return nil
+			}
+			require.ErrorIs(t, receive(t, pullInBackground(ctx, tc.opts.WithDocker(m))), tc.want, "the caller stops waiting")
+			// The pull it left ends on its own goroutine, just after its wait.
+			<-ended
+			time.Sleep(50 * time.Millisecond)
+			limited = false
 
-	assert.NoError(t, mongod.PullImage(context.Background(), opts),
-		"a pull cut short is not remembered, so the next pull asks the registry")
+			assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m)),
+				"a pull cut short is not remembered, so the next pull asks the registry")
+		})
+	}
 }
 
 func TestRetryingStopsWhenTheTimeRunsOut(t *testing.T) {
