@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -240,24 +242,6 @@ func TestDockerCertPathAloneDoesNotTurnTLSOn(t *testing.T) {
 	assert.NotEmpty(t, d.Requests(), "the request reaches a plain-HTTP daemon")
 }
 
-// A client certificate is optional: ca.pem alone checks the server.
-func TestACAAloneIsEnough(t *testing.T) {
-	clearDockerEnv(t)
-	certs := writeClientCerts(t)
-	require.NoError(t, os.Remove(filepath.Join(certs, "cert.pem")), "removing the client certificate")
-	require.NoError(t, os.Remove(filepath.Join(certs, "key.pem")), "removing the client key")
-	t.Setenv("DOCKER_HOST", tlsServer(t))
-	t.Setenv("DOCKER_CERT_PATH", certs)
-	t.Setenv("DOCKER_TLS_VERIFY", "1")
-
-	c, err := mobyclient.New()
-	require.NoError(t, err, "a client with only ca.pem")
-	_, err = c.ImageInspect(t.Context(), "mongo:8")
-
-	var unknownCA x509.UnknownAuthorityError
-	assert.ErrorAs(t, err, &unknownCA, "the server is checked against ca.pem")
-}
-
 // tlsServer is a daemon double that speaks only TLS, with a certificate no
 // test CA signed. It returns the server's address in DOCKER_HOST form.
 func tlsServer(t *testing.T) string {
@@ -268,28 +252,6 @@ func tlsServer(t *testing.T) string {
 	}))
 	t.Cleanup(srv.Close)
 	return "tcp://" + strings.TrimPrefix(srv.URL, "https://")
-}
-
-// As with the docker CLI, DOCKER_TLS_VERIFY without DOCKER_CERT_PATH takes
-// the certificates from the Docker config directory. Sending plain HTTP
-// instead would hand the requests, credentials included, to whoever answers.
-func TestDockerTLSVerifyAloneUsesTheConfigDirectory(t *testing.T) {
-	configDir := clearDockerEnv(t)
-	certs := writeClientCerts(t)
-	for _, file := range []string{"ca.pem", "cert.pem", "key.pem"} {
-		data, err := os.ReadFile(filepath.Join(certs, file))
-		require.NoError(t, err, "reading %s", file)
-		require.NoError(t, os.WriteFile(filepath.Join(configDir, file), data, 0o600), "copying %s", file)
-	}
-	t.Setenv("DOCKER_HOST", tlsServer(t))
-	t.Setenv("DOCKER_TLS_VERIFY", "1")
-
-	c, err := mobyclient.New()
-	require.NoError(t, err, "a client with TLS from the config directory")
-	_, err = c.ImageInspect(t.Context(), "mongo:8")
-
-	var unknownCA x509.UnknownAuthorityError
-	assert.ErrorAs(t, err, &unknownCA, "the server is checked against the CA in the config directory")
 }
 
 // TLS from the environment applies to a tcp:// host given with WithHost
@@ -379,4 +341,86 @@ func TestARefusedSettingIsNamed(t *testing.T) {
 			assert.Equal(t, tc.argument, invalid.Argument, "the error names the setting to fix")
 		})
 	}
+}
+
+// trustedServer is a daemon double that speaks only TLS. If clientCerts is
+// not "", it insists on a client certificate signed by the cert.pem there.
+// It returns its address in DOCKER_HOST form and its certificate as PEM,
+// to be trusted as a ca.pem.
+func trustedServer(t *testing.T, clientCerts string) (string, []byte) {
+	t.Helper()
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	if clientCerts != "" {
+		clientCA, err := os.ReadFile(filepath.Join(clientCerts, "cert.pem"))
+		require.NoError(t, err, "reading the client certificate")
+		pool := x509.NewCertPool()
+		require.True(t, pool.AppendCertsFromPEM(clientCA), "trusting the client certificate")
+		srv.TLS = &tls.Config{ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: pool}
+	}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	return "tcp://" + strings.TrimPrefix(srv.URL, "https://"), caPEM
+}
+
+// reachesOverTLS builds a client from the environment and makes one request.
+func reachesOverTLS(t *testing.T) error {
+	t.Helper()
+	c, err := mobyclient.New()
+	require.NoError(t, err, "a client with TLS from the environment")
+	_, err = c.ImageInspect(t.Context(), "mongo:8")
+	return err
+}
+
+// A daemon run with --tlsverify insists on a client certificate: cert.pem
+// and key.pem are sent, and the server is trusted through ca.pem.
+func TestTheClientCertificateIsSentAndCAPemIsTrusted(t *testing.T) {
+	clearDockerEnv(t)
+	certs := writeClientCerts(t)
+	host, caPEM := trustedServer(t, certs)
+	require.NoError(t, os.WriteFile(filepath.Join(certs, "ca.pem"), caPEM, 0o600), "trusting the server")
+	t.Setenv("DOCKER_HOST", host)
+	t.Setenv("DOCKER_CERT_PATH", certs)
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+
+	assert.NoError(t, reachesOverTLS(t), "the daemon accepts the client certificate, and the client trusts the daemon through ca.pem")
+}
+
+// A client certificate is optional: ca.pem alone is enough for a daemon
+// that does not ask for one. Half a pair is ignored rather than refused.
+func TestCAPemAloneIsEnough(t *testing.T) {
+	for name, keep := range map[string][]string{"no client certificate": nil, "cert.pem without key.pem": {"cert.pem"}} {
+		t.Run(name, func(t *testing.T) {
+			clearDockerEnv(t)
+			certs := writeClientCerts(t)
+			for _, file := range []string{"cert.pem", "key.pem"} {
+				if !slices.Contains(keep, file) {
+					require.NoError(t, os.Remove(filepath.Join(certs, file)), "removing %s", file)
+				}
+			}
+			host, caPEM := trustedServer(t, "")
+			require.NoError(t, os.WriteFile(filepath.Join(certs, "ca.pem"), caPEM, 0o600), "trusting the server")
+			t.Setenv("DOCKER_HOST", host)
+			t.Setenv("DOCKER_CERT_PATH", certs)
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+
+			assert.NoError(t, reachesOverTLS(t), "the server is trusted through ca.pem alone")
+		})
+	}
+}
+
+// As with the docker CLI, DOCKER_TLS_VERIFY without DOCKER_CERT_PATH takes
+// the certificates from the Docker config directory. Sending plain HTTP
+// instead would hand the requests, credentials included, to whoever answers.
+func TestDockerTLSVerifyAloneUsesTheConfigDirectory(t *testing.T) {
+	configDir := clearDockerEnv(t)
+	host, caPEM := trustedServer(t, "")
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "ca.pem"), caPEM, 0o600), "trusting the server")
+	t.Setenv("DOCKER_HOST", host)
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+
+	assert.NoError(t, reachesOverTLS(t), "the server is trusted through the ca.pem in the config directory")
 }

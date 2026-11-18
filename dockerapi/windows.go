@@ -34,6 +34,9 @@ type windowsProbe struct {
 	glob      func(pattern string) []string
 }
 
+// probeWindows returns what the fallback looks at; tests replace it.
+var probeWindows = realWindowsProbe
+
 // realWindowsProbe looks at the machine this process runs on.
 func realWindowsProbe() windowsProbe {
 	return windowsProbe{getenv: os.Getenv, listening: tcpListening, dialable: socketDialable, glob: globPaths}

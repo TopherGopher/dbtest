@@ -43,6 +43,24 @@ func TestANamedPipeFallsBackToAnEndpointThisClientCanDial(t *testing.T) {
 		require.NoError(t, err, "the podman machine socket answers")
 		assert.Equal(t, "unix://"+apiSock, got, "podman 5.3 and later expose a socket this client can dial")
 	})
+	t.Run("a podman machine socket under LOCALAPPDATA is found too", func(t *testing.T) {
+		local := filepath.Join("C:", "Users", "me", "AppData", "Local")
+		sock := filepath.Join(local, "Temp", "podman", "podman-machine-default-api.sock")
+		p := windowsProbe{
+			getenv:    env(map[string]string{"LOCALAPPDATA": local}),
+			listening: func(string) bool { return false },
+			dialable:  func(path string) bool { return path == sock },
+			glob: func(pattern string) []string {
+				if ok, _ := filepath.Match(pattern, sock); ok {
+					return []string{sock}
+				}
+				return nil
+			},
+		}
+		got, err := windowsFallback(p)
+		require.NoError(t, err, "the socket under LOCALAPPDATA answers")
+		assert.Equal(t, "unix://"+sock, got, "LOCALAPPDATA's Temp is searched when TEMP is unset")
+	})
 	t.Run("with neither, the caller is told what to set up", func(t *testing.T) {
 		_, err := windowsFallback(probe(false))
 		require.ErrorIs(t, err, ErrConnectionFailed, "having no endpoint to dial is a connection problem")
@@ -61,6 +79,12 @@ func TestOnlyANamedPipeIsReplaced(t *testing.T) {
 	require.NoError(t, err, "a tcp address")
 	assert.Equal(t, "tcp://build-host:2375", got, "a dialable address is kept")
 
+	savedProbe := probeWindows
+	t.Cleanup(func() { probeWindows = savedProbe })
+	probeWindows = func() windowsProbe {
+		return windowsProbe{getenv: env(nil), listening: func(string) bool { return false },
+			dialable: func(string) bool { return false }, glob: func(string) []string { return nil }}
+	}
 	resolveHost = func() (string, error) { return "npipe:////./pipe/docker_engine", nil }
 	_, err = resolveHostFromEnv()
 	assert.ErrorIs(t, err, ErrConnectionFailed, "a named pipe is replaced by an endpoint this client can dial, or an error saying so")

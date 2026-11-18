@@ -21,7 +21,7 @@ func resolveHostFromEnv() (string, error) {
 	if err != nil || host != dockerDefaultPipe {
 		return host, err
 	}
-	return windowsFallback(realWindowsProbe())
+	return windowsFallback(probeWindows())
 }
 
 // dockerDefaultPipe is the Docker daemon's default address on Windows.
