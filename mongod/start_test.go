@@ -36,6 +36,25 @@ func TestStartWithNoOptions(t *testing.T) {
 	assert.Empty(t, request.Cmd, "mongod gets no extra flags")
 }
 
+// The daemon can warn when it creates a container, such as about a limit
+// the kernel cannot apply; each warning reaches the caller's logger.
+func TestTheDaemonsWarningsAreLogged(t *testing.T) {
+	warnings := []string{"the kernel cannot limit memory", "the kernel cannot limit swap"}
+	m, _ := readyMock(t)
+	m.ContainerCreateFunc = func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
+		return containerID, warnings, nil
+	}
+	logger := &levelLogger{}
+
+	c := mustStart(t, m, mongod.DefaultOptions().WithLogger(logger))
+
+	for _, warning := range warnings {
+		warned := logger.about("warn", "warning", warning)
+		require.Len(t, warned, 1, "each warning is logged once at warn")
+		assert.Equal(t, c.Name(), warned[0].attrs["container"], "naming the container")
+	}
+}
+
 func TestGeneratedNamesDiffer(t *testing.T) {
 	first, _ := readyMock(t)
 	second, _ := readyMock(t)
@@ -97,7 +116,7 @@ func TestAPullIsAnnouncedWhereAFirstTimeUserSeesIt(t *testing.T) {
 
 			require.NoError(t, pull(m, mongod.DefaultOptions().WithLogger(logger)), "the pull succeeds")
 
-			assert.True(t, announcedBeforeThePull, "the pull is announced at info, naming the image, before the wait for it begins")
+			assert.True(t, announcedBeforeThePull, "the pull is logged at info")
 		})
 	}
 }
@@ -122,7 +141,7 @@ func TestAPullLongerThanTheStartTimeoutDoesNotUseItUp(t *testing.T) {
 
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(timeout))
 
-	assert.NoError(t, err, "the timeout begins again once the image is there, so a slow pull does not fail a start that would have been quick")
+	assert.NoError(t, err, "the timeout restarts after the pull")
 }
 
 func TestStartNamesTheStepThatFailed(t *testing.T) {
@@ -225,7 +244,7 @@ func TestStartTimesOutWhenNothingAnswers(t *testing.T) {
 	assert.Equal(t, dead, notReady.Port, "including the port that was dialled")
 	assert.Equal(t, "WithHostIP", notReady.HostSource, "and what chose the address")
 	assert.ErrorIs(t, err, mongod.ErrNoReply, "nothing answered there")
-	assert.True(t, mongod.AddressInDoubt(notReady), "so the address may be the wrong one, and the error says how to correct it")
+	assert.True(t, mongod.AddressInDoubt(notReady), "with advice about the address")
 	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the container is removed")
 }
 
@@ -238,7 +257,7 @@ func TestStartStopsWaitingWhenTheCallerCancels(t *testing.T) {
 	_, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(m).WithHostIP("127.0.0.1"))
 
 	require.ErrorIs(t, err, context.Canceled, "the caller's context ends the wait")
-	assert.ErrorIs(t, err, mongod.ErrNotReady, "and the error is still the one a caller checks for a mongod that was not ready")
+	assert.ErrorIs(t, err, mongod.ErrNotReady, "still a not-ready error")
 	assert.Less(t, time.Since(started), 10*time.Second, "long before the start timeout")
 }
 
@@ -365,7 +384,7 @@ func TestStopGivesUpAtItsDeadlineWhileAnotherStopIsStuck(t *testing.T) {
 	case err := <-stopped:
 		assert.ErrorIs(t, err, context.DeadlineExceeded, "a Stop waiting behind another gives up when its context ends")
 	case <-time.After(3 * time.Second):
-		assert.Fail(t, "Stop ignored its deadline, so a reap on a signal could hang a dying process")
+		assert.Fail(t, "Stop keeps to its deadline")
 	}
 }
 
@@ -377,7 +396,7 @@ func TestURIAsksForADirectConnection(t *testing.T) {
 	uri := parseURI(t, c)
 	assert.Equal(t, "mongodb", uri.Scheme, "a MongoDB connection string")
 	assert.Equal(t, fmt.Sprintf("127.0.0.1:%d", port), uri.Host, "to the published address")
-	assert.Equal(t, "true", uri.Query().Get("directConnection"), "so a driver does not follow a member's own address, which only works inside the container")
+	assert.Equal(t, "true", uri.Query().Get("directConnection"), "the driver connects directly")
 }
 
 // t.Context() has already ended by the time a t.Cleanup runs, and a Stop
@@ -409,7 +428,7 @@ func TestAWaitEndedByTheCallersDeadlineSaysSo(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded, "because a deadline passed")
 	var notReady *mongod.NotReadyError
 	require.ErrorAs(t, err, &notReady, "with the details")
-	assert.True(t, notReady.ContextEnded, "and it was the caller's, so a longer start timeout would not have helped")
+	assert.True(t, notReady.ContextEnded, "the caller's context ended")
 }
 
 func TestAWaitEndedByTheStartTimeoutSaysSo(t *testing.T) {
@@ -419,7 +438,7 @@ func TestAWaitEndedByTheStartTimeoutSaysSo(t *testing.T) {
 
 	var notReady *mongod.NotReadyError
 	require.ErrorAs(t, err, &notReady, "mongod was not ready")
-	assert.False(t, notReady.ContextEnded, "the caller's context is still live, so the start timeout is what to change")
+	assert.False(t, notReady.ContextEnded, "the start timeout ran out")
 }
 
 // Docker publishes on exactly the address it is given, so the interface the
@@ -438,7 +457,7 @@ func TestThePortIsPublishedWhereItWillBeDialled(t *testing.T) {
 
 			binding := created(t, m).HostConfig.PortBindings["27017/tcp"][0]
 			assert.Equal(t, "127.0.0.1", binding.HostIP, "%s is this machine, so nothing else needs to reach the port", host)
-			assert.Equal(t, dialled, c.Host(), "and a loopback publish only answers at 127.0.0.1, so %s is dialled there", host)
+			assert.Equal(t, dialled, c.Host(), "%s is dialled at 127.0.0.1", host)
 		}
 	})
 	t.Run("any other address needs every interface", func(t *testing.T) {
@@ -488,9 +507,12 @@ func TestAReapDuringCreationWaitsForTheContainerAndRemovesIt(t *testing.T) {
 
 	c, err := start(t, m, mongod.DefaultOptions())
 
-	require.ErrorIs(t, err, mongod.ErrContainerExited, "a container reaped while it was being created is not returned as running")
+	require.ErrorIs(t, err, mongod.ErrContainerExited, "a reaped container is not returned")
+	var exited *mongod.ContainerExitedError
+	require.ErrorAs(t, err, &exited, "with the details")
+	assert.Equal(t, "removed", exited.Status, "removed, not exited")
 	assert.Nil(t, c, "so the caller is handed nothing to use")
-	assert.True(t, <-waited, "the reap waits for the daemon's answer: asked sooner, the daemon may not know the container yet")
+	assert.True(t, <-waited, "the reap waits for the create")
 	assert.Contains(t, removedContainers(m), containerID, "and then removes the container by the id the daemon gave it")
 }
 
@@ -509,6 +531,9 @@ func TestAReapDuringThePullCreatesNothing(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.ErrorIs(t, err, mongod.ErrContainerExited, "a start that was reaped does not carry on")
+	var exited *mongod.ContainerExitedError
+	require.ErrorAs(t, err, &exited, "with the details")
+	assert.Equal(t, "removed", exited.Status, "removed, not exited")
 	assert.Len(t, m.CallsTo("ContainerCreate"), 1, "the daemon is not asked again for a container nothing would remove")
 	assert.Empty(t, m.CallsTo("ContainerRemove"), "and there is nothing to remove")
 }
@@ -527,7 +552,10 @@ func TestAReapThatGivesUpDuringCreationStillGetsTheContainerRemoved(t *testing.T
 
 	c, err := start(t, m, mongod.DefaultOptions())
 
-	require.ErrorIs(t, err, mongod.ErrContainerExited, "a container reaped while it was being created is not returned as running")
+	require.ErrorIs(t, err, mongod.ErrContainerExited, "a reaped container is not returned")
+	var exited *mongod.ContainerExitedError
+	require.ErrorAs(t, err, &exited, "with the details")
+	assert.Equal(t, "removed", exited.Status, "removed, not exited")
 	assert.Nil(t, c, "so the caller is handed nothing to use")
 	assert.Contains(t, removedContainers(m), containerID, "the start removes the container the reap could not wait for")
 }
@@ -733,7 +761,7 @@ func TestStoppingTwiceAsksTheDaemonOnce(t *testing.T) {
 	started := time.Now()
 	err := c.Stop(ended)
 
-	assert.NoError(t, err, "stopped is the state that was asked for, so a second stop has nothing to do")
+	assert.NoError(t, err, "a second stop has nothing to do")
 	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "and it does not ask the daemon again")
 	assert.Less(t, time.Since(started), time.Second, "nor wait for anything, even with a context that has ended")
 }

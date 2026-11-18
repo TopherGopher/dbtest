@@ -16,6 +16,10 @@ import (
 	"github.com/tophergopher/mongotest/mongod"
 )
 
+// documentedOutputLimit is the most of a container's output that
+// ContainerExitedError.Output holds, as its doc says.
+const documentedOutputLimit = 8 << 10
+
 // exitedWithCode is what the daemon reports for a container whose process
 // has ended. It publishes no ports any more.
 func exitedWithCode(code int) dockerclient.ContainerInspect {
@@ -94,7 +98,7 @@ func TestTheOutputOfAnExitedContainerKeepsItsEnd(t *testing.T) {
 
 			assert.True(t, strings.HasSuffix(exited.Output, reason), "the reason mongod stopped comes last, so the end of the output is kept")
 			assert.True(t, strings.HasPrefix(exited.Output, "an earlier log line\n"), "starting at a whole line")
-			assert.LessOrEqual(t, len(exited.Output), mongod.ExitOutputLimit, "and no more than the limit, so the error stays readable")
+			assert.LessOrEqual(t, len(exited.Output), documentedOutputLimit, "at most the documented 8 KiB")
 		})
 	}
 }
@@ -103,11 +107,12 @@ func TestTheOutputOfAnExitedContainerStartsAtAWholeCharacter(t *testing.T) {
 	m, _ := readyMock(t)
 	exitsAfterStarting(t, m)
 	// One long line of three-byte characters, with no line break to cut at.
-	m.ContainerLogsToFunc = writing("x"+strings.Repeat("日", mongod.ExitOutputLimit), "", nil)
+	m.ContainerLogsToFunc = writing("x"+strings.Repeat("日", documentedOutputLimit), "", nil)
 
 	exited := startUntilExited(t, m, mongod.DefaultOptions())
 
-	assert.True(t, utf8.ValidString(exited.Output), "a cut output is still valid text, so it prints and encodes cleanly")
+	assert.True(t, utf8.ValidString(exited.Output), "a cut output is still valid text")
+	assert.LessOrEqual(t, len(exited.Output), documentedOutputLimit, "at most the documented 8 KiB")
 }
 
 func TestStderrIsPartOfTheOutput(t *testing.T) {
@@ -187,5 +192,5 @@ func TestAContainerThatExitsBeforeItsPortIsReadIsReportedAsExited(t *testing.T) 
 
 	exited := startUntilExited(t, m, mongod.DefaultOptions())
 
-	assert.Equal(t, "Error parsing command line\n", exited.Output, "a mongod that exits at once is reported as exited, with its reason, not as a port the daemon failed to publish")
+	assert.Equal(t, "Error parsing command line\n", exited.Output, "reported as exited, with its reason")
 }

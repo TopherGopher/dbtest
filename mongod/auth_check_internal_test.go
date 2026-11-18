@@ -27,7 +27,7 @@ func TestIntegrationTheCredentialsCheckSeesARealOpenMongod(t *testing.T) {
 	err = probe.ask(ctx)
 
 	var open *AuthNotEnforcedError
-	assert.ErrorAs(t, err, &open, "a real mongod that answers getCmdLineOpts without credentials is seen as open")
+	assert.ErrorAs(t, err, &open, "an open mongod is seen as open")
 }
 
 // replyToAuthCheck wraps a document as mongod's reply to getCmdLineOpts.

@@ -66,9 +66,10 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 // address is in doubt only when nothing, or something other than mongod,
 // answered; and a mongod that ignores its credentials needs no longer wait.
 func TestTheAdviceForAStartThatRanOutOfTimeSuitsTheFailure(t *testing.T) {
-	assert.Contains(t, mongod.NotReadyAdvice(mongod.ErrNoReply), mongod.EnvHostIP, "nothing answering may be a wrong address")
-	assert.Contains(t, mongod.NotReadyAdvice(mongod.ErrNotMongod), mongod.EnvHostIP, "so may something other than mongod answering")
-	assert.NotContains(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), mongod.EnvHostIP, "mongod answered, so the address is right")
-	assert.NotEmpty(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), "but a longer wait may help")
-	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}), "a mongod that ignores its credentials will not change with a longer wait")
+	inDoubt := func(lastErr error) bool { return mongod.AddressInDoubt(&mongod.NotReadyError{LastErr: lastErr}) }
+	assert.True(t, inDoubt(mongod.ErrNoReply), "nothing answered: maybe the address")
+	assert.True(t, inDoubt(mongod.ErrNotMongod), "not mongod: maybe the address")
+	assert.False(t, inDoubt(mongod.ErrHelloRefused), "mongod answered: the address is right")
+	assert.NotEmpty(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), "a longer wait may help")
+	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}), "no advice to wait for an open mongod")
 }

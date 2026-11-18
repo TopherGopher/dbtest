@@ -24,7 +24,7 @@ func TestALocalContainerHasNoCredentials(t *testing.T) {
 	c := mustStart(t, m, mongod.DefaultOptions())
 
 	username, _ := rootUser(t, created(t, m))
-	assert.Empty(t, username, "nothing off this machine can reach a loopback port, so no user is created")
+	assert.Empty(t, username, "no user is created on a loopback port")
 	assert.Empty(t, c.Username(), "the container reports no user")
 	assert.Nil(t, parseURI(t, c).User, "and the URI carries none")
 }
@@ -171,7 +171,7 @@ func TestAReplicaSetWithCredentialsIsGivenAKeyFile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m, files := startRecordingKeyFile(t, tc.imageUser, mongod.DefaultOptions().WithReplicaSet("rs0").WithAuth("admin", "s3cret"))
 
-			require.Len(t, files, 1, "a replica set member that authenticates will not start without a key file")
+			require.Len(t, files, 1, "an authenticating member needs a key file")
 			file := files[0]
 			path, passed := flagValue(created(t, m).Cmd, "--keyFile")
 			require.True(t, passed, "mongod is pointed at the key")

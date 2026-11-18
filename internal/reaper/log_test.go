@@ -62,11 +62,11 @@ func TestEachContainerLeftAfterASignalIsLogged(t *testing.T) {
 
 	reapAndReport(ctx, syscall.SIGTERM, &stderr)
 
-	assert.NotZero(t, stderr.Len(), "stderr still gets the report, since a logger in a dying process may never be flushed")
+	assert.NotZero(t, stderr.Len(), "stderr still gets the report")
 	failed := failedLog.all()
-	require.Len(t, failed, 1, "a container whose removal failed is logged once, to the logger it was registered with")
+	require.Len(t, failed, 1, "a failed removal is logged once, to its logger")
 	assert.Equal(t, "mongotest-1a2b3c4d", failed[0].kv["container"], "the record names the container")
-	assert.Equal(t, syscall.SIGTERM.String(), failed[0].kv["signal"], "the record names the signal that started the reap, as a JSON handler can show it")
+	assert.Equal(t, syscall.SIGTERM.String(), failed[0].kv["signal"], "the record names the signal")
 	err, _ := failed[0].kv["error"].(error)
 	assert.ErrorIs(t, err, refused, "the record says why the container was not removed")
 	stuck := stuckLog.all()

@@ -37,7 +37,7 @@ func TestAContainerIsRegisteredBeforeMongodIsReady(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Contains(t, registeredDuringTheWait, c.Name(), "a signal during the readiness wait must not leave the container running")
+	assert.Contains(t, registeredDuringTheWait, c.Name(), "a signal during the wait removes the container")
 }
 
 func TestAFailedStartLeavesNothingRegistered(t *testing.T) {

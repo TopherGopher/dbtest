@@ -145,7 +145,7 @@ func TestWithMongodArgsReachMongod(t *testing.T) {
 	request := requestFor(t, mongod.DefaultOptions().WithMongodArgs("--quiet").WithMongodArgs("--setParameter", "enableTestCommands=1"))
 
 	assert.Equal(t, []string{"--quiet", "--setParameter", "enableTestCommands=1"}, request.Cmd,
-		"every flag is passed on in the order given, because a flag's value is the argument after it")
+		"every flag, in order")
 }
 
 func TestTheStartTimeout(t *testing.T) {
@@ -246,7 +246,7 @@ func TestAKnownImageIsRecognisedBehindAProxyPath(t *testing.T) {
 	behindProxy := mongod.DefaultOptions().WithImage("artifactory.corp.example/docker-remote/mongodb/mongodb-atlas-local:8.0")
 
 	_, err := start(t, m, behindProxy.WithReplicaSet("rs0"))
-	assert.ErrorIs(t, err, mongod.ErrUnsupportedForImage, "Atlas Local runs its own replica set whatever path it is pulled through")
+	assert.ErrorIs(t, err, mongod.ErrUnsupportedForImage, "Atlas Local by any path")
 
 	lookalike := mongod.DefaultOptions().WithImage("registry.corp.example/team/not-mongodb-atlas-local:8.0")
 	_, err = start(t, m, lookalike.WithReplicaSet("rs0"))

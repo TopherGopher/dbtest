@@ -41,9 +41,9 @@ func TestIntegrationContainersStartedTogetherAreEachTheirOwnServer(t *testing.T)
 		info, err := docker.ContainerInspect(ctx, c.ID())
 		require.NoError(t, err, "container %d is on the daemon under the id it reports", i+1)
 		assert.Equal(t, strconv.Itoa(c.Port()), info.HostPort("27017/tcp"),
-			"the daemon published container %d on the port the container reports, not on another start's", i+1)
+			"container %d is published on its own port", i+1)
 		assert.NoError(t, askHello(net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))),
-			"and a mongod answers at the address container %d reports, as soon as Start has returned it", i+1)
+			"container %d answers at its address", i+1)
 	}
 	assert.Len(t, ids, fanOut, "every start was given a container no other start was given")
 	assert.Len(t, ports, fanOut, "published on a port no other has")

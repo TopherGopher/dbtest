@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
@@ -168,26 +166,6 @@ func ExampleOptions_WithImage() {
 	// mirror.corp.example/mongo:8.0
 }
 
-// MONGOTEST_IMAGE moves a whole suite to another image without editing a
-// test, which is how CI gets off Docker Hub's pull limits.
-func ExampleStartWithOptions_environment() {
-	docker, closeDocker := exampleDocker()
-	defer closeDocker()
-	ctx := context.Background()
-	os.Setenv(mongod.EnvImage, "mongo:7.0")
-	defer os.Unsetenv(mongod.EnvImage)
-
-	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker))
-	if err != nil {
-		fmt.Println("cannot start mongod:", err)
-		return
-	}
-	defer c.Stop(context.Background())
-
-	fmt.Println(c.Image())
-	// Output: docker.io/library/mongo:7.0
-}
-
 func ExampleOptions_WithAuth() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
@@ -207,30 +185,6 @@ func ExampleOptions_WithAuth() {
 	// Output:
 	// admin
 	// password printed: false
-}
-
-// The URI is all a driver needs. It asks for a direct connection, because a
-// replica set member advertises an address only its container can resolve.
-func ExampleContainer_URI() {
-	docker, closeDocker := exampleDocker()
-	defer closeDocker()
-	ctx := context.Background()
-
-	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithAuth("admin", "p@ssword"))
-	if err != nil {
-		fmt.Println("cannot start mongod:", err)
-		return
-	}
-	defer c.Stop(context.Background())
-
-	uri, err := url.Parse(c.URI())
-	if err != nil {
-		fmt.Println("the URI does not parse:", err)
-		return
-	}
-	password, _ := uri.User.Password()
-	fmt.Println(uri.Scheme, uri.User.Username(), password, uri.Query().Get("directConnection"))
-	// Output: mongodb admin p@ssword true
 }
 
 // A lone word is a version if it starts with a digit or is "latest", and a

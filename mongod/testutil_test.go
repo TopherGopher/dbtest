@@ -437,7 +437,7 @@ func rootUser(t testing.TB, request dockerclient.ContainerConfig) (username, pas
 		key, value, _ := strings.Cut(entry, "=")
 		env[key] = value
 	}
-	require.Equal(t, env["MONGO_INITDB_ROOT_USERNAME"], env["MONGODB_INITDB_ROOT_USERNAME"], "the official image and Atlas Local read different variables, so both carry the username")
+	require.Equal(t, env["MONGO_INITDB_ROOT_USERNAME"], env["MONGODB_INITDB_ROOT_USERNAME"], "both images get the username")
 	require.Equal(t, env["MONGO_INITDB_ROOT_PASSWORD"], env["MONGODB_INITDB_ROOT_PASSWORD"], "and both carry the password")
 	return env["MONGO_INITDB_ROOT_USERNAME"], env["MONGO_INITDB_ROOT_PASSWORD"]
 }
