@@ -9,14 +9,14 @@ what to do if it affects you.
 
 - **`mobyclient.New()` and `FromEnv()` now find the daemon as the docker CLI
   does,** unless you pass `WithHost` or `WithMobyClient`: `DOCKER_HOST`, then
-  the docker context, then the Docker and Podman sockets, connecting to each
-  to see which answers. `dockerapi` finds the same daemon. Before, `FromEnv`
+  the docker context, then the first Docker or Podman socket that answers. `dockerapi` finds the same daemon. Before, `FromEnv`
   took the address from `DOCKER_HOST` alone, and `New()` ignored the
   environment and used the platform default.
 - **`New()` now reads `DOCKER_API_VERSION` and, for a `tcp://` daemon,
   `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`,** whether the address is passed
-  with `WithHost` or found. `DOCKER_TLS_VERIFY` alone takes the certificates
-  from the Docker config directory, as the docker CLI does.
+  with `WithHost` or found. When `DOCKER_TLS_VERIFY` is set and
+  `DOCKER_CERT_PATH` is not, the certificates come from the Docker config
+  directory, as with the docker CLI.
 - **`DOCKER_CERT_PATH` without `DOCKER_TLS_VERIFY` no longer turns on TLS,**
   as with `dockerapi` and the docker CLI. Before, `FromEnv` used TLS without
   checking the server's certificate. Set `DOCKER_TLS_VERIFY=1` to use TLS.
@@ -27,7 +27,7 @@ what to do if it affects you.
 - **If `New()` now reaches a different daemon,** pass `WithHost` with the
   address you want. To use the moby client's own discovery, build it with
   `client.New(client.FromEnv)` and pass it to `WithMobyClient`.
-- **On Windows the two clients still reach different endpoints.**
+- **On Windows the two clients reach different endpoints.**
   `mobyclient` opens Docker's named pipe. `dockerapi`, which cannot, tries
   Docker Desktop's TCP endpoint and then a podman machine socket.
 - **New: `dockerclient.ResolveHost`** returns the daemon address both clients

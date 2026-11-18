@@ -41,22 +41,26 @@ Windows; see the Docker Desktop tab.
     Start Docker Desktop. On macOS mongotest finds its socket without
     configuration.
 
-    On Windows, mongotest's default Docker client, `dockerapi`, cannot open
-    Docker's named pipe. Either turn on "Expose daemon on
-    tcp://localhost:2375 without TLS" in Docker Desktop's settings, which
-    lets any program on the machine control Docker, or pass a client from
-    the `mobyclient` package, which opens the pipe.
+    On Windows, mongotest's default Docker client cannot open Docker's named
+    pipe. You have two choices. Turn on "Expose daemon on
+    tcp://localhost:2375 without TLS" in Docker Desktop's settings, and
+    mongotest finds it. This lets any program on the machine control Docker.
+    Or use the [`mobyclient`](../docker-clients/mobyclient.md) client, which
+    opens the pipe.
 
 === "Podman"
 
-    Podman serves the same API. Start the socket, and mongotest finds it:
+    Podman serves the same API as Docker, and mongotest finds its socket.
+    On Linux, start the socket:
 
     ```sh
     systemctl --user enable --now podman.socket
     ```
 
-    Setting `DOCKER_HOST` is needed only when Docker also runs, since
-    Docker's socket is found first:
+    On macOS and Windows, run `podman machine start`.
+
+    If Docker also runs, mongotest finds Docker's socket first. To use
+    Podman instead, set `DOCKER_HOST`:
 
     ```sh
     export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
@@ -81,7 +85,9 @@ Run the [quickstart](quickstart.md) test.
 ??? failure "`cannot connect to the docker daemon at …`"
     The daemon is not running, or it is listening somewhere mongotest did not
     look. Run `docker version`; if that fails too, start the daemon. If it
-    works, set `DOCKER_HOST` to the address the CLI uses:
+    works, you are probably on Windows with the default client; see the
+    Docker Desktop tab. Elsewhere, set `DOCKER_HOST` to the address the CLI
+    uses:
 
     ```sh
     export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')

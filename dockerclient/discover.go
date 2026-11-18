@@ -46,19 +46,20 @@ func realLookup() lookup {
 }
 
 // ResolveHost returns the address of the Docker daemon, in DOCKER_HOST
-// form, such as unix:///var/run/docker.sock. Like the docker CLI it uses
-// DOCKER_HOST, then the docker context, other than "default", named by
-// DOCKER_CONTEXT or by currentContext in the Docker config file. It returns
-// an InvalidArgumentError when the config file or that context cannot be
-// read.
+// form, such as unix:///var/run/docker.sock. Like the docker CLI, it uses
+// DOCKER_HOST if set. Otherwise it uses the docker context named by
+// DOCKER_CONTEXT, or by currentContext in the Docker config file, unless
+// that context is "default". It returns an InvalidArgumentError when the
+// config file or that context cannot be read.
 //
-// With neither, it returns the first of these with a daemon answering:
+// When neither names a daemon, it returns the first of these with a daemon
+// answering:
 // rootless Docker's socket under XDG_RUNTIME_DIR, /var/run/docker.sock,
 // rootless Podman's socket, /run/podman/podman.sock, and on macOS a podman
 // machine's socket. When none answers it returns /var/run/docker.sock, so
 // the failure comes when a client connects, as a connection error naming
-// that socket. On Windows it returns Docker's named pipe instead, as the
-// docker CLI does.
+// that socket. On Windows it skips the search and returns Docker's named
+// pipe, as the docker CLI does.
 func ResolveHost() (string, error) {
 	return resolveHostWith(realLookup(), configDir(os.Getenv))
 }

@@ -7,8 +7,8 @@ status: current
 # Environment variables
 
 The `mongod` package reads three variables of its own. The Docker clients
-read the same ones the `docker` CLI does, so a machine where `docker version`
-works is a machine where mongotest works.
+read the same ones the `docker` CLI does, so they find the same daemon; on
+Windows, see [Installation](../getting-started/installation.md).
 
 ## Read by the Docker clients
 
@@ -17,11 +17,11 @@ works is a machine where mongotest works.
 | `DOCKER_HOST` | `dockerapi`, `mobyclient` | Daemon address: `unix:///path`, `tcp://host:port`, `npipe://` (`mobyclient` only). Overrides every other discovery step. |
 | `DOCKER_CONTEXT` | `dockerapi`, `mobyclient` | The Docker context to use when `DOCKER_HOST` is unset. |
 | `DOCKER_CONFIG` | `dockerapi`, `mobyclient` | Directory holding `config.json` and `contexts/`. Defaults to `~/.docker`. The `currentContext` key in `config.json` is honoured. |
-| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set to a non-empty value, reach a `tcp://` daemon over TLS and verify its certificate, using the files in `DOCKER_CERT_PATH`, or in the Docker config directory (`DOCKER_CONFIG`, default `~/.docker`) when `DOCKER_CERT_PATH` is unset. |
+| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set, reach a `tcp://` daemon over TLS and verify its certificate. The certificates come from `DOCKER_CERT_PATH`, or from the Docker config directory (`DOCKER_CONFIG`, default `~/.docker`) when it is unset. |
 | `DOCKER_CERT_PATH` | `dockerapi`, `mobyclient` | Directory with `ca.pem`, and `cert.pem` and `key.pem` if the daemon wants a client certificate. It has no effect without `DOCKER_TLS_VERIFY`. |
 | `DOCKER_API_VERSION` | `dockerapi`, `mobyclient` | Pin the API version. Without it, both negotiate with the daemon. |
 | `XDG_RUNTIME_DIR` | `dockerapi`, `mobyclient` | Where rootless Docker and Podman put their sockets. `/run/user/$UID` is used when unset. |
-| `TEMP`, `LOCALAPPDATA` | `dockerapi` on Windows | Where `podman machine` creates its AF_UNIX socket, in `TEMP` or in `LOCALAPPDATA\Temp`. |
+| `TEMP`, `LOCALAPPDATA` | `dockerapi` on Windows | Where `podman machine` puts its socket on Windows: `TEMP`, or `LOCALAPPDATA\Temp`. Only `dockerapi` reads them, since `mobyclient` opens the named pipe. |
 
 ## Read by `mongod`
 

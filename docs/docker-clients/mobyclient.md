@@ -26,7 +26,7 @@ c, err := mobyclient.New() // find the daemon as the docker CLI does
 ```
 
 ```go
-c, err := mobyclient.New( // or name it
+c, err := mobyclient.New( // or give the address
     mobyclient.WithHost("unix:///var/run/docker.sock"),
     mobyclient.WithLogger(slog.Default()),
 )
@@ -37,11 +37,12 @@ docker CLI does: `DOCKER_HOST`, then the docker context, then the Docker and
 Podman sockets (see `dockerclient.ResolveHost` for the list). `dockerapi`
 finds the same daemon, except on Windows, where it cannot open Docker's
 named pipe and looks for another endpoint. `FromEnv()` is the same as
-`New()`.
+`New()`; use `New()`.
 
-Whether the address is passed with `WithHost` or found, `DOCKER_TLS_VERIFY`
-turns on TLS for a `tcp://` daemon, with the files from `DOCKER_CERT_PATH`,
-and `DOCKER_API_VERSION`, when set, pins the API version.
+`DOCKER_TLS_VERIFY` turns on TLS for a `tcp://` daemon. The certificates
+come from `DOCKER_CERT_PATH`, or from the Docker config directory when it is
+unset. `DOCKER_API_VERSION` pins the API version. Both apply whether the
+address comes from `WithHost` or is found.
 
 To use the moby client's own discovery instead, which reads `DOCKER_HOST`
 alone with no docker context and no socket search, build the client with
