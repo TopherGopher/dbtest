@@ -197,9 +197,9 @@ the container has them.
 a network you trust. Creating the user makes a start a few seconds slower,
 which is why a loopback container gets none unless you ask.
 
-If `mongod` answers a client that gives no credentials, the start removes
-the container and returns `ErrAuthNotEnforced` rather than hand back an open
-`mongod`. That happens when the image did not create the user, or when a
+If `mongod` still answers a client that gives no credentials when the start
+timeout ends, the start removes the container and returns an error matching
+`ErrAuthNotEnforced` rather than hand back an open `mongod`. That happens when the image did not create the user, or when a
 flag such as `--transitionToAuth` turns authentication off. Use an image that
 creates the user, drop the flag, or pass `WithoutAuth`.
 

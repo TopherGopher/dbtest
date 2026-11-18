@@ -41,7 +41,8 @@ var (
 	// ErrNoSuchVersion: the image publishes no such tag.
 	ErrNoSuchVersion = errors.New("the image publishes no tag for that version")
 	// ErrAuthNotEnforced: the container was created with credentials but its
-	// mongod does not ask for them. The container is removed, not returned.
+	// mongod still did not enforce them when the start timeout ended. The
+	// container is removed, not returned. The error also matches ErrNotReady.
 	ErrAuthNotEnforced = errors.New("mongod is not enforcing the credentials it was created with")
 	// ErrNotInitiated: WithReplicaSet could not initiate the set. The error
 	// says whether the image has no shell to do it with, or the shell failed.

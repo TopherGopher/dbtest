@@ -11,8 +11,11 @@ what to do if it affects you.
   `Start` used to read mongod's command line, and refused a mongod whose
   `--auth` it could not see.
 - **A container created with credentials is now checked by sending mongod a
-  command that needs them, without giving them.** If mongod answers, `Start`
-  removes the container and returns `ErrAuthNotEnforced`, as before.
+  command that needs them, without giving them.** A mongod that answers may
+  be the image's set-up mongod, so `Start` keeps waiting. If it still answers
+  when the start timeout ends, `Start` removes the container and returns an
+  error matching both `ErrAuthNotEnforced` and `ErrNotReady`. Before, it
+  returned `ErrAuthNotEnforced` at once.
   `AuthNotEnforcedError`'s message has changed; match the error with
   `errors.Is`, not its text.
 - **A start can now end in `ErrNotReady` because mongod never said whether it
