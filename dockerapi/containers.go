@@ -2,7 +2,6 @@ package dockerapi
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -42,7 +41,7 @@ func (c *Client) ContainerCreate(ctx context.Context, name string, cfg Container
 		return "", nil, unexpectedStatus(http.MethodPost, path, resp.StatusCode)
 	}
 	var out createResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeReply(resp.Body, &out); err != nil {
 		return "", nil, decodeError(http.MethodPost, path, err)
 	}
 	return out.ID, out.Warnings, nil
@@ -168,7 +167,7 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	default:
 		return unexpectedStatus(http.MethodGet, path, resp.StatusCode)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := decodeReply(resp.Body, out); err != nil {
 		return decodeError(http.MethodGet, path, err)
 	}
 	return nil
