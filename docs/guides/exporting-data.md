@@ -6,9 +6,10 @@ status: current
 
 # Exporting data
 
-The `exporter` module writes a collection to any `io.Writer` as JSON or CSV,
-using `mongoexport` from MongoDB's database tools. It is a module of its own,
-so only code that exports downloads those tools:
+The `exporter` module writes a collection to any `io.Writer` as JSON or CSV.
+It runs `mongoexport`, from MongoDB's database tools, as a Go library, so no
+`mongoexport` program needs to be installed. It is a module of its own, so
+only code that exports downloads those tools:
 
 ```sh
 go get github.com/tophergopher/mongotest/exporter
@@ -54,16 +55,27 @@ By default it writes relaxed Extended JSON, one document per line.
 | Field | Effect |
 | --- | --- |
 | `Array` | One JSON array instead of one document per line. |
-| `Pretty` | Indented, for a person to read. |
+| `Pretty` | Indented over several lines, for a person to read. |
 | `Canonical` | Canonical Extended JSON, which keeps every BSON type exactly, such as `{"n": {"$numberInt": "1"}}`. Use it for fixtures you will import again. |
 
 `WriteCSV(ctx, w, fields)` writes a header naming the fields, then a row for
 each document. It needs at least one field. Name a nested field with dots,
 such as `address.city`.
 
-The context bounds how long an export waits to reach the server, and stops
-an export between documents once it ends. It cannot interrupt a read the
-server never answers, because mongoexport does not pass it to the driver.
+
+## Timeouts and cancellation
+
+A deadline on the context limits how long an export waits to reach the
+server, unless the connection string sets `serverSelectionTimeoutMS`, which
+then applies instead. A deadline later than the driver's thirty seconds
+changes nothing.
+
+Once the context is cancelled or its deadline passes, the export stops at
+its next write, and its error matches the context's error as well as
+`ErrExport`. JSON is written a document at a time, CSV in blocks of several.
+
+The context cannot stop a read the server never answers: `mongoexport` does
+not pass it to MongoDB's Go driver.
 
 ## Files and compression
 

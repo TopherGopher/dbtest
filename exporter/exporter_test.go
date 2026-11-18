@@ -284,6 +284,7 @@ func TestADeadlineLimitsTheWaitToReachTheServer(t *testing.T) {
 	_, err := exporter.New(unbounded, "app", "people").WriteJSON(ctx, &bytes.Buffer{}, exporter.JSONOptions{})
 
 	require.ErrorIs(t, err, exporter.ErrExport, "the export fails")
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "because the deadline passed")
 	assert.Less(t, time.Since(started), 10*time.Second, "within about the deadline, not the driver's thirty seconds")
 }
 
@@ -310,6 +311,19 @@ func TestAContextThatEndsDuringAnExportStopsIt(t *testing.T) {
 
 	require.ErrorIs(t, err, exporter.ErrExport, "the export fails")
 	assert.ErrorIs(t, err, context.Canceled, "because of the context")
-	assert.Less(t, n, int64(5), "before every document is written")
+	assert.EqualValues(t, 1, n, "it counts the one document that was written")
 	assert.Equal(t, 1, w.writes, "nothing is written once the context has ended")
+}
+
+// mongoexport refuses a server selection timeout set twice, so a deadline
+// leaves the connection string's own timeout alone.
+func TestADeadlineLeavesTheConnectionStringsOwnTimeoutAlone(t *testing.T) {
+	uri := seeded(t) + "&serverSelectionTimeoutMS=5000"
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	n, err := exporter.New(uri, "app", "people").WriteJSON(ctx, &bytes.Buffer{}, exporter.JSONOptions{})
+
+	require.NoError(t, err, "the export succeeds")
+	assert.EqualValues(t, 5, n, "and writes every document")
 }
