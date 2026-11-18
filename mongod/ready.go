@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/hostaddr"
 )
 
 // Readiness is polled. The interval doubles from the first to the maximum,
@@ -295,7 +296,7 @@ func isContainerLocal(address string) bool {
 	if address == "" || strings.HasPrefix(address, "/") {
 		return true
 	}
-	return isLoopback(address)
+	return hostaddr.IsLoopback(address)
 }
 
 // enforcesAuth reports whether this mongod makes clients authenticate. An

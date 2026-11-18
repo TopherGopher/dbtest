@@ -2,18 +2,10 @@ package mongod
 
 import (
 	"maps"
-	"net"
 	"strconv"
 
 	"github.com/tophergopher/mongotest/dockerclient"
-)
-
-// The two addresses a port is published on.
-const (
-	// loopback is reachable only from the daemon's own host.
-	loopback = "127.0.0.1"
-	// allInterfaces is reachable from anywhere that can reach that host.
-	allInterfaces = "0.0.0.0"
+	"github.com/tophergopher/mongotest/internal/hostaddr"
 )
 
 // containerConfig builds the create request. host is the address the caller
@@ -30,7 +22,7 @@ func (c config) containerConfig(host string) dockerclient.ContainerConfig {
 		Labels:       maps.Clone(c.labels),
 		ExposedPorts: map[string]struct{}{mongoPort: {}},
 		HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
-			mongoPort: {{HostIP: bindIP(host), HostPort: publishOn}},
+			mongoPort: {{HostIP: hostaddr.BindIP(host), HostPort: publishOn}},
 		}},
 	}
 }
@@ -93,7 +85,7 @@ func (c config) withCredentialsIfExposed(host string) config {
 // announceExposure logs that other machines will be able to reach mongod.
 // The same call is loopback-only on a laptop, so the change is worth saying.
 func (c config) announceExposure(host string) {
-	if bindIP(host) != allInterfaces {
+	if hostaddr.BindIP(host) != hostaddr.AllInterfaces {
 		return
 	}
 	if c.noAuth {
@@ -111,7 +103,7 @@ func (c config) announceExposure(host string) {
 // credentials nor WithoutAuth, and the port will be on every interface.
 func (c config) needsGeneratedCredentials(host string) bool {
 	chosen := c.noAuth || c.username != ""
-	return !chosen && bindIP(host) == allInterfaces
+	return !chosen && hostaddr.BindIP(host) == hostaddr.AllInterfaces
 }
 
 // needsKeyFile reports whether mongod must be given a key file: a replica
@@ -120,39 +112,4 @@ func (c config) needsGeneratedCredentials(host string) bool {
 func (c config) needsKeyFile() bool {
 	authenticates := c.username != ""
 	return authenticates && c.replicaSet != "" && c.image.acceptsMongodArgs()
-}
-
-// bindIP returns the interface to publish on for the address the caller will
-// dial. Docker publishes on exactly the address it is given, so a port bound
-// to loopback is refused from anywhere else.
-//
-// Loopback stays loopback, which keeps a laptop's mongod off the network. Any
-// other address gets every interface, because the address a caller dials,
-// such as a remote daemon's hostname, need not be one that host can bind.
-func bindIP(host string) string {
-	if isLoopback(host) {
-		return loopback
-	}
-	return allInterfaces
-}
-
-// dialHost returns the address to dial for a resolved one. Every loopback IP
-// becomes 127.0.0.1, the one address a loopback publish listens on; ::1 and
-// 127.0.1.1 would be refused. A name such as localhost is left alone: a
-// dialler tries each address it resolves to, so it finds 127.0.0.1 itself.
-func dialHost(host string) string {
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return loopback
-	}
-	return host
-}
-
-// isLoopback reports whether a host is this machine: localhost, or any
-// loopback IP.
-func isLoopback(host string) bool {
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

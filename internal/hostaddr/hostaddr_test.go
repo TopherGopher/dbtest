@@ -1,9 +1,10 @@
-package mongod
+package hostaddr
 
 import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,9 +85,9 @@ func TestAContainerWithNoGatewayCannotWorkOutTheAddress(t *testing.T) {
 
 	_, err := resolver.resolve()
 
-	require.ErrorIs(t, err, ErrUnresolvedHost, "there is nothing to guess from")
+	require.ErrorIs(t, err, ErrUnresolved, "there is nothing to guess from")
 	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "and the fix is an option or a variable, so it is an invalid argument too")
-	var unresolved *UnresolvedHostError
+	var unresolved *UnresolvedError
 	require.ErrorAs(t, err, &unresolved, "with the details")
 	assert.Equal(t, "/.dockerenv exists", unresolved.Evidence, "including why this process was taken to be in a container")
 }
@@ -166,5 +167,27 @@ func FuzzParseDefaultGateway(f *testing.F) {
 		ip := net.ParseIP(gateway)
 		require.NotNil(t, ip, "a gateway that is found is an address: %q", gateway)
 		assert.False(t, ip.IsUnspecified(), "and one that can be dialled")
+	})
+}
+
+// DOCKER_HOST comes from the environment, so any text can reach it.
+func FuzzRemoteHost(f *testing.F) {
+	for _, seed := range []string{
+		"tcp://build-host:2376",
+		"ssh://deploy@build-host",
+		"http://build-host:2375/v1",
+		"tcp://[fd00::1]:2376",
+		"tcp://0.0.0.0:2375",
+		"unix:///var/run/docker.sock",
+		"mock",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, dockerHost string) {
+		scheme, hostPart := splitDockerHost(dockerHost)
+		host := remoteHost(hostPart)
+
+		assert.Equal(t, strings.ToLower(scheme), scheme, "a scheme is compared in lower case")
+		assert.NotEmpty(t, host, "and there is always a host to dial, this machine if the address names none")
 	})
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/tophergopher/mongotest/dockerapi"
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/hostaddr"
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
@@ -31,13 +32,13 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	}
 	// Worked out before anything is created, so failing to leaves no
 	// container behind.
-	address, err := cfg.hostResolver(docker.Host()).resolve()
+	address, err := hostaddr.Resolve(docker.Host(), cfg.hostIP)
 	if err != nil {
 		return nil, err
 	}
 	// The host decides which interface the port is published on, and so
 	// whether the container needs credentials.
-	host := dialHost(address.Host)
+	host := address.Host
 	cfg = cfg.withCredentialsIfExposed(host)
 	cfg.hostSource = address.Source
 	cfg.announceExposure(host)

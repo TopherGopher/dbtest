@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/hostaddr"
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
@@ -28,7 +29,7 @@ var (
 		"which a published port cannot reach; it needs --bind_ip_all, which the image's entrypoint normally adds")
 	// ErrUnresolvedHost: the address to reach the container on could not be
 	// worked out. Set WithHostIP.
-	ErrUnresolvedHost = errors.New("cannot work out the address to reach the container on")
+	ErrUnresolvedHost = hostaddr.ErrUnresolved
 	// ErrContainerExited: the container stopped or was removed before mongod
 	// was ready, so waiting longer would not have helped.
 	ErrContainerExited = errors.New("the container exited before mongod was ready")
@@ -310,23 +311,7 @@ func (e *NotReadyError) Is(target error) bool { return target == ErrNotReady }
 // UnresolvedHostError reports that this process is in a container and the
 // address of the daemon's host could not be found from inside it. It matches
 // ErrUnresolvedHost and dockerclient.ErrInvalidArgument.
-type UnresolvedHostError struct {
-	DockerHost string // the daemon address the client reported
-	Evidence   string // what showed this process is in a container
-	Err        error
-}
-
-func (e *UnresolvedHostError) Error() string {
-	return fmt.Sprintf("mongod: cannot work out where containers started through %s are reachable from here: "+
-		"this process looks containerised (%s), and the gateway lookup failed: %v. Set %s, or pass WithHostIP, to the address of the daemon's host",
-		e.DockerHost, e.Evidence, e.Err, EnvHostIP)
-}
-
-func (e *UnresolvedHostError) Unwrap() error { return e.Err }
-
-func (e *UnresolvedHostError) Is(target error) bool {
-	return target == ErrUnresolvedHost || target == dockerclient.ErrInvalidArgument
-}
+type UnresolvedHostError = hostaddr.UnresolvedError
 
 // NoSuchVersionError reports a version the image's repository cannot have.
 // It matches ErrNoSuchVersion and dockerclient.ErrInvalidArgument.
