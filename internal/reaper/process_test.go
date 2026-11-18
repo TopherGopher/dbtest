@@ -45,7 +45,8 @@ func runStuckHelper(timeout string) {
 	Register("stuck", func(context.Context) error {
 		os.Stdout.WriteString("tearing down\n")
 		select {}
-	})
+	}, nil)
+
 	// Another package listening for the signal too, which only Reset undoes.
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGTERM)
 	os.Stdout.WriteString("ready\n")

@@ -225,7 +225,8 @@ func (o Options) WithLabel(key, value string) Options {
 }
 
 // WithLogger sends what a start does to a logger. *slog.Logger works, and
-// nil leaves the logger as it was.
+// nil leaves the logger as it was. If Ctrl-C stops the process before the
+// container can be removed, the logger also gets an Error record naming it.
 func (o Options) WithLogger(l dockerclient.Logger) Options {
 	if l != nil {
 		o.logger = l

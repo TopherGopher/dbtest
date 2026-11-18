@@ -41,6 +41,13 @@ type entry struct {
 	handle Handle
 	name   string
 	tear   func(context.Context) error
+	log    Logger
+}
+
+// Logger receives the report of a container a signal's reap left behind.
+// dockerclient.Logger, and so *slog.Logger, satisfies it.
+type Logger interface {
+	Error(msg string, keysAndValues ...any)
 }
 
 // registry is the process-wide set of teardowns. It is global because a
@@ -64,12 +71,13 @@ var signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
 // importing this package alone changes nothing.
 //
 // name appears in the error if the teardown fails. The teardown's context may
-// be close to its deadline, so it should not retry at length.
-func Register(name string, tear func(context.Context) error) Handle {
+// be close to its deadline, so it should not retry at length. log, which may
+// be nil, also gets the report if a signal's reap leaves it behind.
+func Register(name string, tear func(context.Context) error, log Logger) Handle {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	registry.next++
-	registry.entries = append(registry.entries, entry{handle: registry.next, name: name, tear: tear})
+	registry.entries = append(registry.entries, entry{handle: registry.next, name: name, tear: tear, log: log})
 	if registry.handler == nil {
 		installLocked(signals)
 	}
@@ -147,7 +155,7 @@ func collect(ctx context.Context, entries []entry, outcomes <-chan outcome) []*T
 			drain(outcomes, record)
 			for i, e := range entries {
 				if !finished[i] {
-					failures[i] = &TeardownError{Name: e.name, Err: context.Cause(ctx), handle: e.handle}
+					failures[i] = &TeardownError{Name: e.name, Err: context.Cause(ctx), handle: e.handle, log: e.log}
 				}
 			}
 			return failures
@@ -173,7 +181,7 @@ func drain(outcomes <-chan outcome, record func(outcome)) {
 func tearDown(ctx context.Context, e entry) *TeardownError {
 	defer finishOne(e.handle)
 	if err := recovering(ctx, e.tear); err != nil {
-		return &TeardownError{Name: e.name, Err: err, handle: e.handle}
+		return &TeardownError{Name: e.name, Err: err, handle: e.handle, log: e.log}
 	}
 	return nil
 }
@@ -217,19 +225,19 @@ func outstanding() (registered, running int) {
 	return len(registry.entries), len(registry.running)
 }
 
-// unfinished returns the names of teardowns still registered or still
-// running in a Reap, except those already in reported.
-func unfinished(reported []*TeardownError) []string {
+// unfinished returns the teardowns still registered or still running in a
+// Reap, except those already in reported.
+func unfinished(reported []*TeardownError) []entry {
 	seen := make(map[Handle]bool, len(reported))
 	for _, failed := range reported {
 		seen[failed.handle] = true
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	var left []string
+	var left []entry
 	for _, e := range slices.Concat(registry.entries, registry.running) {
 		if !seen[e.handle] {
-			left = append(left, e.name)
+			left = append(left, e)
 		}
 	}
 	return left
@@ -241,6 +249,8 @@ type TeardownError struct {
 	Err  error
 	// handle tells apart two registrations with the same name.
 	handle Handle
+	// log is the logger the teardown was registered with, or nil.
+	log Logger
 }
 
 func (e *TeardownError) Error() string {
@@ -335,13 +345,37 @@ func reapOnSignal(ch chan os.Signal) {
 	reRaise(sig)
 }
 
-// reapAndReport reaps until nothing is left or ctx ends, and then writes
-// which containers it could not remove, if any.
+// reapAndReport reaps until nothing is left or ctx ends, and then reports
+// which containers it could not remove, if any: to w first, since a logger
+// in a dying process may never be flushed, and then to each container's own
+// logger.
 func reapAndReport(ctx context.Context, sig os.Signal, w io.Writer) {
 	left := reapLeavingBehind(ctx)
 	if len(left.names()) > 0 {
 		fmt.Fprintln(w, left.report(sig))
 	}
+	for _, failed := range left.failed {
+		logLeftBehind(failed.log, failed.Name, sig, failed.Err)
+	}
+	for _, e := range left.unfinished {
+		logLeftBehind(e.log, e.name, sig, errUnfinished)
+	}
+}
+
+// errUnfinished is why a container whose removal had not finished when the
+// time ran out was left behind.
+var errUnfinished = errors.New("the time ran out before its removal finished")
+
+// logLeftBehind logs a container a signal's reap left behind. A logger that
+// panics, as one writing to a finished test's output does, is ignored: the
+// process still has to die of the signal.
+func logLeftBehind(log Logger, name string, sig os.Signal, err error) {
+	if log == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	log.Error("The process was stopped by a signal before this container could be removed, so it may still be running. "+
+		"Remove it by hand: docker rm -fv "+name, "container", name, "signal", sig, "error", err)
 }
 
 // reapLeavingBehind reaps until nothing is left or ctx ends, and returns
@@ -357,12 +391,16 @@ func reapLeavingBehind(ctx context.Context) leftBehind {
 // Reap.
 type leftBehind struct {
 	failed     []*TeardownError
-	unfinished []string
+	unfinished []entry
 }
 
 // names returns every container that may still be running.
 func (l leftBehind) names() []string {
-	return append(names(l.failed), l.unfinished...)
+	all := names(l.failed)
+	for _, e := range l.unfinished {
+		all = append(all, e.name)
+	}
+	return all
 }
 
 // report says which containers are left, why, and the command that removes
@@ -374,8 +412,8 @@ func (l leftBehind) report(sig os.Signal) string {
 	for _, failed := range l.failed {
 		fmt.Fprintf(&b, "  %s: %v\n", failed.Name, failed.Err)
 	}
-	for _, name := range l.unfinished {
-		fmt.Fprintf(&b, "  %s: the time ran out before its removal finished\n", name)
+	for _, e := range l.unfinished {
+		fmt.Fprintf(&b, "  %s: %v\n", e.name, errUnfinished)
 	}
 	b.WriteString("Remove them with: docker rm -fv " + strings.Join(l.names(), " "))
 	return b.String()
