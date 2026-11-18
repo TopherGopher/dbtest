@@ -34,6 +34,11 @@ var (
 		Message: `unknown: failed to resolve reference "docker.io/library/mongo:8.0": unexpected status from HEAD request: 503 Service Unavailable`}
 )
 
+// noMirrorImage is on Docker Hub, but outside the namespaces a mirror
+// serves, so its rate limit is waited out and remembered rather than sent
+// to a mirror.
+const noMirrorImage = "bitnami/mongodb:8.0"
+
 // failingThen makes m's pulls fail with err the given number of times, and
 // then succeed.
 func failingThen(m *dockermock.Mock, err error, failures int) {
@@ -65,7 +70,7 @@ func TestAPullThatFailsForATemporaryReasonIsTriedAgain(t *testing.T) {
 			missingImage(m)
 			failingThen(m, failure, 2)
 
-			err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m))
+			err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage))
 
 			assert.NoError(t, err, "a temporary failure that clears is not reported")
 			assert.Len(t, m.CallsTo("ImagePull"), 3, "the pull was tried until it succeeded")
@@ -105,7 +110,7 @@ func TestASpentRateLimitIsRememberedForAWhile(t *testing.T) {
 	m := pullMock(t)
 	missingImage(m)
 	m.ImagePullFunc = func(context.Context, string) error { return rateLimitedInTheStream }
-	opts := mongod.DefaultOptions().WithDocker(m)
+	opts := mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage)
 
 	first := mongod.PullImage(context.Background(), opts)
 	require.ErrorIs(t, first, dockerclient.ErrRateLimited, "the caller can tell it was the rate limit")
@@ -130,7 +135,7 @@ func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
 		}
 		return nil
 	}
-	opts := mongod.DefaultOptions().WithDocker(m)
+	opts := mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage)
 	require.ErrorIs(t, mongod.PullImage(context.Background(), opts), dockerclient.ErrRateLimited, "the first pull uses up its attempts on the limit")
 	limited = false
 
@@ -140,8 +145,10 @@ func TestASpentRateLimitIsTriedAgainOnceForgotten(t *testing.T) {
 func TestASpentRateLimitIsKeptToItsDaemonAndImage(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
 	mongod.SetRateLimitMemory(t, time.Hour)
+	// The default image is limited on Docker Hub and on its mirror, so
+	// the limit is spent for it and nowhere else.
 	limitedOnlyForTheDefault := func(_ context.Context, image string) error {
-		if image == defaultImage {
+		if strings.HasSuffix(image, "/mongo:8.0") {
 			return rateLimitedInTheStream
 		}
 		return nil
@@ -197,13 +204,13 @@ func TestARateLimitCutShortByTheCallerIsNotRemembered(t *testing.T) {
 				}
 				return nil
 			}
-			require.ErrorIs(t, receive(t, pullInBackground(ctx, tc.opts.WithDocker(m))), tc.want, "the caller stops waiting")
+			require.ErrorIs(t, receive(t, pullInBackground(ctx, tc.opts.WithDocker(m).WithImage(noMirrorImage))), tc.want, "the caller stops waiting")
 			// The pull it left ends on its own goroutine, just after its wait.
 			<-ended
 			time.Sleep(50 * time.Millisecond)
 			limited = false
 
-			assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m)),
+			assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage(noMirrorImage)),
 				"a pull cut short is not remembered, so the next pull asks the registry")
 		})
 	}
@@ -238,34 +245,6 @@ func TestRetryingStopsWhenTheTimeRunsOut(t *testing.T) {
 			require.ErrorIs(t, err, tc.want, "retrying stops when the caller's time runs out")
 			assert.ErrorIs(t, err, registryDown, "and the error still says why the pull failed")
 			assert.Len(t, m.CallsTo("ImagePull"), 1, "no attempt is made once the time is up")
-		})
-	}
-}
-
-func TestARateLimitedPullOfTheOfficialImageSuggestsPublicECR(t *testing.T) {
-	mongod.SetPullWait(t, noWait)
-	cases := map[string]struct {
-		image   string
-		failure error
-		want    bool
-	}{
-		"the official image, rate limited":  {"8.0", rateLimitedInTheStream, true},
-		"the official image, pinned":        {"mongo@sha256:" + strings.Repeat("a", 64), rateLimitedInTheStream, true},
-		"the community image, rate limited": {"mongodb/mongodb-community-server:8.0-ubi8", rateLimitedInTheStream, false},
-		"the official image, a missing tag": {"8.0", &dockerclient.StatusError{StatusCode: 404, Message: "not found"}, false},
-		"another image with a similar name": {"mongo-express:1", rateLimitedInTheStream, false},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			m := pullMock(t)
-			missingImage(m)
-			m.ImagePullFunc = func(context.Context, string) error { return tc.failure }
-
-			err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage(tc.image))
-
-			require.Error(t, err, "the pull fails")
-			assert.Equal(t, tc.want, strings.Contains(err.Error(), "ImagePublicECR"),
-				"ECR Public is a way round Docker Hub's limit only for the image it mirrors, and the reader has to be told its name")
 		})
 	}
 }

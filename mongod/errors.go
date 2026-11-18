@@ -1,7 +1,6 @@
 package mongod
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +9,8 @@ import (
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/hostaddr"
+	"github.com/tophergopher/mongotest/internal/pull"
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
 
@@ -28,7 +29,7 @@ var (
 		"which a published port cannot reach; it needs --bind_ip_all, which the image's entrypoint normally adds")
 	// ErrUnresolvedHost: the address to reach the container on could not be
 	// worked out. Set WithHostIP.
-	ErrUnresolvedHost = errors.New("cannot work out the address to reach the container on")
+	ErrUnresolvedHost = hostaddr.ErrUnresolved
 	// ErrContainerExited: the container stopped or was removed before mongod
 	// was ready, so waiting longer would not have helped.
 	ErrContainerExited = errors.New("the container exited before mongod was ready")
@@ -196,25 +197,25 @@ func (e *StartError) Error() string {
 
 func (e *StartError) Unwrap() error { return e.Err }
 
-// pullTimeoutError is a pull the pull timeout cut short. It matches
-// context.DeadlineExceeded and the daemon's own error.
+// pullTimeoutError is a pull the pull timeout cut short, with what a caller
+// of this package can do about it. It matches context.DeadlineExceeded and
+// the daemon's own error.
 type pullTimeoutError struct {
-	timeout time.Duration
-	err     error
+	err *pull.TimeoutError
 	// inStart says the pull happened inside Start, where fetching the image
 	// first with PullImage is a way out.
 	inStart bool
 }
 
 func (e *pullTimeoutError) Error() string {
-	msg := fmt.Sprintf("the pull did not finish within %s (%v). Allow longer with WithPullTimeout", e.timeout, e.err)
+	msg := e.err.Error() + ". Allow longer with WithPullTimeout"
 	if e.inStart {
 		msg += ", or fetch the image first with PullImage"
 	}
 	return msg
 }
 
-func (e *pullTimeoutError) Unwrap() []error { return []error{context.DeadlineExceeded, e.err} }
+func (e *pullTimeoutError) Unwrap() error { return e.err }
 
 // UnpublishedPortError names a container port with no host port. It matches
 // ErrNoPublishedPort.
@@ -308,25 +309,11 @@ func (e *NotReadyError) Unwrap() []error {
 func (e *NotReadyError) Is(target error) bool { return target == ErrNotReady }
 
 // UnresolvedHostError reports that this process is in a container and the
-// address of the daemon's host could not be found from inside it. It matches
+// address of the daemon's host could not be found from inside it. Read
+// Evidence for what showed this process is in a container, DockerHost for
+// the daemon address, and Err for why the gateway lookup failed. It matches
 // ErrUnresolvedHost and dockerclient.ErrInvalidArgument.
-type UnresolvedHostError struct {
-	DockerHost string // the daemon address the client reported
-	Evidence   string // what showed this process is in a container
-	Err        error
-}
-
-func (e *UnresolvedHostError) Error() string {
-	return fmt.Sprintf("mongod: cannot work out where containers started through %s are reachable from here: "+
-		"this process looks containerised (%s), and the gateway lookup failed: %v. Set %s, or pass WithHostIP, to the address of the daemon's host",
-		e.DockerHost, e.Evidence, e.Err, EnvHostIP)
-}
-
-func (e *UnresolvedHostError) Unwrap() error { return e.Err }
-
-func (e *UnresolvedHostError) Is(target error) bool {
-	return target == ErrUnresolvedHost || target == dockerclient.ErrInvalidArgument
-}
+type UnresolvedHostError = hostaddr.UnresolvedError
 
 // NoSuchVersionError reports a version the image's repository cannot have.
 // It matches ErrNoSuchVersion and dockerclient.ErrInvalidArgument.
