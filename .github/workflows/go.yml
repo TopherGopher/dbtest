@@ -22,16 +22,28 @@ jobs:
         persist-credentials: false
 
     # After the checkout: it reads the Go version from go.mod.
-    - name: Set up Go 1.x
+    - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        # The Go 1.27.x the runner image already has. check-latest is left
-        # off, so a new Go patch reaches CI when GitHub ships it in the
-        # runner image, not on the day it is released.
+        # Go is the release named by the toolchain line in the root go.mod.
+        # It changes only when a reviewed change edits that line, never by
+        # itself when a new patch comes out.
         go-version-file: go.mod
 
     - name: Get dependencies
       run: go mod download
+
+    # Each module's go.mod pins a Go release, but CI installs only the root's.
+    # This step fails if a module pins a different one. To fix it, set the
+    # same toolchain line in all three go.mod files.
+    - name: Check every module pins the Go that CI installs
+      run: |
+        for dir in . mobyclient exporter; do
+          want=$(awk '$1 == "toolchain" { print $2 }' "$dir/go.mod")
+          got=$(cd "$dir" && go env GOVERSION)
+          echo "$dir: go.mod pins ${want:-nothing}, CI runs $got"
+          if [ "$got" != "$want" ]; then exit 1; fi
+        done
 
     # gofmt works on files, not modules, so one run from the root checks
     # all three modules.
@@ -69,14 +81,15 @@ jobs:
         go vet -v ./...
         go build -v ./...
   test:
-    name: Test (Go ${{ matrix.go || 'from go.mod' }})
+    name: Test (Go ${{ matrix.go || 'pinned in go.mod' }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # Empty is the Go that go.mod gives. 1.26.x is the oldest supported
-        # release, which every module's go line allows, so a module that
-        # starts to need a newer Go fails here before its users notice.
+        # Empty uses the release go.mod pins. 1.26.x is the oldest release
+        # the Go team still supports, which every module's go line allows.
+        # setup-go stops the go command fetching a newer one, so if a module
+        # starts to need one, this leg fails before its users find out.
         go: ['', '1.26.x']
     steps:
     - name: Check out code into the Go module directory
@@ -84,13 +97,12 @@ jobs:
       with:
         # No later step pushes, so the token is not left in the git config.
         persist-credentials: false
-    - name: Set up Go 1.x
+    - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        # go-version wins when it is set; otherwise the Go 1.27.x the runner
-        # image already has. check-latest is left off, so a new Go patch
-        # reaches CI when GitHub ships it in the runner image, not on the
-        # day it is released.
+        # When go-version is set, it overrides go-version-file. Otherwise Go
+        # is the release named by the toolchain line in the root go.mod,
+        # which changes only when a reviewed change edits that line.
         go-version: ${{ matrix.go }}
         go-version-file: go.mod
     - name: Get dependencies

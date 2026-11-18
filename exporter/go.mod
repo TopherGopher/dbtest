@@ -2,6 +2,8 @@ module github.com/tophergopher/mongotest/exporter
 
 go 1.26.8
 
+toolchain go1.27.4
+
 require (
 	github.com/mongodb/mongo-tools v0.0.0-20261117220938-eb3792147072
 	github.com/stretchr/testify v1.12.1
