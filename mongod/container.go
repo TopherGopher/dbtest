@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/internal/reaper"
+	"github.com/tophergopher/mongotest/internal/container"
 )
 
 // Container is a running mongod, created by a start and removed by Stop. It
@@ -17,8 +14,7 @@ import (
 //
 // Every method is safe to call from several goroutines.
 type Container struct {
-	id         string
-	name       string
+	ctr        *container.Container // the id, the name, and stopping
 	image      MongoImage
 	ref        string // the reference the container was created from, set before Start returns
 	replicaSet string
@@ -29,16 +25,6 @@ type Container struct {
 	certs      *certificates // nil without WithTLS
 	docker     dockerclient.Client
 	logger     dockerclient.Logger
-
-	// mu guards id, stopped and reaperHandle. Stop can be called from a
-	// defer, a test cleanup and the reaper at once, and holds mu while it
-	// waits for the daemon; see lockContext.
-	mu           sync.Mutex
-	stopped      bool
-	reaperHandle reaper.Handle
-	// stopWanted says a teardown has asked for the container. A creation
-	// reads it to learn that one arrived while the daemon was at work.
-	stopWanted atomic.Bool
 }
 
 // Format prints the container as its name and URI with the password hidden,
@@ -48,18 +34,18 @@ func (c *Container) Format(f fmt.State, _ rune) {
 		fmt.Fprint(f, "<nil>")
 		return
 	}
-	fmt.Fprintf(f, "%s (%s)", c.name, c.uri(redactedPassword))
+	fmt.Fprintf(f, "%s (%s)", c.Name(), c.uri(redactedPassword))
 }
 
 // ID returns the container id the daemon assigned.
 //
 //	3f1a9c4b7e2d5a8f0b6c3e9d1a4f7b2c5e8d0a3f6b9c2e5d8a1f4b7c0e3d6a9f
-func (c *Container) ID() string { return c.id }
+func (c *Container) ID() string { return c.ctr.ID() }
 
 // Name returns the container name: the one WithName gave, or a generated one.
 //
 //	mongotest-1a2b3c4d
-func (c *Container) Name() string { return c.name }
+func (c *Container) Name() string { return c.ctr.Name() }
 
 // Image returns the reference of the image the container runs. When Docker
 // Hub's rate limit refused the image, this is the mirror's reference for
@@ -179,86 +165,5 @@ func (c *Container) Stop(ctx context.Context) error {
 	if c == nil {
 		return nil
 	}
-	ctx, cancel := removalContext(ctx)
-	defer cancel()
-	return c.stop(ctx)
-}
-
-// removalContext returns ctx, or one with a deadline of its own if ctx has
-// already ended. A test's context ends before its cleanups run, and a Stop
-// that gave up there would leave the container running behind a green test.
-func removalContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx.Err() == nil {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-}
-
-// stop is Stop for a caller whose context is the limit, which is what the
-// reaper needs: a process dying of a signal must not wait past its deadline.
-func (c *Container) stop(ctx context.Context) error {
-	c.stopWanted.Store(true)
-	if err := lockContext(ctx, &c.mu); err != nil {
-		return err
-	}
-	defer c.mu.Unlock()
-	if c.stopped {
-		return nil
-	}
-	if err := c.remove(ctx); err != nil {
-		return err
-	}
-	c.stopped = true
-	reaper.Unregister(c.reaperHandle)
-	c.logger.Debug("Removed the MongoDB container and its anonymous volumes.", "container", c.name, "id", shortID(c.id))
-	return nil
-}
-
-// remove has the daemon remove the container. One the daemon was never
-// asked for is removed already.
-func (c *Container) remove(ctx context.Context) error {
-	if c.id == "" {
-		return nil
-	}
-	return c.removeByName(ctx, c.id)
-}
-
-// removeByName has the daemon remove a container, named by its id or its
-// name, and its anonymous volumes. One the daemon does not have is removed
-// already.
-func (c *Container) removeByName(ctx context.Context, idOrName string) error {
-	ctx, cancel := withRemovalDeadline(ctx)
-	defer cancel()
-	err := c.docker.ContainerRemove(ctx, idOrName, dockerclient.RemoveOptions{Force: true, RemoveVolumes: true})
-	if dockerclient.IsNotFound(err) {
-		return nil
-	}
-	return err
-}
-
-// withRemovalDeadline gives a removal a deadline when its caller set none.
-// The daemon is asked while the container's lock is held, so a daemon that
-// never answers must not be able to hold it for ever.
-func withRemovalDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
-	if _, bounded := ctx.Deadline(); bounded {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, cleanupTimeout)
-}
-
-// lockPoll is how often lockContext tries again.
-const lockPoll = 5 * time.Millisecond
-
-// lockContext locks mu, or gives up when ctx ends. Stop holds its lock
-// across a call to the daemon, so a second Stop, such as the reaper's on a
-// signal, has to be able to stop waiting when its deadline passes.
-func lockContext(ctx context.Context, mu *sync.Mutex) error {
-	for !mu.TryLock() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(lockPoll):
-		}
-	}
-	return nil
+	return c.ctr.Stop(ctx)
 }

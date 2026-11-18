@@ -12,9 +12,9 @@ import (
 // Exec runs a command inside the container and returns its output and exit
 // code. A command that exits non-zero is a result, not an error.
 func (c *Container) Exec(ctx context.Context, cmd ...string) (dockerclient.ExecResult, error) {
-	result, err := c.docker.Exec(ctx, c.id, cmd...)
+	result, err := c.docker.Exec(ctx, c.ID(), cmd...)
 	if err != nil {
-		return result, fmt.Errorf("mongod: cannot run a command in container %s: %w", c.name, err)
+		return result, fmt.Errorf("mongod: cannot run a command in container %s: %w", c.Name(), err)
 	}
 	return result, nil
 }
@@ -33,9 +33,9 @@ func (c *Container) RunScript(ctx context.Context, js string) (string, error) {
 	result, err := c.runShell(ctx, js)
 	switch {
 	case err != nil:
-		return "", fmt.Errorf("mongod: cannot run a script in container %s: %w", c.name, err)
+		return "", fmt.Errorf("mongod: cannot run a script in container %s: %w", c.Name(), err)
 	case result.ExitCode != 0:
-		return "", fmt.Errorf("mongod: the script failed in container %s: %w", c.name, result.failure())
+		return "", fmt.Errorf("mongod: the script failed in container %s: %w", c.Name(), result.failure())
 	}
 	return strings.TrimSpace(result.Stdout), nil
 }
@@ -57,7 +57,7 @@ func (r shellResult) failure() *ScriptError {
 // on an image with both shells is run again in the legacy one.
 func (c *Container) runShell(ctx context.Context, script string) (shellResult, error) {
 	for _, shell := range shells {
-		result, err := c.docker.Exec(ctx, c.id, c.shellCommand(shell, script)...)
+		result, err := c.docker.Exec(ctx, c.ID(), c.shellCommand(shell, script)...)
 		if err != nil {
 			return shellResult{}, err
 		}

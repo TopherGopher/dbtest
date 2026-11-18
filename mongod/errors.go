@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/container"
 	"github.com/tophergopher/mongotest/internal/hostaddr"
 	"github.com/tophergopher/mongotest/internal/pull"
 	"github.com/tophergopher/mongotest/internal/reaper"
@@ -32,7 +32,7 @@ var (
 	ErrUnresolvedHost = hostaddr.ErrUnresolved
 	// ErrContainerExited: the container stopped or was removed before mongod
 	// was ready, so waiting longer would not have helped.
-	ErrContainerExited = errors.New("the container exited before mongod was ready")
+	ErrContainerExited = container.ErrExited
 	// ErrNoSuchVersion: the image publishes no such tag.
 	ErrNoSuchVersion = errors.New("the image publishes no tag for that version")
 	// ErrAuthNotEnforced: the container was created with credentials but its
@@ -227,7 +227,7 @@ type UnpublishedPortError struct {
 
 func (e *UnpublishedPortError) Error() string {
 	return fmt.Sprintf("mongod: container %s (%s) has no host port for %s: the daemon did not publish it",
-		e.Name, shortID(e.ID), e.Port)
+		e.Name, container.ShortID(e.ID), e.Port)
 }
 
 func (e *UnpublishedPortError) Is(target error) bool { return target == ErrNoPublishedPort }
@@ -260,7 +260,7 @@ type NotReadyError struct {
 func (e *NotReadyError) where() string {
 	where := "container " + e.Name
 	if e.ID != "" {
-		where += " (" + shortID(e.ID) + ")"
+		where += " (" + container.ShortID(e.ID) + ")"
 	}
 	if e.Port != 0 {
 		where += " at " + addr(e.Host, e.Port)
@@ -357,68 +357,17 @@ func (e *AuthNotEnforcedError) Error() string {
 	return fmt.Sprintf("mongod: container %s (%s) was created with credentials, but its mongod runs without --auth: "+
 		"the image did not create a root user from its environment. "+
 		"Use an image that does, or pass WithoutAuth to accept a mongod anyone can use",
-		e.Name, shortID(e.ID))
+		e.Name, container.ShortID(e.ID))
 }
 
 func (e *AuthNotEnforcedError) Is(target error) bool { return target == ErrAuthNotEnforced }
 
-// exitOutputLimit is the most bytes of an exited container's output that
-// ContainerExitedError keeps, enough for mongod's last several log lines.
-const exitOutputLimit = 8 << 10
-
 // ContainerExitedError reports that the container stopped, or was removed,
-// before mongod was ready. It matches ErrContainerExited.
-type ContainerExitedError struct {
-	Name string
-	ID   string
-	// Status is "exited", "dead", or "removed".
-	Status string
-	// ExitCode is meaningful only when HasExitCode is true.
-	ExitCode    int
-	HasExitCode bool
-	// Output is the end of what the container wrote to stdout and stderr,
-	// at most 8 KiB, starting at a whole line. It usually says why mongod
-	// stopped. It is empty if the container was removed or its log could
-	// not be read.
-	Output string
-	Err    error
-}
-
-func (e *ContainerExitedError) Error() string {
-	if !e.HasExitCode {
-		return fmt.Sprintf("mongod: container %s (%s) was removed before mongod was ready; something other than this Start removed it",
-			e.Name, shortID(e.ID))
-	}
-	verb := "exited"
-	if e.Status == "dead" {
-		verb = "died"
-	}
-	return fmt.Sprintf("mongod: container %s (%s) %s with code %d before mongod was ready. %s",
-		e.Name, shortID(e.ID), verb, e.ExitCode, e.why())
-}
-
-// why shows the end of what the container wrote, which usually says why it
-// stopped, or the usual cause when there is nothing to show.
-func (e *ContainerExitedError) why() string {
-	if e.Output == "" {
-		return "The usual cause is a flag or replica set name mongod rejects. " +
-			"Its log was empty or could not be read, so run the image by hand with the same flags to see why"
-	}
-	return "The end of what mongod wrote:\n" + strings.TrimRight(e.Output, "\n")
-}
-
-func (e *ContainerExitedError) Unwrap() error { return e.Err }
-
-func (e *ContainerExitedError) Is(target error) bool { return target == ErrContainerExited }
-
-// shortID abbreviates a container id for a message, as the docker CLI does.
-func shortID(id string) string {
-	const length = 12
-	if len(id) <= length {
-		return id
-	}
-	return id[:length]
-}
+// before mongod was ready. It matches ErrContainerExited. Read Status
+// ("exited", "dead" or "removed"), ExitCode when HasExitCode is true, and
+// Output: the end of what the container wrote, at most 8 KiB, which usually
+// says why mongod stopped.
+type ContainerExitedError = container.ExitedError
 
 // addr joins a host and port, bracketing an IPv6 address.
 func addr(host string, port int) string {
