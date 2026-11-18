@@ -22,19 +22,21 @@ jobs:
         persist-credentials: false
 
     # After the checkout: it reads the Go version from go.mod.
-    - name: Set up Go 1.x
+    - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        # The release named by go.mod's toolchain line. It changes only in a
-        # reviewed change to go.mod, never on the day a new patch is released.
+        # Go is the release named by the toolchain line in the root go.mod.
+        # It changes only when a reviewed change edits that line, never by
+        # itself when a new patch comes out.
         go-version-file: go.mod
 
     - name: Get dependencies
       run: go mod download
 
-    # Each module pins its own toolchain, and CI installs only the root's, so
-    # a module whose pin differs would build with a release it did not ask for.
-    - name: Check every module builds with its pinned Go
+    # Each module's go.mod pins a Go release, but CI installs only the root's.
+    # This step fails if a module pins a different one. To fix it, set the
+    # same toolchain line in all three go.mod files.
+    - name: Check every module pins the Go that CI installs
       run: |
         for dir in . mobyclient exporter; do
           want=$(awk '$1 == "toolchain" { print $2 }' "$dir/go.mod")
@@ -87,11 +89,12 @@ jobs:
       with:
         # No later step pushes, so the token is not left in the git config.
         persist-credentials: false
-    - name: Set up Go 1.x
+    - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        # The release named by go.mod's toolchain line. It changes only in a
-        # reviewed change to go.mod, never on the day a new patch is released.
+        # Go is the release named by the toolchain line in the root go.mod.
+        # It changes only when a reviewed change edits that line, never by
+        # itself when a new patch comes out.
         go-version-file: go.mod
     - name: Get dependencies
       run: go mod download
