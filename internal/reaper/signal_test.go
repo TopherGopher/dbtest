@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -38,7 +37,7 @@ func TestIntegrationSignalReapsAndStillDies(t *testing.T) {
 			label := fmt.Sprintf("%s-%d", strings.ReplaceAll(t.Name(), "/", "_"), time.Now().UnixNano())
 
 			cmd := exec.Command(helper)
-			cmd.Env = append(os.Environ(), "REAPHELPER_LABEL="+label)
+			cmd.Env = programEnv("REAPHELPER_LABEL=" + label)
 			stdout, err := cmd.StdoutPipe()
 			require.NoError(t, err, "the test reads the container id from the helper's stdout")
 			cmd.Stderr = os.Stderr
@@ -74,16 +73,10 @@ func TestIntegrationSignalReapsAndStillDies(t *testing.T) {
 	}
 }
 
-// buildHelper compiles the helper once per test run. It is built rather than
-// run through `go run`, because `go run` sits between the signal and the
-// process under test and muddies both the delivery and the exit status.
+// buildHelper compiles the helper once per test run.
 func buildHelper(t *testing.T) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "reaphelper")
-	build := exec.Command("go", "build", "-o", binary, "github.com/tophergopher/mongotest/internal/reaphelper")
-	build.Stderr = os.Stderr
-	require.NoError(t, build.Run(), "the helper binary must build")
-	return binary
+	return buildProgram(t, "github.com/tophergopher/mongotest/internal/reaphelper")
 }
 
 // containerFromHelper reads the line the helper prints once its container is up.

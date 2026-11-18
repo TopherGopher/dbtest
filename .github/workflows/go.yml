@@ -101,8 +101,28 @@ jobs:
         done
         exit 1
 
+    # The reaper's tests also run reaphelper and ignorehelper as separate
+    # programs, which go test does not count. Asked for here, they are built
+    # with coverage and write it to this directory.
     - name: Test package
-      run: go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      env:
+        MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
+      run: |
+        mkdir -p "$MONGOTEST_HELPER_COVERDIR"
+        go test -v -race -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+
+    # Adds the helper programs' counts to the root module's profile, block
+    # by block, so a line the tests only reach through a helper counts too.
+    - name: Add the helper programs' coverage
+      env:
+        HELPER_COVERAGE: ${{ runner.temp }}/helper-coverage
+      run: |
+        go tool covdata textfmt -i="$HELPER_COVERAGE" -o helpers.out
+        awk 'FNR == 1 { if (NR == 1) print; next }
+             { key = $1 " " $2; if (!(key in count)) order[++n] = key; count[key] += $3 }
+             END { for (i = 1; i <= n; i++) print order[i], count[order[i]] }' \
+          coverage.out helpers.out > merged.out
+        mv merged.out coverage.out
 
     # Separate module, so it needs its own invocation. Its conformance and
     # benchmark suites are the same ones dockerapi runs.

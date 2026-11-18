@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/coverage"
 	"slices"
 	"strings"
 	"sync"
@@ -459,12 +460,23 @@ func failuresOf(err error) []*TeardownError {
 // it, so the process dies of what it was sent. If that somehow does not end
 // it, it exits with the status a shell reports for a signal death.
 func reRaise(sig os.Signal) {
+	writeCoverage()
 	if p, err := os.FindProcess(os.Getpid()); err == nil {
 		if err := p.Signal(sig); err == nil {
 			time.Sleep(reRaiseGrace) // delivery is asynchronous
 		}
 	}
 	os.Exit(exitCodeFor(sig))
+}
+
+// writeCoverage writes the coverage counters of a program built with -cover
+// and run with GOCOVERDIR set. Go writes them only on a normal exit, so a
+// program that dies of a signal would lose them. Without -cover it does
+// nothing.
+func writeCoverage() {
+	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+		_ = coverage.WriteCountersDir(dir)
+	}
 }
 
 // exitCodeFor returns the exit status a shell reports for dying of a signal.
