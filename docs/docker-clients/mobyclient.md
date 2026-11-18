@@ -22,22 +22,28 @@ go get github.com/tophergopher/mongotest/mobyclient
 ## Getting a client
 
 ```go
-c, err := mobyclient.FromEnv()          // find the daemon as dockerapi does; New() does the same
-c, err := mobyclient.New(               // or configure it explicitly
+c, err := mobyclient.New()              // find the daemon as the docker CLI does
+c, err := mobyclient.New(               // or name it
     mobyclient.WithHost("unix:///var/run/docker.sock"),
     mobyclient.WithLogger(slog.Default()),
 )
 ```
 
+With no `WithHost` or `WithMobyClient`, the client finds the daemon as the
+docker CLI does: `DOCKER_HOST`, then the docker context, then the Docker and
+Podman sockets (see `dockerclient.ResolveHost` for the list). `dockerapi`
+finds the same one. `FromEnv()` is the same as `New()`.
+
+A `tcp://` daemon, given or found, gets TLS from `DOCKER_CERT_PATH` and
+`DOCKER_TLS_VERIFY`, and `DOCKER_API_VERSION` pins the API version.
+
+The moby client's own `FromEnv` finds the daemon from `DOCKER_HOST` alone,
+with no docker context and no socket search. To keep that, build it with
+`client.New(client.FromEnv)` and pass it with `WithMobyClient`.
+
 | Option | Effect |
 | --- | --- |
 | `WithHost(h)` | Daemon address in `DOCKER_HOST` form. Skips discovery. |
-
-Without `WithHost` or `WithMobyClient`, the client finds the daemon exactly
-as `dockerapi` does: `DOCKER_HOST`, then the docker context, then the usual
-Docker and Podman sockets. The moby client's own `FromEnv` reads only
-`DOCKER_HOST`; to keep that behaviour, build the moby client yourself and
-pass it with `WithMobyClient`.
 | `WithMobyClient(cli)` | Wrap a `*client.Client` you already built, for options this package does not expose (custom `*tls.Config`, extra headers). `WithHost` and `WithLogger` are ignored when this is set, since that client is already configured. |
 | `WithLogger(l)` | One `Debug` record per request through the moby client's response hooks. |
 
@@ -69,5 +75,5 @@ classification, streaming, exec demultiplexing and validation.
 | | `dockerapi` | `mobyclient` |
 | --- | --- | --- |
 | Third-party modules linked | none | the official client and what it needs |
-| Features beyond the interface | version negotiation, runtime detection | everything the official client offers, via `WithMobyClient` |
+| Features beyond the interface | version negotiation, Docker or Podman detection | everything the official client offers, via `WithMobyClient` |
 | Pick it when | you want the smallest footprint, or need to know whether Docker or Podman answered | you already use the official client and want to share its configuration |

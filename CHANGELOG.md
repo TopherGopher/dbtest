@@ -7,15 +7,26 @@ what to do if it affects you.
 
 ### mobyclient finds the daemon as dockerapi does
 
-- **`mobyclient.FromEnv()` and `mobyclient.New()` with no host** now find
-  the daemon the way `dockerapi` does: `DOCKER_HOST`, then the docker
-  context, then the usual Docker and Podman sockets. Before, `FromEnv`
-  read only `DOCKER_HOST`, and `New()` read nothing and used the platform
-  default.
-- **If you set `DOCKER_HOST` and relied on `New()` ignoring it,** pass
-  `WithHost` with the address you want. To keep exactly the moby client's
-  own discovery, build that client and pass it with `WithMobyClient`.
-- **`dockerclient.ResolveHost`** is the shared discovery, for anyone
+- **`mobyclient.New()` without `WithHost`, and `FromEnv()`,** now find the
+  daemon as the docker CLI does: `DOCKER_HOST`, then the docker context,
+  then the Docker and Podman sockets, the same one `dockerapi` finds.
+  Before, `FromEnv` took the address from `DOCKER_HOST` alone, and `New()`
+  ignored the environment and used the platform default.
+- **`New()` now also reads `DOCKER_API_VERSION`, `DOCKER_CERT_PATH` and
+  `DOCKER_TLS_VERIFY`,** for a `tcp://` daemon whether given with `WithHost`
+  or found. `DOCKER_TLS_VERIFY` alone takes the certificates from the Docker
+  config directory, as the docker CLI does.
+- **`New()` can now fail where it did not:** a broken `config.json`, a
+  `DOCKER_CONTEXT` that does not exist, or a bad `DOCKER_API_VERSION` or
+  `DOCKER_CERT_PATH`. Each error matches `dockerclient.ErrInvalidArgument`.
+- **If `New()` now reaches a different daemon,** pass `WithHost` with the
+  address you want. To keep the moby client's own discovery, build it with
+  `client.New(client.FromEnv)` and pass it with `WithMobyClient`.
+- **On Windows, `dockerapi`** still tries Docker Desktop's TCP endpoint and
+  then a podman machine socket in place of the named pipe it cannot open.
+  `mobyclient` uses the named pipe, as before.
+- **New: `dockerclient.ResolveHost`** returns the daemon address both clients
+  use, and `dockerclient.ConfigDir` the Docker config directory, for anyone
   writing a client of their own.
 
 ### mongotest needs Go 1.26 or newer

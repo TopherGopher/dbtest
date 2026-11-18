@@ -56,17 +56,3 @@ func TestParseHost(t *testing.T) {
 func env(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
-
-// On Windows, with nothing configured or answering, the shared resolver
-// leaves the choice to the client. This client cannot open the named pipe
-// that is the default there, so it says how to give it an endpoint.
-func TestNothingFoundOnWindowsIsErrNoWindowsEndpoint(t *testing.T) {
-	saved := resolveHost
-	t.Cleanup(func() { resolveHost = saved })
-	resolveHost = func() (string, error) { return "", nil }
-
-	_, err := FromEnv()
-
-	require.ErrorIs(t, err, ErrConnectionFailed, "having no endpoint to dial is a connection problem")
-	assert.Same(t, ErrNoWindowsEndpoint, err, "the predeclared ErrNoWindowsEndpoint is returned so callers can compare it")
-}

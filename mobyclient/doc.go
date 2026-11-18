@@ -18,31 +18,31 @@
 //
 // # Getting a client
 //
-// FromEnv, like New with no options, finds the daemon the way
-// github.com/tophergopher/mongotest/dockerapi does, so both clients reach the
-// same daemon: DOCKER_HOST, then the docker context, then the usual Docker
-// and Podman sockets. DOCKER_API_VERSION, DOCKER_CERT_PATH and
-// DOCKER_TLS_VERIFY apply as the docker CLI reads them. The moby client's own
-// FromEnv reads only DOCKER_HOST; to keep exactly its behaviour, build that
-// client yourself and pass it with WithMobyClient:
+// New with no options, or FromEnv, which is the same, finds the daemon as
+// the docker CLI does: DOCKER_HOST, then the docker context, then the
+// Docker and Podman sockets. dockerapi finds the same one.
 //
-//	c, err := mobyclient.FromEnv()
+//	c, err := mobyclient.New()
 //	if err != nil {
 //		return err
 //	}
 //
-// New accepts options for a fixed host, an already-constructed moby client,
-// and logging:
+// WithHost names the daemon instead, and WithLogger logs each request:
 //
 //	c, err := mobyclient.New(
-//		mobyclient.WithHost("tcp://build-host:2376"),
+//		mobyclient.WithHost("tcp://build-host:2375"),
 //		mobyclient.WithLogger(slog.Default()),
 //	)
 //
-// WithMobyClient wraps a *client.Client the caller already built (with its
-// own TLS, headers or transport configured), rather than constructing one:
+// A tcp:// daemon, given or found, gets TLS from DOCKER_CERT_PATH and
+// DOCKER_TLS_VERIFY, and DOCKER_API_VERSION pins the API version.
 //
-//	moby, err := client.New(client.WithHost("tcp://build-host:2376"))
+// WithMobyClient wraps a *client.Client the caller already built, with its
+// own TLS, headers or transport. The moby client's own FromEnv finds the
+// daemon from DOCKER_HOST alone, with no docker context and no socket
+// search; to keep that behaviour, wrap it:
+//
+//	moby, err := client.New(client.FromEnv)
 //	c, err := mobyclient.New(mobyclient.WithMobyClient(moby))
 //
 // # Errors

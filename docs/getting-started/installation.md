@@ -39,8 +39,10 @@ as well; see
 
 === "Docker Desktop (macOS, Windows)"
 
-    Start Docker Desktop. mongotest finds its socket, or its named pipe on
-    Windows, without configuration.
+    Start Docker Desktop. On macOS mongotest finds its socket without
+    configuration. On Windows the default client cannot open Docker's named
+    pipe, so turn on "Expose daemon on tcp://localhost:2375 without TLS" in
+    Docker Desktop's settings, and mongotest finds that endpoint.
 
 === "Podman"
 

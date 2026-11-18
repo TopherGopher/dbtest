@@ -92,9 +92,23 @@ func TestEveryClientFindsTheSameDaemon(t *testing.T) {
 	}
 }
 
-// A host the caller gives is used as it is: discovery does not override it.
+// Discovery that cannot read the Docker configuration fails, rather than
+// quietly reaching some other daemon.
+func TestUnreadableDockerConfigurationIsAnInvalidArgument(t *testing.T) {
+	configDir := clearDockerEnv(t)
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing a broken config.json")
+
+	_, err := mobyclient.New()
+
+	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a broken config.json is a configuration problem to fix")
+}
+
+// A host the caller gives is used as it is: discovery does not run, so
+// neither DOCKER_HOST nor a broken configuration gets in the way.
 func TestAGivenHostIsUsedInsteadOfDiscovery(t *testing.T) {
-	clearDockerEnv(t)
+	configDir := clearDockerEnv(t)
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing a broken config.json")
+	t.Setenv("DOCKER_CONTEXT", "ghost")
 	t.Setenv("DOCKER_HOST", "tcp://from-env:2375")
 
 	given, err := mobyclient.New(mobyclient.WithHost("tcp://given:2375"))
@@ -136,7 +150,7 @@ func TestDockerAPIVersionPinsTheVersion(t *testing.T) {
 	}
 }
 
-func TestDockerCertPathIsRead(t *testing.T) {
+func TestDockerCertPathWithoutItsFilesIsAnInvalidArgument(t *testing.T) {
 	for name, build := range map[string]func() (*mobyclient.Client, error){
 		"FromEnv": mobyclient.FromEnv,
 		"New":     func() (*mobyclient.Client, error) { return mobyclient.New() },
@@ -204,4 +218,74 @@ func TestDockerTLSVerifyChecksTheServer(t *testing.T) {
 	var unknownCA x509.UnknownAuthorityError
 	assert.ErrorAs(t, inspect(t, "1"), &unknownCA, "with DOCKER_TLS_VERIFY set, a server the CA did not sign is refused")
 	assert.NoError(t, inspect(t, ""), "without it, the connection is encrypted but the server is not checked")
+}
+
+// tlsServer is a daemon double that speaks only TLS, with a certificate no
+// test CA signed. It returns the server's address in DOCKER_HOST form.
+func tlsServer(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	return "tcp://" + strings.TrimPrefix(srv.URL, "https://")
+}
+
+// As with the docker CLI, DOCKER_TLS_VERIFY without DOCKER_CERT_PATH takes
+// the certificates from the Docker config directory. Sending plain HTTP
+// instead would hand the requests, credentials included, to whoever answers.
+func TestDockerTLSVerifyAloneUsesTheConfigDirectory(t *testing.T) {
+	configDir := clearDockerEnv(t)
+	certs := writeClientCerts(t)
+	for _, file := range []string{"ca.pem", "cert.pem", "key.pem"} {
+		data, err := os.ReadFile(filepath.Join(certs, file))
+		require.NoError(t, err, "reading %s", file)
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, file), data, 0o600), "copying %s", file)
+	}
+	t.Setenv("DOCKER_HOST", tlsServer(t))
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+
+	c, err := mobyclient.New()
+	require.NoError(t, err, "a client with TLS from the config directory")
+	_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+	var unknownCA x509.UnknownAuthorityError
+	assert.ErrorAs(t, err, &unknownCA, "the server is checked against the CA in the config directory")
+}
+
+// TLS from the environment applies to a tcp:// host given with WithHost
+// too, as it does for dockerapi.
+func TestEnvironmentTLSAppliesToAGivenHost(t *testing.T) {
+	clearDockerEnv(t)
+	host := tlsServer(t)
+	t.Setenv("DOCKER_CERT_PATH", writeClientCerts(t))
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+
+	c, err := mobyclient.New(mobyclient.WithHost(host))
+	require.NoError(t, err, "a client for a given host")
+	_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+	var unknownCA x509.UnknownAuthorityError
+	assert.ErrorAs(t, err, &unknownCA, "the given host is reached over verified TLS")
+}
+
+// TLS settings in the environment are for a tcp:// daemon. A local socket
+// found by discovery is reached without them.
+func TestEnvironmentTLSIsNotUsedOnASocket(t *testing.T) {
+	clearDockerEnv(t)
+	d := dockermock.NewDaemon()
+	t.Cleanup(d.Close)
+	if !strings.HasPrefix(d.Host(), "unix://") {
+		t.Skip("the daemon double listens on TCP on this platform")
+	}
+	t.Setenv("DOCKER_HOST", d.Host())
+	t.Setenv("DOCKER_CERT_PATH", writeClientCerts(t))
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+
+	c, err := mobyclient.New()
+	require.NoError(t, err, "a client for a socket")
+	_, _ = c.ImageInspect(t.Context(), "mongo:8")
+
+	assert.NotEmpty(t, d.Requests(), "the request reaches the socket")
 }

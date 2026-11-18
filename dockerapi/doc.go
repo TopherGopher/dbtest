@@ -41,10 +41,12 @@
 // socket and saying what to do. Discovery itself does not fail, so building
 // a client never depends on a daemon being up.
 //
-// On Windows the default named pipe cannot be dialled by this client, so
-// Docker Desktop's optional tcp://localhost:2375 endpoint is probed first,
-// then the AF_UNIX socket podman machine has exposed under TEMP since Podman
-// 5.3. The error explains both when neither answers.
+// This client cannot open a Windows named pipe, which is Docker's default
+// on Windows and what Docker Desktop's contexts name. In place of one it
+// tries Docker Desktop's optional tcp://localhost:2375 endpoint, then the
+// AF_UNIX socket a podman machine has put in the Windows temporary
+// directory since Podman 5.3. ErrNoWindowsEndpoint explains both when
+// neither answers.
 //
 // # Podman
 //

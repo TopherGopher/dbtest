@@ -5,11 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 )
 
 // dockerConfigFile is the part of ~/.docker/config.json we read.
@@ -34,8 +32,6 @@ type lookup struct {
 	getenv func(string) string
 	// dialable reports whether a daemon is listening on a unix socket path.
 	dialable func(path string) bool
-	// listening reports whether a daemon is answering on a TCP address.
-	listening func(addr string) bool
 	// glob expands a socket path pattern, for the podman machine paths that
 	// carry the machine name.
 	glob func(pattern string) []string
@@ -46,19 +42,21 @@ type lookup struct {
 
 // realLookup probes the machine this process is running on.
 func realLookup() lookup {
-	return lookup{goos: runtime.GOOS, getenv: os.Getenv, dialable: socketDialable, listening: tcpListening, glob: globPaths, uid: os.Getuid()}
+	return lookup{goos: runtime.GOOS, getenv: os.Getenv, dialable: socketDialable, glob: globPaths, uid: os.Getuid()}
 }
 
-// ResolveHost finds the daemon the way the docker CLI does: DOCKER_HOST,
-// then the docker context named by DOCKER_CONTEXT or by currentContext in
-// the Docker config file, then the first of the usual Docker and Podman
-// sockets with a daemon answering on it. When none answers it returns the
-// Docker socket all the same, so the failure comes when a client connects,
-// with an error that names the address.
+// ResolveHost returns the address of the Docker daemon, in DOCKER_HOST
+// form. Like the docker CLI it takes DOCKER_HOST, then the docker context
+// named by DOCKER_CONTEXT or by currentContext in the Docker config file.
+// With neither, it returns the first of these with a daemon answering:
+// rootless Docker's socket under XDG_RUNTIME_DIR, /var/run/docker.sock,
+// rootless Podman's socket, /run/podman/podman.sock, and on macOS a podman
+// machine's socket. When none answers it returns /var/run/docker.sock, so
+// the failure comes when a client connects, with an error naming it.
 //
-// On Windows the default is a named pipe, which not every client can open,
-// so there it returns "" when nothing is configured or answering: the client
-// uses its own default, or says it has none.
+// On Windows, with nothing configured, it returns Docker's named pipe, as
+// the docker CLI does. It returns an InvalidArgumentError when the Docker
+// config file or the named context cannot be read.
 func ResolveHost() (string, error) {
 	return resolveHostWith(realLookup(), configDir(os.Getenv))
 }
@@ -71,8 +69,12 @@ func resolveHost(getenv func(string) string, configDir string) (string, error) {
 	return resolveHostWith(l, configDir)
 }
 
-// configDir returns the Docker config directory: DOCKER_CONFIG, else
-// $HOME/.docker.
+// ConfigDir returns the Docker config directory: DOCKER_CONFIG, else
+// $HOME/.docker. It holds the docker contexts, and the TLS files when
+// DOCKER_TLS_VERIFY is set without DOCKER_CERT_PATH.
+func ConfigDir() string { return configDir(os.Getenv) }
+
+// configDir is ConfigDir with the environment passed in, for tests.
 func configDir(getenv func(string) string) string {
 	if d := getenv("DOCKER_CONFIG"); d != "" {
 		return d
@@ -114,35 +116,16 @@ func resolveHostWith(l lookup, configDir string) (string, error) {
 // defaultUnixSocket is where a Docker daemon listens by default.
 const defaultUnixSocket = "unix:///var/run/docker.sock"
 
-// dockerDesktopTCP is the optional TCP endpoint Docker Desktop for Windows
-// exposes when "Expose daemon on tcp://localhost:2375 without TLS" is on.
-const dockerDesktopTCP = "localhost:2375"
+// windowsPipe is the Docker daemon's default address on Windows.
+const windowsPipe = "npipe:////./pipe/docker_engine"
 
 // defaultHostForLookup returns the platform default when nothing is
-// configured.
-//
-// On Windows the daemon's default endpoint is a named pipe, so it probes
-// Docker Desktop's optional TCP endpoint and Podman's socket first, and
-// returns "" when neither answers.
-//
-// Everywhere else it looks for a daemon on the well-known socket paths, so
-// that a machine running only Podman works with no configuration at all.
-// When none of them answers it returns the Docker default anyway rather than
-// an error, so the failure surfaces at dial time with a message that names
-// the socket and says what to do about it.
+// configured: Docker's named pipe on Windows, and elsewhere the first
+// well-known socket with a daemon answering, so that a machine running only
+// Podman works with no configuration at all.
 func defaultHostForLookup(l lookup) (string, error) {
 	if l.goos == "windows" {
-		// Docker first: Docker Desktop's optional TCP endpoint.
-		if l.listening != nil && l.listening(dockerDesktopTCP) {
-			return "tcp://" + dockerDesktopTCP, nil
-		}
-		// Then Podman, which since 5.3 puts a real AF_UNIX socket on the
-		// Windows filesystem alongside its named pipe. The pipe cannot be
-		// dialled here; the socket can.
-		if host, ok := firstListeningSocket(l); ok {
-			return host, nil
-		}
-		return "", nil
+		return windowsPipe, nil
 	}
 	if host, ok := firstListeningSocket(l); ok {
 		return host, nil
@@ -162,16 +145,6 @@ func firstListeningSocket(l lookup) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// tcpListening reports whether something accepts connections on addr.
-func tcpListening(addr string) bool {
-	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
 }
 
 // currentContext reads currentContext from <configDir>/config.json. A missing

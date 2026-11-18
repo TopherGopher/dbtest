@@ -2,10 +2,11 @@
 // depends on, together with the types and errors that surface carries.
 //
 // It exists so that callers depend on an interface rather than on one
-// particular Docker client, and so that every implementation reports the
-// same errors for the same conditions and finds the same daemon. Only
-// ResolveHost touches the machine: it reads the Docker configuration and
-// connects to local sockets to see which answers.
+// particular Docker client, so that every implementation reports the same
+// errors for the same conditions, and so that every client that connects to
+// a daemon finds the same one. Only ResolveHost looks at the machine it runs
+// on: it reads the Docker configuration and connects to local sockets to see
+// which answers.
 //
 // # Choosing an implementation
 //

@@ -2,6 +2,9 @@ package mobyclient
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/moby/moby/client"
 
@@ -32,8 +35,10 @@ type clientConfig struct {
 }
 
 // WithHost sets the daemon address (unix:///path, tcp://host:port,
-// http(s)://host:port) and skips discovery. It has no effect when combined
-// with WithMobyClient, since that client is already fully configured.
+// http(s)://host:port) and skips discovery. TLS and the API version still
+// come from the environment, as for a daemon New finds. It has no effect
+// when combined with WithMobyClient, since that client is already fully
+// configured.
 func WithHost(host string) Option {
 	return func(cfg *clientConfig) error {
 		cfg.host = host
@@ -71,7 +76,11 @@ func WithLogger(l dockerclient.Logger) Option {
 }
 
 // New creates a Client. Without WithHost or WithMobyClient it finds the
-// daemon as FromEnv does, so New() and FromEnv() reach the same daemon.
+// daemon as the docker CLI does: DOCKER_HOST, then the docker context, and
+// otherwise the first Docker or Podman socket that answers (see
+// dockerclient.ResolveHost). A tcp:// daemon gets TLS from DOCKER_CERT_PATH
+// and DOCKER_TLS_VERIFY, given or found, and DOCKER_API_VERSION pins the API
+// version.
 func New(opts ...Option) (*Client, error) {
 	cfg := &clientConfig{logger: dockerclient.NopLogger()}
 	for _, opt := range opts {
@@ -85,43 +94,64 @@ func New(opts ...Option) (*Client, error) {
 	if cfg.mobyClient != nil {
 		return &Client{cli: cfg.mobyClient, host: cfg.mobyClient.DaemonHost(), logger: cfg.logger}, nil
 	}
-	mopts, err := hostOptions(cfg.host)
+	host, mopts, err := hostOptions(cfg.host)
 	if err != nil {
 		return nil, err
 	}
 	mopts = append(mopts, client.WithResponseHook(loggingHook(cfg.logger)))
 	cli, err := client.New(mopts...)
 	if err != nil {
-		return nil, wrapConstructError(cfg.host, err)
+		return nil, wrapConstructError(host, err)
 	}
 	return &Client{cli: cli, host: cli.DaemonHost(), logger: cfg.logger}, nil
 }
 
-// hostOptions returns the moby options that pick the daemon: the host
-// given, or else the one dockerclient.ResolveHost finds, with TLS and the
-// API version from the environment as the docker CLI reads them.
-func hostOptions(host string) ([]client.Opt, error) {
-	if host != "" {
-		return []client.Opt{client.WithHost(host)}, nil
+// hostOptions returns the daemon's address, the one given or else the one
+// dockerclient.ResolveHost finds, and the moby options that reach it.
+func hostOptions(given string) (string, []client.Opt, error) {
+	host := given
+	if host == "" {
+		found, err := dockerclient.ResolveHost()
+		if err != nil {
+			return "", nil, err
+		}
+		host = found
 	}
-	found, err := dockerclient.ResolveHost()
-	if err != nil {
-		return nil, err
+	var opts []client.Opt
+	if strings.HasPrefix(host, "tcp://") {
+		// The TLS option replaces the HTTP client's transport, so it comes
+		// before WithHost, which sets that transport up for the address.
+		opts = append(opts, tlsFromEnv()...)
 	}
-	// The TLS option replaces the HTTP client, so it comes before WithHost,
-	// which sets up that client's transport for the address.
-	opts := []client.Opt{client.WithTLSClientConfigFromEnv()}
-	if found != "" { // "" on Windows: moby's default named pipe
-		opts = append(opts, client.WithHost(found))
-	}
-	return append(opts, client.WithAPIVersionFromEnv()), nil
+	return host, append(opts, client.WithHost(host), client.WithAPIVersionFromEnv()), nil
 }
 
-// FromEnv finds the daemon the way the docker CLI does: DOCKER_HOST, then
-// the docker context, then the usual Docker and Podman sockets. See
-// dockerclient.ResolveHost. TLS and the API version come from
-// DOCKER_CERT_PATH, DOCKER_TLS_VERIFY and DOCKER_API_VERSION. It is New with
-// no options.
+// tlsFromEnv reads TLS settings as the docker CLI does. DOCKER_CERT_PATH
+// names the directory holding ca.pem, cert.pem and key.pem, and the server
+// is checked only if DOCKER_TLS_VERIFY is set too. DOCKER_TLS_VERIFY alone
+// takes the files from the Docker config directory, and checks the server.
+func tlsFromEnv() []client.Opt {
+	if os.Getenv("DOCKER_CERT_PATH") != "" {
+		return []client.Opt{client.WithTLSClientConfigFromEnv()}
+	}
+	if os.Getenv("DOCKER_TLS_VERIFY") == "" {
+		return nil
+	}
+	dir := dockerclient.ConfigDir()
+	cert, key := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	if !exists(cert) || !exists(key) {
+		cert, key = "", "" // TLS without a client certificate
+	}
+	return []client.Opt{client.WithTLSClientConfig(filepath.Join(dir, "ca.pem"), cert, key)}
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// FromEnv is New with no options: it finds the daemon, and reads TLS and the
+// API version, from the environment as the docker CLI does.
 func FromEnv() (*Client, error) { return New() }
 
 // loggingHook builds a client.ResponseHook that logs one Debug record per
@@ -143,8 +173,9 @@ func wrapConstructError(host string, err error) error {
 	if err == nil {
 		return nil
 	}
-	return dockerclient.InvalidArgument("docker host", host, err.Error(),
-		`use a host like "unix:///var/run/docker.sock" or "tcp://host:2375"`)
+	return dockerclient.InvalidArgument("docker client settings for", host, err.Error(),
+		`check DOCKER_HOST, DOCKER_API_VERSION, DOCKER_CERT_PATH and DOCKER_TLS_VERIFY; `+
+			`the message names the one at fault. A host looks like "unix:///var/run/docker.sock" or "tcp://host:2375"`)
 }
 
 // Host returns the daemon address the client resolved, in DOCKER_HOST form.

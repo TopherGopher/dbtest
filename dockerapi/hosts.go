@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/tophergopher/mongotest/dockerclient"
 )
@@ -12,47 +13,15 @@ import (
 // resolveHost finds the daemon; tests replace it.
 var resolveHost = dockerclient.ResolveHost
 
-// resolveHostFromEnv finds the daemon the way the docker CLI does. On
-// Windows, with nothing configured or answering, it explains how to give
-// this client an endpoint it can dial, since it cannot open a named pipe.
+// resolveHostFromEnv finds the daemon as dockerclient.ResolveHost does.
+// This client cannot open a named pipe, the default on Windows, so in place
+// of one it finds an endpoint it can dial, or returns ErrNoWindowsEndpoint.
 func resolveHostFromEnv() (string, error) {
 	host, err := resolveHost()
-	if err == nil && host == "" {
-		return "", ErrNoWindowsEndpoint
+	if err != nil || !strings.HasPrefix(host, "npipe:") {
+		return host, err
 	}
-	return host, err
-}
-
-// dockerDesktopTCP is the optional TCP endpoint Docker Desktop for Windows
-// exposes when "Expose daemon on tcp://localhost:2375 without TLS" is on.
-const dockerDesktopTCP = "localhost:2375"
-
-// ErrNoWindowsEndpoint is returned on Windows when neither DOCKER_HOST nor a
-// docker context is set and Docker Desktop's optional TCP endpoint is not
-// listening.
-var ErrNoWindowsEndpoint = &ConnectionError{
-	Host: "tcp://" + dockerDesktopTCP,
-	Problem: "no DOCKER_HOST is set, nothing is listening on Docker Desktop's optional TCP endpoint, " +
-		"and no podman machine socket was found under TEMP; Windows named pipes (npipe://) are not supported by this client",
-	Fix: `Either enable "Expose daemon on tcp://localhost:2375 without TLS" in Docker Desktop settings, ` +
-		`or start a podman machine (podman 5.3 or newer exposes a socket this client can use), ` +
-		`or set the DOCKER_HOST environment variable to a tcp:// endpoint (for example DOCKER_HOST=tcp://localhost:2375)`,
-}
-
-// configDir returns the Docker config directory, where the TLS files are
-// looked for when DOCKER_CERT_PATH is not set: DOCKER_CONFIG, else
-// $HOME/.docker.
-func configDir(getenv func(string) string) string {
-	if d := getenv("DOCKER_CONFIG"); d != "" {
-		return d
-	}
-	home := getenv("HOME")
-	if home == "" {
-		if h, err := os.UserHomeDir(); err == nil {
-			home = h
-		}
-	}
-	return filepath.Join(home, ".docker")
+	return windowsFallback(realWindowsProbe())
 }
 
 // tlsConfigFromEnv builds a tls.Config from DOCKER_TLS_VERIFY and
@@ -63,7 +32,7 @@ func tlsConfigFromEnv(getenv func(string) string) (*tls.Config, error) {
 	}
 	dir := getenv("DOCKER_CERT_PATH")
 	if dir == "" {
-		dir = configDir(getenv)
+		dir = dockerclient.ConfigDir()
 	}
 	caPath := filepath.Join(dir, "ca.pem")
 	caPEM, err := os.ReadFile(caPath)
