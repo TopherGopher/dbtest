@@ -3,7 +3,7 @@ package dockermock
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json/v2"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -359,7 +359,7 @@ func PathParam(r *http.Request, name string) string {
 func JSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.MarshalWrite(w, v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // Error writes the daemon's standard error body, {"message": msg}.
@@ -544,7 +544,7 @@ func (d *Daemon) ServeFake(f *Fake) {
 	})
 	d.Handle("POST", "/containers/create", func(w http.ResponseWriter, r *http.Request) {
 		var cfg dockerclient.ContainerConfig
-		if err := json.UnmarshalRead(r.Body, &cfg); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 			Error(w, http.StatusBadRequest, "cannot parse the container config: "+err.Error())
 			return
 		}
@@ -603,7 +603,7 @@ func (d *Daemon) ServeFake(f *Fake) {
 			Env        []string `json:"Env"`
 			WorkingDir string   `json:"WorkingDir"`
 		}
-		if err := json.UnmarshalRead(r.Body, &body); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			Error(w, http.StatusBadRequest, "cannot parse the exec config: "+err.Error())
 			return
 		}

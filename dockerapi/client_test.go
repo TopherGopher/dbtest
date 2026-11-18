@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json/v2"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"net/http"
@@ -65,7 +65,7 @@ func roundTrip(t *testing.T, fd *dockermock.Daemon, opts ...Option) {
 	require.Equal(t, 201, resp.StatusCode, "the fake answers create with 201")
 
 	var out createResponse
-	require.NoError(t, json.UnmarshalRead(resp.Body, &out), "the create response must decode")
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out), "the create response must decode")
 	assert.Equal(t, "abc123", out.ID, "the id from the fake must round-trip")
 
 	reqs := fd.Requests()

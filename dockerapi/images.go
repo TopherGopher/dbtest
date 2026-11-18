@@ -3,7 +3,7 @@ package dockerapi
 import (
 	"bufio"
 	"context"
-	"encoding/json/v2"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"

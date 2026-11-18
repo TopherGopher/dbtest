@@ -5,6 +5,12 @@ what to do if it affects you.
 
 ## Unreleased
 
+### mongotest needs Go 1.26 or newer
+
+- **Every module declares `go 1.26`,** the oldest release the Go team still
+  supports; v0.2.9 declared `go 1.18`. Requiring mongotest, even only for
+  tests, raises your module's `go` line to no more than that.
+
 ### A rate-limited pull comes from a mirror
 
 - **When Docker Hub's rate limit refuses a pull,** a Docker official image

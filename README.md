@@ -12,7 +12,7 @@ removes the container when the test ends.
 go get github.com/tophergopher/mongotest
 ```
 
-It needs Go 1.27 or newer, and Docker or Podman. Without one, the test fails;
+It needs Go 1.26 or newer, and Docker or Podman. Without one, the test fails;
 it is not skipped.
 
 ```go

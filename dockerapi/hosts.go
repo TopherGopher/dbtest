@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json/v2"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"

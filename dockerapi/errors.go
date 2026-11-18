@@ -1,7 +1,7 @@
 package dockerapi
 
 import (
-	"encoding/json/v2"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"

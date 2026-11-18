@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -60,7 +59,7 @@ func (c *Client) ExecCreate(ctx context.Context, containerID string, cfg ExecCon
 		return "", unexpectedStatus(http.MethodPost, path, resp.StatusCode)
 	}
 	var out execCreateResponse
-	if err := json.UnmarshalRead(resp.Body, &out); err != nil {
+	if err := decodeReply(resp.Body, &out); err != nil {
 		return "", decodeError(http.MethodPost, path, err)
 	}
 	return out.ID, nil

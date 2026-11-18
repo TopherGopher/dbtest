@@ -1,6 +1,6 @@
 module github.com/tophergopher/mongotest/exporter
 
-go 1.27
+go 1.26.8
 
 toolchain go1.27.4
 

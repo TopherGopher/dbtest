@@ -1,6 +1,6 @@
 module github.com/tophergopher/mongotest
 
-go 1.27
+go 1.26.0
 
 toolchain go1.27.4
 
