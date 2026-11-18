@@ -39,6 +39,10 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
   the root is tested against newer versions than its users get; CI tests each
   module from its own `go.mod`. If `go work sync` has rewritten `go.mod` and
   `go.sum`, restore them with `git checkout -- go.mod go.sum`.
+- **Every `go.mod` pins the Go release** with a `toolchain` line. If your Go
+  is older, the `go` command downloads the pinned release the first time it
+  runs. Change the pin in all three `go.mod` files at once: CI fails if a
+  module does not build with the release its `go.mod` names.
 - **`mobyclient/go.mod` carries a `replace`** pointing at the repository root
   until a tag contains `dockerclient`. It is annotated in the file.
 

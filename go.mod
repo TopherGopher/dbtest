@@ -2,6 +2,8 @@ module github.com/tophergopher/mongotest
 
 go 1.27
 
+toolchain go1.27.4
+
 require (
 	github.com/stretchr/testify v1.12.1
 	go.mongodb.org/mongo-driver v1.17.10

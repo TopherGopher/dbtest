@@ -25,13 +25,23 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        # The Go 1.27.x the runner image already has. check-latest is left
-        # off, so a new Go patch reaches CI when GitHub ships it in the
-        # runner image, not on the day it is released.
+        # The release named by go.mod's toolchain line. It changes only in a
+        # reviewed change to go.mod, never on the day a new patch is released.
         go-version-file: go.mod
 
     - name: Get dependencies
       run: go mod download
+
+    # Each module pins its own toolchain, and CI installs only the root's, so
+    # a module whose pin differs would build with a release it did not ask for.
+    - name: Check every module builds with its pinned Go
+      run: |
+        for dir in . mobyclient exporter; do
+          want=$(awk '$1 == "toolchain" { print $2 }' "$dir/go.mod")
+          got=$(cd "$dir" && go env GOVERSION)
+          echo "$dir: go.mod pins ${want:-nothing}, CI runs $got"
+          if [ "$got" != "$want" ]; then exit 1; fi
+        done
 
     # gofmt works on files, not modules, so one run from the root checks
     # all three modules.
@@ -80,9 +90,8 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        # The Go 1.27.x the runner image already has. check-latest is left
-        # off, so a new Go patch reaches CI when GitHub ships it in the
-        # runner image, not on the day it is released.
+        # The release named by go.mod's toolchain line. It changes only in a
+        # reviewed change to go.mod, never on the day a new patch is released.
         go-version-file: go.mod
     - name: Get dependencies
       run: go mod download

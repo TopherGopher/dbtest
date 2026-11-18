@@ -2,6 +2,8 @@ module github.com/tophergopher/mongotest/mobyclient
 
 go 1.27
 
+toolchain go1.27.4
+
 require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/moby/moby/api v1.57.0
