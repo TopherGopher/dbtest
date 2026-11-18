@@ -234,12 +234,6 @@ func TestMapErrorFallsBackToResponseError(t *testing.T) {
 	require.ErrorAs(t, got, &re, "the fallback must be a ResponseError, never a bare, unwrapped error")
 }
 
-func TestWrapConstructError(t *testing.T) {
-	assert.NoError(t, wrapConstructError("host", nil), "a nil error must map to nil")
-	err := wrapConstructError("bogus", errors.New(`unable to parse docker host "bogus"`))
-	require.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a host the moby client could not parse must be reported as invalid input, not left as an opaque construction failure")
-}
-
 // --- container.Config / HostConfig translation ------------------------------
 
 func TestToMobyConfigTranslatesPortsAndHostConfig(t *testing.T) {

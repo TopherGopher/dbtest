@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,9 @@ func TestEveryClientFindsTheSameDaemon(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.want == "" && runtime.GOOS == "windows" {
+				t.Skip("on Windows mobyclient opens Docker's named pipe, which dockerapi cannot, so they differ on purpose")
+			}
 			tc.setup(t, clearDockerEnv(t))
 
 			stdlib, err := dockerapi.FromEnv()
@@ -158,6 +162,7 @@ func TestDockerCertPathWithoutItsFilesIsAnInvalidArgument(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			clearDockerEnv(t)
 			t.Setenv("DOCKER_HOST", "tcp://build-host:2376")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
 			t.Setenv("DOCKER_CERT_PATH", t.TempDir()) // holds no ca.pem
 
 			_, err := build()
@@ -217,7 +222,40 @@ func TestDockerTLSVerifyChecksTheServer(t *testing.T) {
 
 	var unknownCA x509.UnknownAuthorityError
 	assert.ErrorAs(t, inspect(t, "1"), &unknownCA, "with DOCKER_TLS_VERIFY set, a server the CA did not sign is refused")
-	assert.NoError(t, inspect(t, ""), "without it, the connection is encrypted but the server is not checked")
+}
+
+// As for the docker CLI and dockerapi, DOCKER_CERT_PATH names where the TLS
+// files are; DOCKER_TLS_VERIFY is what turns TLS on.
+func TestDockerCertPathAloneDoesNotTurnTLSOn(t *testing.T) {
+	clearDockerEnv(t)
+	d := dockermock.NewDaemon(dockermock.OverTCP())
+	t.Cleanup(d.Close)
+	t.Setenv("DOCKER_HOST", d.Host())
+	t.Setenv("DOCKER_CERT_PATH", t.TempDir()) // holds nothing: unused
+
+	c, err := mobyclient.New()
+	require.NoError(t, err, "a client with DOCKER_CERT_PATH alone")
+	_, _ = c.ImageInspect(t.Context(), "mongo:8")
+
+	assert.NotEmpty(t, d.Requests(), "the request reaches a plain-HTTP daemon")
+}
+
+// A client certificate is optional: ca.pem alone checks the server.
+func TestACAAloneIsEnough(t *testing.T) {
+	clearDockerEnv(t)
+	certs := writeClientCerts(t)
+	require.NoError(t, os.Remove(filepath.Join(certs, "cert.pem")), "removing the client certificate")
+	require.NoError(t, os.Remove(filepath.Join(certs, "key.pem")), "removing the client key")
+	t.Setenv("DOCKER_HOST", tlsServer(t))
+	t.Setenv("DOCKER_CERT_PATH", certs)
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+
+	c, err := mobyclient.New()
+	require.NoError(t, err, "a client with only ca.pem")
+	_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+	var unknownCA x509.UnknownAuthorityError
+	assert.ErrorAs(t, err, &unknownCA, "the server is checked against ca.pem")
 }
 
 // tlsServer is a daemon double that speaks only TLS, with a certificate no
@@ -288,4 +326,57 @@ func TestEnvironmentTLSIsNotUsedOnASocket(t *testing.T) {
 	_, _ = c.ImageInspect(t.Context(), "mongo:8")
 
 	assert.NotEmpty(t, d.Requests(), "the request reaches the socket")
+}
+
+// An https:// address asks for TLS. With no TLS settings in the
+// environment, the server is checked against the system's trusted roots,
+// never reached over plain HTTP.
+func TestAnHTTPSHostIsReachedOverTLS(t *testing.T) {
+	clearDockerEnv(t)
+	host := strings.Replace(tlsServer(t), "tcp://", "https://", 1)
+
+	c, err := mobyclient.New(mobyclient.WithHost(host))
+	require.NoError(t, err, "a client for an https:// host")
+	_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+	var unknownCA x509.UnknownAuthorityError
+	assert.ErrorAs(t, err, &unknownCA, "the test server's certificate is not one the system trusts, so TLS was used and checked")
+}
+
+// A setting the moby client refuses is named in the error, so the caller
+// knows which variable or option to fix.
+func TestARefusedSettingIsNamed(t *testing.T) {
+	cases := []struct {
+		name     string
+		setup    func(t *testing.T)
+		opts     []mobyclient.Option
+		argument string
+	}{
+		{"a malformed host", func(*testing.T) {}, []mobyclient.Option{mobyclient.WithHost("bogus")}, "docker host"},
+		{"a bad DOCKER_API_VERSION", func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", "tcp://build-host:2375")
+			t.Setenv("DOCKER_API_VERSION", "latest")
+		}, nil, "DOCKER_API_VERSION"},
+		{"DOCKER_CERT_PATH without its files", func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", "tcp://build-host:2376")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			t.Setenv("DOCKER_CERT_PATH", t.TempDir())
+		}, nil, "DOCKER_CERT_PATH"},
+		{"DOCKER_TLS_VERIFY with no files in the config directory", func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", "tcp://build-host:2376")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+		}, nil, "DOCKER_CERT_PATH"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearDockerEnv(t)
+			tc.setup(t)
+
+			_, err := mobyclient.New(tc.opts...)
+
+			var invalid *dockerclient.InvalidArgumentError
+			require.ErrorAs(t, err, &invalid, "a refused setting is an invalid argument")
+			assert.Equal(t, tc.argument, invalid.Argument, "the error names the setting to fix")
+		})
+	}
 }

@@ -18,9 +18,11 @@
 //
 // # Getting a client
 //
-// New with no options, or FromEnv, which is the same, finds the daemon as
-// the docker CLI does: DOCKER_HOST, then the docker context, then the
-// Docker and Podman sockets. dockerapi finds the same one.
+// New with no options finds the daemon as the docker CLI does: DOCKER_HOST,
+// then the docker context, then the Docker and Podman sockets (see
+// dockerclient.ResolveHost). FromEnv is the same as New(). dockerapi finds
+// the same daemon, except on Windows, where it cannot open Docker's named
+// pipe and looks for another endpoint.
 //
 //	c, err := mobyclient.New()
 //	if err != nil {
@@ -34,15 +36,19 @@
 //		mobyclient.WithLogger(slog.Default()),
 //	)
 //
-// A tcp:// daemon, given or found, gets TLS from DOCKER_CERT_PATH and
-// DOCKER_TLS_VERIFY, and DOCKER_API_VERSION pins the API version.
+// Whether the address is passed with WithHost or found, DOCKER_TLS_VERIFY
+// turns on TLS for a tcp:// daemon, with the files from DOCKER_CERT_PATH,
+// and DOCKER_API_VERSION, when set, pins the API version.
 //
 // WithMobyClient wraps a *client.Client the caller already built, with its
-// own TLS, headers or transport. The moby client's own FromEnv finds the
-// daemon from DOCKER_HOST alone, with no docker context and no socket
-// search; to keep that behaviour, wrap it:
+// own TLS, headers or transport. To use the moby client's own discovery,
+// which reads DOCKER_HOST alone with no docker context and no socket search,
+// build it with client.FromEnv and wrap it:
 //
 //	moby, err := client.New(client.FromEnv)
+//	if err != nil {
+//		return err
+//	}
 //	c, err := mobyclient.New(mobyclient.WithMobyClient(moby))
 //
 // # Errors

@@ -15,7 +15,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/dockerclient"
 )
 
 // These tests talk to a real Docker daemon located through the normal
@@ -108,7 +107,7 @@ func TestIntegrationDiscoveryFindsTheRunningDaemon(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "")            // ignore any configured daemon,
 	t.Setenv("DOCKER_CONTEXT", "")         // any context named in the environment,
 	t.Setenv("DOCKER_CONFIG", t.TempDir()) // and any context in the config file
-	host, err := dockerclient.ResolveHost()
+	host, err := resolveHostFromEnv()
 	require.NoError(t, err, "discovery must succeed on a machine with a daemon running")
 	t.Logf("discovered %s", host)
 

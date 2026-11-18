@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/tophergopher/mongotest/dockerclient"
 )
@@ -14,15 +13,19 @@ import (
 var resolveHost = dockerclient.ResolveHost
 
 // resolveHostFromEnv finds the daemon as dockerclient.ResolveHost does.
-// This client cannot open a named pipe, the default on Windows, so in place
-// of one it finds an endpoint it can dial, or returns ErrNoWindowsEndpoint.
+// This client cannot open a named pipe, so in place of Docker's default one
+// it finds an endpoint it can dial, or returns ErrNoWindowsEndpoint. A pipe
+// the caller chose is kept, so that parsing it says it cannot be used.
 func resolveHostFromEnv() (string, error) {
 	host, err := resolveHost()
-	if err != nil || !strings.HasPrefix(host, "npipe:") {
+	if err != nil || host != dockerDefaultPipe {
 		return host, err
 	}
 	return windowsFallback(realWindowsProbe())
 }
+
+// dockerDefaultPipe is the Docker daemon's default address on Windows.
+const dockerDefaultPipe = "npipe:////./pipe/docker_engine"
 
 // tlsConfigFromEnv builds a tls.Config from DOCKER_TLS_VERIFY and
 // DOCKER_CERT_PATH. It returns nil when DOCKER_TLS_VERIFY is not set.

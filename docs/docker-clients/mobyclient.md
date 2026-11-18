@@ -22,8 +22,11 @@ go get github.com/tophergopher/mongotest/mobyclient
 ## Getting a client
 
 ```go
-c, err := mobyclient.New()              // find the daemon as the docker CLI does
-c, err := mobyclient.New(               // or name it
+c, err := mobyclient.New() // find the daemon as the docker CLI does
+```
+
+```go
+c, err := mobyclient.New( // or name it
     mobyclient.WithHost("unix:///var/run/docker.sock"),
     mobyclient.WithLogger(slog.Default()),
 )
@@ -32,14 +35,17 @@ c, err := mobyclient.New(               // or name it
 With no `WithHost` or `WithMobyClient`, the client finds the daemon as the
 docker CLI does: `DOCKER_HOST`, then the docker context, then the Docker and
 Podman sockets (see `dockerclient.ResolveHost` for the list). `dockerapi`
-finds the same one. `FromEnv()` is the same as `New()`.
+finds the same daemon, except on Windows, where it cannot open Docker's
+named pipe and looks for another endpoint. `FromEnv()` is the same as
+`New()`.
 
-A `tcp://` daemon, given or found, gets TLS from `DOCKER_CERT_PATH` and
-`DOCKER_TLS_VERIFY`, and `DOCKER_API_VERSION` pins the API version.
+Whether the address is passed with `WithHost` or found, `DOCKER_TLS_VERIFY`
+turns on TLS for a `tcp://` daemon, with the files from `DOCKER_CERT_PATH`,
+and `DOCKER_API_VERSION`, when set, pins the API version.
 
-The moby client's own `FromEnv` finds the daemon from `DOCKER_HOST` alone,
-with no docker context and no socket search. To keep that, build it with
-`client.New(client.FromEnv)` and pass it with `WithMobyClient`.
+To use the moby client's own discovery instead, which reads `DOCKER_HOST`
+alone with no docker context and no socket search, build the client with
+`client.New(client.FromEnv)` and pass it to `WithMobyClient`.
 
 | Option | Effect |
 | --- | --- |

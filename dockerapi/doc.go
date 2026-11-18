@@ -38,15 +38,18 @@
 //
 // When none of them answers, FromEnv still returns the Docker default and
 // the failure surfaces on the first call, as a connection error naming the
-// socket and saying what to do. Discovery itself does not fail, so building
-// a client never depends on a daemon being up.
+// socket and saying what to do. Building a client never needs a daemon to
+// be up: it fails only when the Docker configuration cannot be read, or on
+// Windows as below.
 //
-// This client cannot open a Windows named pipe, which is Docker's default
-// on Windows and what Docker Desktop's contexts name. In place of one it
-// tries Docker Desktop's optional tcp://localhost:2375 endpoint, then the
-// AF_UNIX socket a podman machine has put in the Windows temporary
-// directory since Podman 5.3. ErrNoWindowsEndpoint explains both when
-// neither answers.
+// This client cannot open a Windows named pipe. In place of Docker's
+// default pipe it tries Docker Desktop's optional tcp://localhost:2375
+// endpoint, which Docker Desktop opens when "Expose daemon on
+// tcp://localhost:2375 without TLS" is on, then the AF_UNIX socket that a
+// podman machine (Podman 5.3 or later) creates in the Windows temporary
+// directory. When neither answers, FromEnv returns ErrNoWindowsEndpoint,
+// whose message says how to enable either. A pipe named in DOCKER_HOST or a
+// docker context is rejected as unsupported.
 //
 // # Podman
 //

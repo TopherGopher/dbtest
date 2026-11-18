@@ -46,17 +46,19 @@ func realLookup() lookup {
 }
 
 // ResolveHost returns the address of the Docker daemon, in DOCKER_HOST
-// form. Like the docker CLI it takes DOCKER_HOST, then the docker context
-// named by DOCKER_CONTEXT or by currentContext in the Docker config file.
+// form, such as unix:///var/run/docker.sock. Like the docker CLI it uses
+// DOCKER_HOST, then the docker context, other than "default", named by
+// DOCKER_CONTEXT or by currentContext in the Docker config file. It returns
+// an InvalidArgumentError when the config file or that context cannot be
+// read.
+//
 // With neither, it returns the first of these with a daemon answering:
 // rootless Docker's socket under XDG_RUNTIME_DIR, /var/run/docker.sock,
 // rootless Podman's socket, /run/podman/podman.sock, and on macOS a podman
 // machine's socket. When none answers it returns /var/run/docker.sock, so
-// the failure comes when a client connects, with an error naming it.
-//
-// On Windows, with nothing configured, it returns Docker's named pipe, as
-// the docker CLI does. It returns an InvalidArgumentError when the Docker
-// config file or the named context cannot be read.
+// the failure comes when a client connects, as a connection error naming
+// that socket. On Windows it returns Docker's named pipe instead, as the
+// docker CLI does.
 func ResolveHost() (string, error) {
 	return resolveHostWith(realLookup(), configDir(os.Getenv))
 }
@@ -69,9 +71,10 @@ func resolveHost(getenv func(string) string, configDir string) (string, error) {
 	return resolveHostWith(l, configDir)
 }
 
-// ConfigDir returns the Docker config directory: DOCKER_CONFIG, else
-// $HOME/.docker. It holds the docker contexts, and the TLS files when
-// DOCKER_TLS_VERIFY is set without DOCKER_CERT_PATH.
+// ConfigDir returns the Docker config directory: DOCKER_CONFIG, else the
+// .docker directory in the user's home directory. It holds config.json and
+// the docker contexts. When DOCKER_TLS_VERIFY is set without
+// DOCKER_CERT_PATH, the TLS files are read from it too.
 func ConfigDir() string { return configDir(os.Getenv) }
 
 // configDir is ConfigDir with the environment passed in, for tests.

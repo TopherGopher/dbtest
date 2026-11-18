@@ -14,14 +14,14 @@ works is a machine where mongotest works.
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
-| `DOCKER_HOST` | `dockerapi`, `mobyclient` | Daemon address: `unix:///path`, `tcp://host:port`, `npipe://` (official client only). Overrides every other discovery step. |
+| `DOCKER_HOST` | `dockerapi`, `mobyclient` | Daemon address: `unix:///path`, `tcp://host:port`, `npipe://` (`mobyclient` only). Overrides every other discovery step. |
 | `DOCKER_CONTEXT` | `dockerapi`, `mobyclient` | The Docker context to use when `DOCKER_HOST` is unset. |
 | `DOCKER_CONFIG` | `dockerapi`, `mobyclient` | Directory holding `config.json` and `contexts/`. Defaults to `~/.docker`. The `currentContext` key in `config.json` is honoured. |
-| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set to a non-empty value, reach a `tcp://` daemon over TLS and verify its certificate, using the files under `DOCKER_CERT_PATH`, or under `DOCKER_CONFIG` when that is unset. |
-| `DOCKER_CERT_PATH` | `dockerapi`, `mobyclient` | Directory with `ca.pem`, `cert.pem`, `key.pem` for a TLS-protected daemon. |
+| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set to a non-empty value, reach a `tcp://` daemon over TLS and verify its certificate, using the files in `DOCKER_CERT_PATH`, or in the Docker config directory (`DOCKER_CONFIG`, default `~/.docker`) when `DOCKER_CERT_PATH` is unset. |
+| `DOCKER_CERT_PATH` | `dockerapi`, `mobyclient` | Directory with `ca.pem`, and `cert.pem` and `key.pem` if the daemon wants a client certificate. It has no effect without `DOCKER_TLS_VERIFY`. |
 | `DOCKER_API_VERSION` | `dockerapi`, `mobyclient` | Pin the API version. Without it, both negotiate with the daemon. |
-| `XDG_RUNTIME_DIR` | `dockerapi` | Where rootless Docker and Podman put their sockets. `/run/user/$UID` is used when unset. |
-| `TEMP` | `dockerapi` on Windows | Where `podman machine` exposes its AF_UNIX socket. |
+| `XDG_RUNTIME_DIR` | `dockerapi`, `mobyclient` | Where rootless Docker and Podman put their sockets. `/run/user/$UID` is used when unset. |
+| `TEMP`, `LOCALAPPDATA` | `dockerapi` on Windows | Where `podman machine` creates its AF_UNIX socket, in `TEMP` or in `LOCALAPPDATA\Temp`. |
 
 ## Read by `mongod`
 

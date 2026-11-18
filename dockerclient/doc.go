@@ -1,12 +1,12 @@
 // Package dockerclient declares the Docker Engine API surface that mongotest
 // depends on, together with the types and errors that surface carries.
 //
-// It exists so that callers depend on an interface rather than on one
-// particular Docker client, so that every implementation reports the same
-// errors for the same conditions, and so that every client that connects to
-// a daemon finds the same one. Only ResolveHost looks at the machine it runs
-// on: it reads the Docker configuration and connects to local sockets to see
-// which answers.
+// It lets callers depend on an interface rather than on one particular
+// Docker client. Every implementation reports the same errors for the same
+// conditions. Every client that connects to a daemon finds it with
+// ResolveHost, so they find the same daemon. Only ResolveHost and ConfigDir
+// read the environment, and only ResolveHost connects to local sockets to
+// see which answers.
 //
 // # Choosing an implementation
 //

@@ -65,3 +65,17 @@ func TestOnlyANamedPipeIsReplaced(t *testing.T) {
 	_, err = resolveHostFromEnv()
 	assert.ErrorIs(t, err, ErrConnectionFailed, "a named pipe is replaced by an endpoint this client can dial, or an error saying so")
 }
+
+// A pipe the caller chose, such as Podman's, is not swapped for whatever
+// answers on Docker Desktop's port: that could be another daemon. It is
+// left for parsing to reject, with advice.
+func TestAChosenPipeIsNotReplaced(t *testing.T) {
+	saved := resolveHost
+	t.Cleanup(func() { resolveHost = saved })
+	resolveHost = func() (string, error) { return "npipe:////./pipe/podman-machine-default", nil }
+
+	got, err := resolveHostFromEnv()
+
+	require.NoError(t, err, "resolving gives the pipe back")
+	assert.Equal(t, "npipe:////./pipe/podman-machine-default", got, "a chosen pipe is kept, so the caller learns this client cannot open it")
+}

@@ -11,17 +11,18 @@ import (
 // exposes when "Expose daemon on tcp://localhost:2375 without TLS" is on.
 const dockerDesktopTCP = "localhost:2375"
 
-// ErrNoWindowsEndpoint is returned on Windows when the daemon's address is a
-// named pipe, which this client cannot open, Docker Desktop's optional TCP
-// endpoint is not listening, and no podman machine socket answers.
+// ErrNoWindowsEndpoint is returned by FromEnv on Windows when the daemon's
+// address is Docker's named pipe, which this client cannot open, and
+// neither substitute answers: Docker Desktop's optional TCP endpoint or a
+// podman machine socket.
 var ErrNoWindowsEndpoint = &ConnectionError{
 	Host: "tcp://" + dockerDesktopTCP,
-	Problem: "the daemon's address is a Windows named pipe (npipe://), which this client cannot open; " +
-		"nothing is listening on Docker Desktop's optional TCP endpoint, and no podman machine socket was found " +
+	Problem: "the daemon's address is Docker's Windows named pipe, which mongotest's default Docker client (dockerapi) cannot open; " +
+		"nothing is listening on Docker Desktop's optional TCP endpoint, and no podman machine socket answered " +
 		"in the Windows temporary directory",
-	Fix: `Either enable "Expose daemon on tcp://localhost:2375 without TLS" in Docker Desktop settings, ` +
-		`or start a podman machine (podman 5.3 or newer exposes a socket this client can use), ` +
-		`or set the DOCKER_HOST environment variable to a tcp:// endpoint (for example DOCKER_HOST=tcp://localhost:2375)`,
+	Fix: `Enable "Expose daemon on tcp://localhost:2375 without TLS" in Docker Desktop settings, ` +
+		`or start a podman machine (Podman 5.3 or later creates a socket this client can use), ` +
+		`or set DOCKER_HOST to a tcp:// endpoint, or use the mobyclient package, which can open the pipe`,
 }
 
 // windowsProbe carries what the named-pipe fallback looks at. Tests supply
@@ -40,7 +41,8 @@ func realWindowsProbe() windowsProbe {
 
 // windowsFallback finds an endpoint this client can dial in place of a
 // named pipe: Docker Desktop's optional TCP endpoint, then the AF_UNIX
-// socket a podman machine (Podman 5.3 and later) puts beside its pipe.
+// socket a podman machine (Podman 5.3 or later) creates in the Windows
+// temporary directory.
 func windowsFallback(p windowsProbe) (string, error) {
 	if p.listening(dockerDesktopTCP) {
 		return "tcp://" + dockerDesktopTCP, nil
@@ -92,7 +94,7 @@ func dials(network, addr string, timeout time.Duration) bool {
 }
 
 // globPaths returns the paths matching pattern. A malformed pattern or an
-// unreadable directory simply means no candidate.
+// unreadable directory means no candidates.
 func globPaths(pattern string) []string {
 	matches, _ := filepath.Glob(pattern)
 	return matches
