@@ -27,6 +27,6 @@ require (
 // Inside this repository, the root module comes from the working tree, so a
 // change to it is tested here before it is tagged. Go ignores replace lines
 // in a module that another module requires, so this line stays in released
-// versions: a user gets the root module at the version required above, which
-// release.sh has set by then (see "Releasing" in docs/project/contributing.md).
+// versions: a user gets the root module at the version required above (see
+// "Releasing" in docs/project/contributing.md).
 replace github.com/tophergopher/dbtest => ..
