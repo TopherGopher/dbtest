@@ -20,7 +20,7 @@ var errNoPrimary = errors.New("the replica set had not accepted writes yet")
 // the command that initiates it, and the shell in the image is the client
 // that is already there.
 func (c *Container) initiateReplicaSet(ctx context.Context) error {
-	c.logger.Debug("Initiating the replica set, so that mongod accepts writes.", "container", c.name, "replicaSet", c.replicaSet)
+	c.logger.Debug("Initiating the replica set, so that mongod accepts writes.", "container", c.Name(), "replicaSet", c.replicaSet)
 	result, err := c.runShell(ctx, initiateScript)
 	switch {
 	case errors.Is(err, ErrNoShell):

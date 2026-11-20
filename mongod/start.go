@@ -8,6 +8,7 @@ import (
 
 	"github.com/tophergopher/mongotest/dockerapi"
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/container"
 	"github.com/tophergopher/mongotest/internal/hostaddr"
 	"github.com/tophergopher/mongotest/internal/reaper"
 )
@@ -56,7 +57,7 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 		c.removeAfterFailedStart(ctx)
 		return nil, err
 	}
-	c.logger.Info(c.readyMessage(), "container", c.name, "id", shortID(c.id), "uri", c.uri(redactedPassword))
+	c.logger.Info(c.readyMessage(), "container", c.Name(), "id", container.ShortID(c.ID()), "uri", c.uri(redactedPassword))
 	return c, nil
 }
 
@@ -154,23 +155,15 @@ func (c config) client() (dockerclient.Client, error) {
 }
 
 // newContainer describes a container that is about to be created, and
-// registers it for removal should the process be signalled.
-//
-// It registers before the daemon is asked, because a signal between the
-// daemon creating the container and this process hearing of it would
-// otherwise leave the container behind. See createOnce.
+// registers it for removal should the process be signalled. See
+// container.New.
 func newContainer(host string, cfg config, docker dockerclient.Client, certs *certificates) *Container {
-	c := &Container{
-		name: cfg.name, image: cfg.image, ref: cfg.image.Reference(), replicaSet: cfg.replicaSet,
+	return &Container{
+		ctr:   container.New(cfg.name, docker, cfg.logger),
+		image: cfg.image, ref: cfg.image.Reference(), replicaSet: cfg.replicaSet,
 		username: cfg.username, password: cfg.password,
 		host: host, certs: certs, docker: docker, logger: cfg.logger,
 	}
-	// Locked because the reaper may call Stop, which reads the handle, the
-	// moment Register returns.
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.reaperHandle = reaper.Register(c.name, c.stop, cfg.logger)
-	return c
 }
 
 // create has the daemon create the container, and reports a teardown that
@@ -179,16 +172,16 @@ func newContainer(host string, cfg config, docker dockerclient.Client, certs *ce
 func (c *Container) create(ctx context.Context, cfg config, host string) (time.Time, error) {
 	deadline, err := c.createOrPull(ctx, cfg, host)
 	if err != nil {
-		c.forget()
+		c.ctr.Forget()
 		return deadline, err
 	}
-	if !c.stopWanted.Load() {
+	if !c.ctr.StopWanted() {
 		return deadline, nil
 	}
 	// That teardown waited for the id and removes the container. This
 	// removes it only if the teardown ran out of time first.
 	c.removeAfterFailedStart(ctx)
-	return deadline, &ContainerExitedError{Name: c.name, ID: c.id, Status: "removed"}
+	return deadline, &ContainerExitedError{Name: c.Name(), ID: c.ID(), Status: "removed"}
 }
 
 // createOrPull creates the container, pulling the image only if the daemon
@@ -205,7 +198,7 @@ func (c *Container) createOrPull(ctx context.Context, cfg config, host string) (
 	c.logger.Info(pullingMessage, "image", request.Image)
 	pulled, err := pullShared(ctx, c.docker, request.Image, cfg.pullTimeout, true)
 	if err != nil {
-		return deadline, &StartError{Op: OpPullImage, Name: c.name, Image: request.Image, Err: err}
+		return deadline, &StartError{Op: OpPullImage, Name: c.Name(), Image: request.Image, Err: err}
 	}
 	// A mirror's copy keeps the mirror's name: it is not tagged with the
 	// name asked for, so the container is created from the mirror's.
@@ -223,40 +216,15 @@ func (c *Container) createWithin(ctx context.Context, cfg config, request docker
 	deadline := time.Now().Add(cfg.startTimeout)
 	bounded, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	err := c.createOnce(bounded, request)
+	err := c.ctr.Create(bounded, request)
 	if err == nil {
 		return deadline, nil
 	}
 	if bounded.Err() != nil {
 		c.removeUnconfirmed(ctx, cfg)
 	}
-	failed := &StartError{Op: OpCreate, Name: c.name, Image: request.Image, Err: err}
+	failed := &StartError{Op: OpCreate, Name: c.Name(), Image: request.Image, Err: err}
 	return deadline, c.unlessCutShort(ctx, bounded, cfg, failed)
-}
-
-// createOnce asks the daemon for the container and records its id, holding
-// the container's lock until the daemon has answered. A teardown that
-// arrives meanwhile waits for the id: asked sooner, the daemon might not
-// know the container yet, and the teardown would leave it behind.
-//
-// ctx carries the start timeout, so the wait under the lock has an end. The
-// lock is not held across a pull, so a container torn down in between is not
-// created.
-func (c *Container) createOnce(ctx context.Context, request dockerclient.ContainerConfig) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.stopped {
-		return &ContainerExitedError{Name: c.name, Status: "removed"}
-	}
-	id, warnings, err := c.docker.ContainerCreate(ctx, c.name, request)
-	if err != nil {
-		return err
-	}
-	c.id = id
-	for _, warning := range warnings {
-		c.logger.Warn("The Docker daemon created the container, but warned about it.", "container", c.name, "warning", warning)
-	}
-	return nil
 }
 
 // removeUnconfirmed removes, by name, a container whose creation was cut
@@ -268,11 +236,11 @@ func (c *Container) removeUnconfirmed(ctx context.Context, cfg config) {
 		return
 	}
 	// The context that was cut short cannot carry the request, and
-	// removeByName gives one with no deadline its own.
-	if err := c.removeByName(context.WithoutCancel(ctx), c.name); err != nil {
+	// RemoveUnconfirmed gives one with no deadline its own.
+	if err := c.ctr.RemoveUnconfirmed(context.WithoutCancel(ctx)); err != nil {
 		c.logger.Error("Creating a container was cut short, and it could not then be removed, so it may exist. "+
-			"Remove it by hand: docker rm -fv "+c.name,
-			"container", c.name, "error", err)
+			"Remove it by hand: docker rm -fv "+c.Name(),
+			"container", c.Name(), "error", err)
 	}
 }
 
@@ -291,18 +259,9 @@ func (c *Container) unlessCutShort(caller, bounded context.Context, cfg config, 
 // to Start, which tells a start its caller ended from one that timed out.
 func (c *Container) notReady(caller context.Context, cfg config, cause, lastErr error) error {
 	return &NotReadyError{
-		Name: c.name, ID: c.id, Host: c.host, Port: c.port, HostSource: cfg.hostSource,
+		Name: c.Name(), ID: c.ID(), Host: c.host, Port: c.port, HostSource: cfg.hostSource,
 		Timeout: cfg.startTimeout, ContextEnded: caller.Err() != nil, Cause: cause, LastErr: lastErr,
 	}
-}
-
-// forget drops a container the daemon never created, so that nothing tries
-// to remove it.
-func (c *Container) forget() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.stopped = true
-	reaper.Unregister(c.reaperHandle)
 }
 
 // start runs the created container and returns once it is usable.
@@ -320,7 +279,7 @@ func (c *Container) start(ctx context.Context, cfg config, deadline time.Time) e
 	}
 	probe := readyProbe{
 		docker: c.docker, logger: c.logger,
-		id: c.id, name: c.name, host: c.host, port: c.port,
+		id: c.ID(), name: c.Name(), host: c.host, port: c.port,
 		requireAuth:    cfg.username != "",
 		tlsConfig:      c.probeTLSConfig(),
 		hasHealthCheck: declaresHealthCheck(info.State.Health.Status),
@@ -347,32 +306,32 @@ func (c *Container) start(ctx context.Context, cfg config, deadline time.Time) e
 // because mongod will not start without one.
 func (c *Container) run(ctx context.Context, cfg config) (dockerclient.ContainerInspect, error) {
 	if cfg.needsKeyFile() {
-		if err := copyKeyFile(ctx, c.docker, c.id, c.Image()); err != nil {
+		if err := copyKeyFile(ctx, c.docker, c.ID(), c.Image()); err != nil {
 			return dockerclient.ContainerInspect{}, c.startError(OpCopyKeyFile, err)
 		}
 	}
 	if c.certs != nil {
-		if err := c.certs.copyInto(ctx, c.docker, c.id); err != nil {
+		if err := c.certs.copyInto(ctx, c.docker, c.ID()); err != nil {
 			return dockerclient.ContainerInspect{}, c.startError(OpTLSCertificate, err)
 		}
 	}
-	c.logger.Debug("Starting the MongoDB container.", "container", c.name, "image", c.Image())
-	if err := c.docker.ContainerStart(ctx, c.id); err != nil {
+	c.logger.Debug("Starting the MongoDB container.", "container", c.Name(), "image", c.Image())
+	if err := c.docker.ContainerStart(ctx, c.ID()); err != nil {
 		return dockerclient.ContainerInspect{}, c.startError(OpStart, err)
 	}
-	info, err := c.docker.ContainerInspect(ctx, c.id)
+	info, err := c.docker.ContainerInspect(ctx, c.ID())
 	if err != nil {
 		return dockerclient.ContainerInspect{}, c.startError(OpInspect, err)
 	}
 	// A mongod that rejects its flags can exit before this inspect. Report
 	// the exit here: a stopped container publishes no port, so the port
 	// check below would blame the wrong thing.
-	if hasExited(info.State) {
-		return dockerclient.ContainerInspect{}, newExitedError(ctx, c.docker, c.name, c.id, info.State, nil)
+	if container.HasExited(info.State) {
+		return dockerclient.ContainerInspect{}, container.NewExitedError(ctx, c.docker, c.Name(), c.ID(), info.State, nil)
 	}
 	port, published := hostPort(info)
 	if !published {
-		return dockerclient.ContainerInspect{}, &UnpublishedPortError{Port: mongoPort, Name: c.name, ID: c.id}
+		return dockerclient.ContainerInspect{}, &UnpublishedPortError{Port: mongoPort, Name: c.Name(), ID: c.ID()}
 	}
 	c.port = port
 	return info, nil
@@ -380,19 +339,19 @@ func (c *Container) run(ctx context.Context, cfg config) (dockerclient.Container
 
 // startError reports which step of a start failed for this container.
 func (c *Container) startError(op string, err error) error {
-	return &StartError{Op: op, Name: c.name, Image: c.Image(), Err: err}
+	return &StartError{Op: op, Name: c.Name(), Image: c.Image(), Err: err}
 }
 
 // removeAfterFailedStart removes the container a failed start left behind.
 // The caller's context may be what failed, so the removal gets its own
 // deadline instead.
 func (c *Container) removeAfterFailedStart(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), container.CleanupTimeout)
 	defer cancel()
 	if err := c.Stop(ctx); err != nil {
 		c.logger.Error("A container failed to start and then could not be removed, so it may still be running. "+
-			"Remove it by hand: docker rm -fv "+c.name,
-			"container", c.name, "error", err)
+			"Remove it by hand: docker rm -fv "+c.Name(),
+			"container", c.Name(), "error", err)
 	}
 }
 

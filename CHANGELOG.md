@@ -29,6 +29,18 @@ what to do if it affects you.
 - The type, `ErrUnresolvedHost` and `EnvHostIP` are unchanged. Code that
   matched the message text should use `errors.Is(err, mongod.ErrUnresolvedHost)`.
 
+### `mongod.ContainerExitedError`'s message no longer begins with `mongod:`
+
+- It now begins with `container <name>`, and `ErrContainerExited`'s text
+  says "before the server in it was ready" rather than "before mongod was
+  ready". The type, its fields and `ErrContainerExited` itself are
+  unchanged, so `errors.Is` and `errors.As` match as before. Code that
+  matched the message text should use `errors.Is(err, mongod.ErrContainerExited)`.
+- `%T` prints the error's type as `*container.ExitedError`.
+- When the container's output is empty, the message used to suggest a flag
+  or replica set name that mongod rejects. Now it says whether the container
+  wrote nothing or its log could not be read, and why.
+
 ### The root package is rebuilt on the new `mongod` package
 
 - **New entry points.** `mongotest.Run(t)` starts a container, connects a

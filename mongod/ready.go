@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/mongotest/internal/container"
 	"github.com/tophergopher/mongotest/internal/hostaddr"
 )
 
@@ -320,8 +321,8 @@ func (p readyProbe) exitedError(ctx context.Context, cause error) error {
 	if err != nil {
 		return nil // nothing is known, so keep waiting
 	}
-	if hasExited(info.State) {
-		return newExitedError(ctx, p.docker, p.name, p.id, info.State, cause)
+	if container.HasExited(info.State) {
+		return container.NewExitedError(ctx, p.docker, p.name, p.id, info.State, cause)
 	}
 	return nil
 }

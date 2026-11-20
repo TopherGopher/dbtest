@@ -41,8 +41,6 @@ const (
 
 	// mongoPort is the port mongod listens on inside the container.
 	mongoPort = "27017/tcp"
-	// cleanupTimeout bounds removing the container a failed start created.
-	cleanupTimeout = 30 * time.Second
 	// namePrefix and nameRandomBytes shape a generated container name.
 	namePrefix      = "mongotest-"
 	nameRandomBytes = 4

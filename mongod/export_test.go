@@ -1,6 +1,9 @@
 package mongod
 
-import "github.com/tophergopher/mongotest/internal/pull"
+import (
+	"github.com/tophergopher/mongotest/internal/container"
+	"github.com/tophergopher/mongotest/internal/pull"
+)
 
 // This file is compiled only into the tests. It lets a test outside the
 // package assert on a private error or decision, where it would otherwise
@@ -25,4 +28,4 @@ var (
 )
 
 // ExitOutputLimit is how much of an exited container's output is kept.
-const ExitOutputLimit = exitOutputLimit
+const ExitOutputLimit = container.ExitOutputLimit
