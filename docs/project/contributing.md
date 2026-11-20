@@ -19,8 +19,10 @@ gofmt -l .                              # must print nothing
 go vet ./...
 go test -race ./...                     # root module
 
-cd mobyclient && go test -race ./...    # separate module, not reached by ./...
-cd ../exporter && go test -race ./...   # separate module, not reached by ./...
+# Each of these is a separate module, which the root's ./... does not reach.
+(cd mongotest && go test -race ./...)
+(cd mongotest/exporter && go test -race ./...)
+(cd mobyclient && go test -race ./...)
 ```
 
 Integration tests need a Docker daemon, and pull the images they use. Without
@@ -40,7 +42,8 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
   the root is tested against newer versions than its users get; CI tests each
   module from its own `go.mod`. If `go work sync` has rewritten `go.mod` and
   `go.sum`, restore them with `git checkout -- go.mod go.sum`.
-- **Every `go.mod` names the minimum Go release** in a `toolchain` line: the
+- **Every `go.mod` pins the Go release used to build and test** in a
+  `toolchain` line: the
   root, `mongotest/go.mod`, `mongotest/exporter/go.mod` and
   `mobyclient/go.mod`. If your Go is older, the `go` command downloads that
   release, unless you have set `GOTOOLCHAIN=local`. Change the line in all
@@ -49,15 +52,15 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
 - **Each module other than the root carries a `replace`** pointing at the
   repository root, so a change to the root is tested here before it is
   tagged. Go ignores a `replace` in a module that another module requires,
-  so the line stays in released versions. It is annotated in each file.
+  so the line is harmless in released versions and stays in them. A comment
+  in each file explains it.
 
 ## Releasing
 
 Each module is released by its own tag: the root as `vX.Y.Z`, and the others
 with their directory as a prefix, such as `mongotest/vX.Y.Z`. The other
-modules require the root at the version being released, and that version
-exists only once the root is tagged, so `release.sh` runs twice with a commit
-between.
+modules require the root at the new version, which exists only once the root
+is tagged. So `release.sh` runs twice, with a commit between.
 
 1. On an up-to-date `main` with no local changes, run `./release.sh vX.Y.Z`.
    It tags the root `vX.Y.Z` and pushes the tag. It then stops, naming each
@@ -74,7 +77,9 @@ between.
    `mongotest/exporter/vX.Y.Z` and `mobyclient/vX.Y.Z`.
 
 A tag that already exists is left alone, so a run that stopped partway can be
-run again.
+run again. The script refuses a version that is not newer than every existing
+tag: the tags from before the rename, up to v0.2.9, are versions of this
+module path too.
 
 ## The standard
 
@@ -106,5 +111,5 @@ has the conventions and the local preview command.
 - The description says what changed and why, and names the issue it closes.
 - A change a user would notice adds a line to `CHANGELOG.md`, under
   "Unreleased".
-- CI must be green: `gofmt`, `go vet`, the tests of all three modules, and
+- CI must be green: `gofmt`, `go vet`, the tests of all four modules, and
   the documentation build.

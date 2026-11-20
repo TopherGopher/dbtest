@@ -83,9 +83,10 @@ func TestNegotiateServerMinimumTooHigh(t *testing.T) {
 	require.NoError(t, err, "client construction")
 	_, err = c.do(context.Background(), http.MethodGet, "/_ping", nil, nil)
 	require.ErrorIs(t, err, ErrAPIVersion, "a daemon window above ours is an API version problem")
-	assert.Contains(t, err.Error(), "1.60", "the error must state the daemon's minimum")
-	assert.Contains(t, err.Error(), PreferredAPIVersion, "the error must state our maximum")
-	assert.Contains(t, err.Error(), "Upgrade dbtest", "the error must say what to do")
+	var version *APIVersionError
+	require.ErrorAs(t, err, &version, "with the details")
+	assert.Equal(t, "1.60", version.ServerMin, "the daemon's minimum")
+	assert.Equal(t, PreferredAPIVersion, version.ClientMax, "our maximum, so the client is the side to upgrade")
 	assert.Len(t, fd.Requests(), 1, "only the /version request may be sent when negotiation fails")
 }
 

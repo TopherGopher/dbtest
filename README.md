@@ -12,8 +12,9 @@ removes the container when the test ends.
 go get github.com/tophergopher/dbtest/mongotest
 ```
 
-It needs Go 1.26 or newer, and Docker or Podman. Without one, the test fails;
-it is not skipped.
+It needs Go 1.26 or newer, and a running Docker or Podman daemon. Without a
+daemon, the test fails rather than skipping. For Podman, see the
+[Podman guide](https://tophergopher.github.io/dbtest/guides/podman/).
 
 ```go
 func TestOrders(t *testing.T) {
@@ -25,9 +26,11 @@ func TestOrders(t *testing.T) {
 
 Upgrading from `github.com/tophergopher/mongotest`? Import
 `github.com/tophergopher/dbtest/mongotest` instead. The earlier function names
-still exist, but code that used the easymongo connection must change;
-[CHANGELOG.md](CHANGELOG.md) shows how.
-For Podman, see the [Podman guide](https://tophergopher.github.io/dbtest/guides/podman/).
+still exist. v0.2.9's `TestConnection` embedded a connection from easymongo,
+a separate MongoDB library, and the new `Instance` embeds the driver's client
+instead, so calls that went through easymongo change. If you set
+`MONGOTEST_HOST_IP`, rename it `DBTEST_HOST_IP`: the old name is ignored.
+[CHANGELOG.md](CHANGELOG.md) shows each change.
 
 ## Cleaning up stray containers
 
