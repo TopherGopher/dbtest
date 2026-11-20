@@ -44,15 +44,11 @@ func exampleDocker() (dockerclient.Client, func()) {
 	if err != nil {
 		panic(err)
 	}
-	go acceptAll(listener, answerCommand)
+	// A mongod that enforces credentials serves both kinds of example: one
+	// started without credentials never asks.
+	go acceptAll(listener, enforcingMongod)
 
 	fake := dockermock.NewFake(dockermock.WithImages("docker.io/library/mongo:8.0", "docker.io/library/mongo:7.0", "mirror.corp.example/mongo:8.0"))
-	fake.Processes = func(c dockermock.ContainerState) [][]string {
-		if len(c.Config.Env) > 0 {
-			return [][]string{{"1", "mongod --auth --bind_ip_all"}}
-		}
-		return [][]string{{"1", "mongod --bind_ip_all"}}
-	}
 	return stage{Fake: fake, port: listener.Addr().(*net.TCPAddr).Port}, func() { _ = listener.Close() }
 }
 
@@ -373,7 +369,7 @@ func (s *tlsStage) CopyToContainer(ctx context.Context, id, dir string, files []
 		if err != nil {
 			return err
 		}
-		go acceptAll(listener, answerCommand)
+		go acceptAll(listener, enforcingMongod)
 		s.listener, s.port = listener, listener.Addr().(*net.TCPAddr).Port
 	}
 	return s.Fake.CopyToContainer(ctx, id, dir, files)

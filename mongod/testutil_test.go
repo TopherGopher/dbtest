@@ -76,9 +76,9 @@ func stringField(name, value string) string {
 	return "\x02" + name + "\x00" + string(length) + value + "\x00"
 }
 
-// answerCommand replies to one MongoDB command the way mongod does when all
+// answerCommand answers every command the way an open mongod does when all
 // is well: with {ok: 1}.
-func answerCommand(conn net.Conn) { answerWith(okField)(conn) }
+func answerCommand(conn net.Conn) { openMongod(conn) }
 
 // answerWithError replies the way mongod does when it refuses a command:
 // with ok 0, a message and the name of the error.
@@ -96,44 +96,99 @@ func answerWithGarbage(conn net.Conn) {
 
 // answerWith returns a stand-in for mongod that replies to one command with
 // a message of the same kind, addressed to the request, holding a document
-// of the given fields. It hangs up on a command whose document is malformed.
+// of the given fields, and then hangs up. It hangs up at once on a command
+// whose document is malformed.
 func answerWith(fields string) func(net.Conn) {
-	return func(conn net.Conn) { answer(conn, fields) }
+	return func(conn net.Conn) {
+		defer conn.Close()
+		answerOne(conn, func(string) string { return fields })
+	}
 }
 
-// answer reads one command and writes the reply.
-func answer(conn net.Conn, fields string) {
-	defer conn.Close()
-	const headerLen, opMsg = 16, 2013
-	okDocument := fields + "\x00"
+// mongodStandIn returns a stand-in for mongod that answers every command on
+// a connection, as mongod does, until the client hangs up. reply chooses the
+// reply's fields from the command's name.
+func mongodStandIn(reply func(command string) string) func(net.Conn) {
+	return func(conn net.Conn) {
+		defer conn.Close()
+		for answerOne(conn, reply) {
+		}
+	}
+}
 
+// openMongod answers every command, as a mongod that does not make clients
+// authenticate does. Its reply carries the arrays and documents a real
+// getCmdLineOpts reply has, which a reader has to step over.
+var openMongod = mongodStandIn(func(string) string {
+	return documentField("\x04", "argv", stringField("0", "mongod")) +
+		documentField("\x03", "parsed", documentField("\x03", "net", "\x08bindIpAll\x00\x01")) + okField
+})
+
+// enforcingMongod answers hello and refuses everything else, as a mongod
+// that makes clients authenticate does.
+var enforcingMongod = mongodStandIn(func(command string) string {
+	if command == "hello" || command == "isMaster" {
+		return okField
+	}
+	return notOKField + stringField("errmsg", "Command "+command+" requires authentication") +
+		int32Field("code", 13) + stringField("codeName", "Unauthorized")
+})
+
+// int32Field is a BSON int32 element.
+func int32Field(name string, value int32) string {
+	return "\x10" + name + "\x00" + string(binary.LittleEndian.AppendUint32(nil, uint32(value)))
+}
+
+// documentField is a BSON element holding a document or, with kind \x04, an
+// array, made of the given elements.
+func documentField(kind, name, elements string) string {
+	length := binary.LittleEndian.AppendUint32(nil, uint32(4+len(elements)+1))
+	return kind + name + "\x00" + string(length) + elements + "\x00"
+}
+
+// answerOne reads one command and writes the reply reply chooses for it. It
+// reports false when the connection ended or the command was malformed.
+func answerOne(conn net.Conn, reply func(command string) string) bool {
+	const headerLen, opMsg = 16, 2013
 	var header [headerLen]byte
 	if _, err := io.ReadFull(conn, header[:]); err != nil {
-		return
+		return false
 	}
 	le := binary.LittleEndian
 	body := make([]byte, int(le.Uint32(header[0:4]))-headerLen)
 	if _, err := io.ReadFull(conn, body); err != nil {
-		return
+		return false
 	}
 	// mongod refuses a document whose declared length is not its real one.
 	const flagsAndKindLen = 5
 	if len(body) < flagsAndKindLen+4 {
-		return
+		return false
 	}
 	document := body[flagsAndKindLen:]
 	if int(le.Uint32(document[0:4])) != len(document) {
-		return
+		return false
 	}
+	okDocument := reply(commandName(document)) + "\x00"
 
-	reply := le.AppendUint32(nil, uint32(headerLen+4+1+4+len(okDocument)))
-	reply = le.AppendUint32(reply, 1)     // this message's own id
-	reply = append(reply, header[4:8]...) // the id of the request it answers
-	reply = le.AppendUint32(reply, opMsg) // the message kind
-	reply = le.AppendUint32(reply, 0)     // no flags
-	reply = append(reply, 0)              // one document follows
-	reply = le.AppendUint32(reply, uint32(4+len(okDocument)))
-	_, _ = conn.Write(append(reply, okDocument...))
+	out := le.AppendUint32(nil, uint32(headerLen+4+1+4+len(okDocument)))
+	out = le.AppendUint32(out, 1)     // this message's own id
+	out = append(out, header[4:8]...) // the id of the request it answers
+	out = le.AppendUint32(out, opMsg) // the message kind
+	out = le.AppendUint32(out, 0)     // no flags
+	out = append(out, 0)              // one document follows
+	out = le.AppendUint32(out, uint32(4+len(okDocument)))
+	_, err := conn.Write(append(out, okDocument...))
+	return err == nil
+}
+
+// commandName is the name of a command document's first field.
+func commandName(document []byte) string {
+	const lengthAndKind = 5
+	if len(document) <= lengthAndKind {
+		return ""
+	}
+	name, _, _ := bytes.Cut(document[lengthAndKind:], []byte{0})
+	return string(name)
 }
 
 // askHello sends one hello command to an address and reports whether a
@@ -238,11 +293,25 @@ func processes(commands ...string) dockerclient.Top {
 }
 
 // readyMock returns a mocked daemon whose container is running a serving
-// mongod, and the port it reports the container published, which something
-// really listens on.
+// mongod that does not make clients authenticate, and the port it reports
+// the container published, which something really listens on.
 func readyMock(t testing.TB) (*dockermock.Mock, int) {
 	t.Helper()
-	port := listenerPort(t)
+	return servingMock(t, openMongod)
+}
+
+// authMock is readyMock for a container created with credentials: its mongod
+// enforces them, which Start insists on.
+func authMock(t testing.TB) (*dockermock.Mock, int) {
+	t.Helper()
+	return servingMock(t, enforcingMongod)
+}
+
+// servingMock returns a mocked daemon whose container is running, with the
+// given stand-in for mongod listening behind its published port.
+func servingMock(t testing.TB, standIn func(net.Conn)) (*dockermock.Mock, int) {
+	t.Helper()
+	port := serve(t, standIn)
 	return &dockermock.Mock{
 		ContainerCreateFunc: func(context.Context, string, dockerclient.ContainerConfig) (string, []string, error) {
 			return containerID, nil, nil
@@ -250,21 +319,16 @@ func readyMock(t testing.TB) (*dockermock.Mock, int) {
 		ContainerInspectFunc: func(context.Context, string) (dockerclient.ContainerInspect, error) {
 			return running(port), nil
 		},
-		ContainerTopFunc: func(context.Context, string) (dockerclient.Top, error) {
-			return processes("mongod --bind_ip_all"), nil
-		},
 	}, port
 }
 
-// authMock is readyMock for a container created with credentials: its mongod
-// enforces them, which Start insists on.
-func authMock(t testing.TB) (*dockermock.Mock, int) {
+// notReadyMock is a mocked daemon whose container is running but whose
+// mongod is not listening yet: Docker accepts on the published port and
+// hangs up.
+func notReadyMock(t testing.TB) *dockermock.Mock {
 	t.Helper()
-	m, port := readyMock(t)
-	m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) {
-		return processes("mongod --auth --bind_ip_all"), nil
-	}
-	return m, port
+	m, _ := servingMock(t, func(conn net.Conn) { _ = conn.Close() })
+	return m
 }
 
 // running is what the daemon reports for a running container whose mongod
@@ -318,8 +382,8 @@ func createdName(t testing.TB, m *dockermock.Mock) string {
 	return name
 }
 
-// requestFor returns the create request a set of options produces. The
-// daemon never reports a mongod, so the start ends on a short timeout: the
+// requestFor returns the create request a set of options produces. Nothing
+// answers at the address the start dials, so it ends on a short timeout: the
 // request is built before anything is waited for, and nothing has to listen
 // on an address this machine may not have.
 func requestFor(t testing.TB, opts mongod.Options) dockerclient.ContainerConfig {
@@ -333,7 +397,7 @@ func requestFor(t testing.TB, opts mongod.Options) dockerclient.ContainerConfig 
 		},
 	}
 	_, err := start(t, m, opts.WithStartTimeout(20*time.Millisecond))
-	require.ErrorIs(t, err, mongod.ErrNotReady, "this daemon never reports a mongod")
+	require.ErrorIs(t, err, mongod.ErrNotReady, "nothing answers at that address")
 	return created(t, m)
 }
 

@@ -150,8 +150,7 @@ func TestWithMongodArgsReachMongod(t *testing.T) {
 
 func TestTheStartTimeout(t *testing.T) {
 	waits := func(t *testing.T, opts mongod.Options) time.Duration {
-		m, _ := readyMock(t)
-		m.ContainerTopFunc = func(context.Context, string) (dockerclient.Top, error) { return processes("runc init"), nil }
+		m := notReadyMock(t)
 		_, err := start(t, m, opts)
 		var notReady *mongod.NotReadyError
 		require.ErrorAs(t, err, &notReady, "a mongod that never appears times out")

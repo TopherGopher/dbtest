@@ -80,13 +80,19 @@ func recordingCopies(m *dockermock.Mock, serve func(tls.Certificate)) *copied {
 // it, as mongod would.
 func tlsMock(t *testing.T) (*dockermock.Mock, *copied) {
 	t.Helper()
+	return tlsMockServing(t, enforcingMongod)
+}
+
+// tlsMockServing is tlsMock with the given stand-in for mongod.
+func tlsMockServing(t *testing.T, standIn func(net.Conn)) (*dockermock.Mock, *copied) {
+	t.Helper()
 	m, _ := readyMock(t)
 	var mu sync.Mutex
 	port := 0
 	into := recordingCopies(m, func(pair tls.Certificate) {
 		mu.Lock()
 		defer mu.Unlock()
-		port = tlsListenerPort(t, pair)
+		port = tlsListenerPort(t, pair, standIn)
 	})
 	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
 		mu.Lock()
@@ -100,14 +106,14 @@ func tlsMock(t *testing.T) (*dockermock.Mock, *copied) {
 }
 
 // tlsListenerPort serves mongod's answer over TLS with a certificate.
-func tlsListenerPort(t *testing.T, pair tls.Certificate) int {
+func tlsListenerPort(t *testing.T, pair tls.Certificate, standIn func(net.Conn)) int {
 	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{pair}})
 	if err != nil {
 		t.Errorf("the stand-in for mongod cannot listen: %v", err)
 		return 0
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	go acceptAll(ln, answerCommand)
+	go acceptAll(ln, standIn)
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
@@ -164,6 +170,17 @@ func TestAServerWithAnotherCertificateIsNotTheContainersMongod(t *testing.T) {
 
 	require.ErrorIs(t, err, mongod.ErrNotReady, "the start does not accept it")
 	assert.ErrorIs(t, err, mongod.ErrNotMongod, "because what answered is not this container's mongod")
+}
+
+// The credentials check goes over TLS too: a mongod that answers without
+// credentials is refused, and one that enforces them is ready.
+func TestTheCredentialsCheckWorksOverTLS(t *testing.T) {
+	enforcing, _ := tlsMockServing(t, enforcingMongod)
+	startTLS(t, enforcing, mongod.DefaultOptions().WithAuth("admin", "secret"))
+
+	open, _ := tlsMockServing(t, openMongod)
+	_, err := start(t, open, mongod.DefaultOptions().WithTLS().WithAuth("admin", "secret").WithStartTimeout(300*time.Millisecond))
+	assert.ErrorIs(t, err, mongod.ErrAuthNotEnforced, "an open mongod behind TLS is refused")
 }
 
 func TestWithTLSMakesMongodRequireIt(t *testing.T) {

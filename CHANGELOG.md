@@ -34,6 +34,29 @@ what to do if it affects you.
   start from, and **`dockerclient.ConfigDir`** the Docker config directory,
   for anyone writing a client of their own.
 
+### `mongod.Start` no longer reads mongod's flags from the container's process list
+
+- **A mongod whose flags are set in a configuration file now starts.**
+  `Start` used to read mongod's command line, and refused a mongod whose
+  `--auth` it could not see.
+- **A container created with credentials is now checked by sending mongod a
+  command that needs them, without giving them.** A mongod that answers may
+  be the image's set-up mongod, so `Start` keeps waiting. If it still answers
+  when the start timeout ends, `Start` removes the container and returns an
+  error matching both `ErrAuthNotEnforced` and `ErrNotReady`. Before, it
+  returned `ErrAuthNotEnforced` at once.
+  `AuthNotEnforcedError`'s message has changed; match the error with
+  `errors.Is`, not its text.
+- **A start can now end in `ErrNotReady` because mongod never said whether it
+  enforces the credentials,** such as a mongod shutting down for the whole
+  start timeout.
+- **`ErrLoopbackOnly` is deprecated.** Nothing returns it. A mongod that
+  listens only on the container's loopback now ends in `ErrNotReady`, with
+  nothing answering at the address. It will be removed in the next release
+  that breaks compatibility.
+- **A daemon or socket proxy that refuses to list a container's processes**
+  no longer stops a start.
+
 ### mongotest needs Go 1.26 or newer
 
 - **Every module declares `go 1.26`,** the oldest release the Go team still
@@ -57,6 +80,20 @@ what to do if it affects you.
 
 - The type, `ErrUnresolvedHost` and `EnvHostIP` are unchanged. Code that
   matched the message text should use `errors.Is(err, mongod.ErrUnresolvedHost)`.
+
+### Start errors no longer begin with `mongod:`
+
+- **`StartError`, `NotReadyError`, `UnpublishedPortError` and
+  `AuthNotEnforcedError`** no longer begin with `mongod:`. `NotReadyError` says "the caller's context" rather
+  than "the context passed to Start". `ErrNotReady`'s own text is now "the
+  container did not become ready in time". Errors about options still begin
+  with `mongod:`.
+- The types, their fields, the `Op` constants and the sentinels are
+  unchanged, so `errors.Is` and `errors.As` match as before; match with
+  them, not the text. `%T` prints the types as `*container.StartError`,
+  `*container.NotReadyError` and `*container.UnpublishedPortError`.
+- **A start that ends with mongod still not enforcing its credentials** no
+  longer advises a longer start timeout; the error says what to do instead.
 
 ### `mongod.ContainerExitedError`'s message no longer begins with `mongod:`
 
@@ -89,7 +126,11 @@ what to do if it affects you.
   `Instance` embeds the driver's client. Calls through easymongo stop
   compiling: `conn.D("db").C("coll")` becomes `inst.Database("db").Collection("coll")`,
   `conn.MongoDriverClient()` becomes `inst.Client`, and `conn.MongoURI()`
-  becomes `inst.URI()`. `EasyMongoWithContainer` is removed; use `Run`.
+  becomes `inst.URI()`. `conn.Database("db")` still compiles but now
+  returns the driver's `*mongo.Database`, so a following `.C("coll")` fails;
+  write `.Collection("coll")`, or keep easymongo with
+  `easymongo.ConnectWith(inst.URI()).FromMongoDriverClient(inst.Client)`.
+  `EasyMongoWithContainer` is removed; use `Run`.
 - **`DatabaseExporter` is removed.** It moves to its own module,
   `github.com/tophergopher/mongotest/exporter`, which writes to any
   `io.Writer`; its [guide](https://tophergopher.github.io/mongotest/guides/exporting-data/#moving-from-databaseexporter)

@@ -18,7 +18,7 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 		HostSource: "WithHostIP", Timeout: time.Minute, Cause: context.DeadlineExceeded,
 	}
 	stuck, ended := notReady, notReady
-	stuck.LastErr = mongod.ErrLoopbackOnly
+	stuck.LastErr = mongod.ErrHelloRefused
 	ended.ContextEnded = true
 	cases := []struct {
 		name     string
@@ -30,7 +30,7 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 		{"no published port", &mongod.UnpublishedPortError{Port: "27017/tcp", Name: "orders-db", ID: containerID},
 			[]string{"orders-db", "27017/tcp"}},
 		{"not ready in time", &notReady, []string{"orders-db", "172.17.0.1:32768"}},
-		{"not ready, with what the wait last saw", &stuck, []string{"orders-db", "172.17.0.1:32768", mongod.ErrLoopbackOnly.Error()}},
+		{"not ready, with what the wait last saw", &stuck, []string{"orders-db", "172.17.0.1:32768", mongod.ErrHelloRefused.Error()}},
 		{"not ready because the caller's context ended", &ended, []string{"orders-db", "172.17.0.1:32768"}},
 		{"not ready before the container had an id or a port",
 			&mongod.NotReadyError{Name: "orders-db", Timeout: time.Minute, Cause: context.DeadlineExceeded}, []string{"orders-db"}},
@@ -60,4 +60,15 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// When a start runs out of time, the advice suits what went wrong: the
+// address is in doubt only when nothing, or something other than mongod,
+// answered; and a mongod that ignores its credentials needs no longer wait.
+func TestTheAdviceForAStartThatRanOutOfTimeSuitsTheFailure(t *testing.T) {
+	assert.Contains(t, mongod.NotReadyAdvice(mongod.ErrNoReply), mongod.EnvHostIP, "nothing answering may be a wrong address")
+	assert.Contains(t, mongod.NotReadyAdvice(mongod.ErrNotMongod), mongod.EnvHostIP, "so may something other than mongod answering")
+	assert.NotContains(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), mongod.EnvHostIP, "mongod answered, so the address is right")
+	assert.NotEmpty(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), "but a longer wait may help")
+	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}), "a mongod that ignores its credentials will not change with a longer wait")
 }

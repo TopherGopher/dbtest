@@ -14,10 +14,11 @@ var (
 	ErrNoReply      = errNoReply
 	ErrNotMongod    = errNotMongod
 	ErrHelloRefused = errHelloRefused
+	ErrAuthUnknown  = errAuthUnknown
 )
 
 // AddressInDoubt reports whether the error advises correcting the address.
-func (e *NotReadyError) AddressInDoubt() bool { return e.addressInDoubt() }
+func AddressInDoubt(e *NotReadyError) bool { return addressInDoubt(e.LastErr) }
 
 // The pull hooks live with the pulls; see the internal/pull package.
 var (
@@ -29,3 +30,7 @@ var (
 
 // ExitOutputLimit is how much of an exited container's output is kept.
 const ExitOutputLimit = container.ExitOutputLimit
+
+// NotReadyAdvice is the advice a start that ran out of time gives, after
+// lastErr.
+func NotReadyAdvice(lastErr error) string { return config{}.notReadyAdvice(lastErr) }
