@@ -51,35 +51,44 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
   another module names a different one.
 - **Each module other than the root carries a `replace`** pointing at the
   repository root, so a change to the root is tested here before it is
-  tagged. Go ignores a `replace` in a module that another module requires,
+  tagged, and a module can require a root version that has no tag yet. Go ignores a `replace` in a module that another module requires,
   so the line is harmless in released versions and stays in them. A comment
   in each file explains it.
 
 ## Releasing
 
-Each module is released by its own tag: the root as `vX.Y.Z`, and the others
-with their directory as a prefix, such as `mongotest/vX.Y.Z`. The other
-modules require the root at the new version, which exists only once the root
-is tagged. So `release.sh` runs twice, with a commit between.
+Each module is released by its own annotated tag: the root as `vX.Y.Z`, and
+the others with their directory as a prefix. A release is one pull request
+and four tags.
 
-1. On an up-to-date `main` with no local changes, run `./release.sh vX.Y.Z`.
-   It tags the root `vX.Y.Z` and pushes the tag. It then stops, naming each
-   module that does not yet require the root at `vX.Y.Z`, with the command
-   that fixes it:
+1. In a pull request, point the other three modules at the new version, and
+   merge it:
 
     ```sh
-    (cd mongotest && go mod edit -require=github.com/tophergopher/dbtest@vX.Y.Z)
+    for m in mongotest mongotest/exporter mobyclient; do
+      (cd "$m" && go mod edit -require=github.com/tophergopher/dbtest@vX.Y.Z)
+    done
     ```
 
-2. Run those commands, then commit and push the change to `main`.
-3. Run `./release.sh vX.Y.Z` again. It finds the root already tagged, checks
-   the other modules, and tags and pushes `mongotest/vX.Y.Z`,
-   `mongotest/exporter/vX.Y.Z` and `mobyclient/vX.Y.Z`.
+    The `replace` lines keep this building before `vX.Y.Z` is tagged.
 
-A tag that already exists is left alone, so a run that stopped partway can be
-run again. The script refuses a version that is not newer than every existing
-tag: the tags from before the rename, up to v0.2.9, are versions of this
-module path too.
+2. Straight after it merges, tag that commit on `main` and push the four tags
+   together:
+
+    ```sh
+    git checkout main && git pull
+    for t in vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z; do
+      git tag -a "$t" -m "$t"
+    done
+    git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z
+    ```
+
+    `--atomic` pushes all four or none.
+
+The version must be higher than v0.2.9. The tags from before the rename, up to
+v0.2.9, are versions of this module path too, so a lower version would never
+be the one `go get ...@latest` picks. A pushed tag cannot be taken back,
+because the Go module proxy keeps what it has fetched.
 
 ## The standard
 
