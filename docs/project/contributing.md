@@ -49,20 +49,24 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
   release, unless you have set `GOTOOLCHAIN=local`. Change the line in all
   four files together. CI installs exactly the root's release, and fails if
   another module names a different one.
-- **Each module other than the root carries a `replace`** pointing at the
-  repository root, so a change to the root is tested here before it is
-  tagged, and a module can require a root version that has no tag yet. Go ignores a `replace` in a module that another module requires,
-  so the line is harmless in released versions and stays in them. A comment
-  in each file explains it.
+- **Each module other than the root has a `replace`** pointing at the
+  repository root, so it builds against the root's working tree, and can
+  require a root version that has no tag yet. Go applies `replace` only in the
+  module being built, so released versions keep the line harmlessly.
 
 ## Releasing
 
-Each module is released by its own annotated tag: the root as `vX.Y.Z`, and
-the others with their directory as a prefix. A release is one pull request
-and four tags.
+Each module is released by its own annotated tag, all with the same version:
+the root as `vX.Y.Z`, and the others with their directory as a prefix, such as
+`mongotest/vX.Y.Z`. A release is one pull request and four tags.
+
+Choose a version above v0.2.9. The repository's tags from before the rename,
+up to v0.2.9, are versions of `github.com/tophergopher/dbtest` too, so a lower
+version is never the one `go get ...@latest` picks. A pushed tag cannot be
+taken back, because the Go module proxy keeps what it has fetched.
 
 1. In a pull request, point the other three modules at the new version, and
-   merge it:
+   rename the CHANGELOG's "Unreleased" heading to the version:
 
     ```sh
     for m in mongotest mongotest/exporter mobyclient; do
@@ -72,23 +76,25 @@ and four tags.
 
     The `replace` lines keep this building before `vX.Y.Z` is tagged.
 
-2. Straight after it merges, tag that commit on `main` and push the four tags
-   together:
+2. Straight after it merges, tag that pull request's merge commit, by its SHA,
+   and push the four tags together. Before the push, check the output: the
+   commit is on `main`, all three modules require `vX.Y.Z`, and all four tags
+   name the commit.
 
     ```sh
-    git checkout main && git pull
+    c=SHA-of-the-merge-commit
+    git fetch origin
+    git merge-base --is-ancestor "$c" origin/main && echo "on main"
+    git grep -l "tophergopher/dbtest vX.Y.Z" "$c" -- '*/go.mod'  # the three modules
     for t in vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z; do
-      git tag -a "$t" -m "$t"
+      git tag -a "$t" -m "$t" "$c"
     done
+    git tag --points-at "$c"  # exactly the four tags
     git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z
     ```
 
-    `--atomic` pushes all four or none.
-
-The version must be higher than v0.2.9. The tags from before the rename, up to
-v0.2.9, are versions of this module path too, so a lower version would never
-be the one `go get ...@latest` picks. A pushed tag cannot be taken back,
-because the Go module proxy keeps what it has fetched.
+    `--atomic` pushes all four or none. If `git tag` reports that a tag
+    already exists, delete the local one with `git tag -d` and tag again.
 
 ## The standard
 
