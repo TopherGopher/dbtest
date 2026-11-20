@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockermock"
-	"github.com/tophergopher/mongotest/internal/container"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
+	"github.com/tophergopher/dbtest/internal/container"
 )
 
 // These test the start's contract with an image's package, which no image

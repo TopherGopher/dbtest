@@ -1,6 +1,6 @@
 ---
 title: How it works
-description: What mongotest does between the call and the first query, and the defaults it chooses.
+description: What dbtest does between the call and the first query, and the defaults it chooses.
 status: current
 ---
 
@@ -16,7 +16,7 @@ has the detail of each step.
 <div class="mt-steps" markdown>
 
 1.  **Find the daemon,** as the `docker` CLI does: `DOCKER_HOST` if set,
-    otherwise the default socket paths. mongotest calls the Docker Engine API
+    otherwise the default socket paths. dbtest calls the Docker Engine API
     directly; it never runs the `docker` program.
 
 2.  **Work out the address** at which the tests can reach the container. For
@@ -63,6 +63,6 @@ large table of cases, share one and give each case its own database; see
 
 ## The Docker client
 
-mongotest uses [`dockerapi`](../docker-clients/dockerapi.md), which needs only
+dbtest uses [`dockerapi`](../docker-clients/dockerapi.md), which needs only
 the standard library. To use a different Docker client, pass it with
 `WithDocker`.

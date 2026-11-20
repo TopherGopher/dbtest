@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // The tests assert on images and timeouts that MONGOTEST_* variables also

@@ -1,4 +1,4 @@
-module github.com/tophergopher/mongotest/mobyclient
+module github.com/tophergopher/dbtest/mobyclient
 
 go 1.26.0
 
@@ -9,7 +9,7 @@ require (
 	github.com/moby/moby/api v1.57.0
 	github.com/moby/moby/client v0.6.3
 	github.com/stretchr/testify v1.12.1
-	github.com/tophergopher/mongotest v0.0.0
+	github.com/tophergopher/dbtest v0.0.0
 )
 
 require (
@@ -35,8 +35,9 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 )
 
-// The parent module has no tag carrying the dockerclient package yet, so
-// this module resolves it from the working tree. Removed at release time,
-// when the root module is tagged and this requires it by version; see the
-// release tooling issue.
-replace github.com/tophergopher/mongotest => ..
+// Inside this repository, the root module comes from the working tree, so a
+// change to it is tested here before it is tagged. Go ignores replace lines
+// in a module that another module requires, so this line stays in released
+// versions: a user gets the root module at the version required above, which
+// release.sh has set by then (see "Releasing" in docs/project/contributing.md).
+replace github.com/tophergopher/dbtest => ..

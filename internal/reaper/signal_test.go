@@ -14,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/dockerapi"
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerapi"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // This test needs a real Docker daemon and fails, rather than skipping, when
@@ -76,7 +76,7 @@ func TestIntegrationSignalReapsAndStillDies(t *testing.T) {
 // buildHelper compiles the helper once per test run.
 func buildHelper(t *testing.T) string {
 	t.Helper()
-	return buildProgram(t, "github.com/tophergopher/mongotest/internal/reaphelper")
+	return buildProgram(t, "github.com/tophergopher/dbtest/internal/reaphelper")
 }
 
 // containerFromHelper reads the line the helper prints once its container is up.

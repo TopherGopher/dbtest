@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // pullKey identifies a pull: the daemon's address and the image reference.

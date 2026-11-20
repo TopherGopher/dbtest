@@ -1,6 +1,6 @@
 package dockerapi
 
-import "github.com/tophergopher/mongotest/dockerclient"
+import "github.com/tophergopher/dbtest/dockerclient"
 
 // Validation is shared by every client, so it lives in dockerclient; these
 // are the names this package's own code and tests use.

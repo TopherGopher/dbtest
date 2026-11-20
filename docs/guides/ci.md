@@ -1,13 +1,13 @@
 ---
 title: Continuous integration
-description: Running a mongotest suite under GitHub Actions and other hosted runners.
+description: Running a dbtest suite under GitHub Actions and other hosted runners.
 status: changing
 tracks: ["#52", "#46"]
 ---
 
 # Continuous integration
 
-mongotest needs a Docker-compatible daemon reachable from the test process.
+dbtest needs a Docker-compatible daemon reachable from the test process.
 Most hosted Linux runners have one. This page covers the shapes that work.
 
 ## GitHub Actions
@@ -36,7 +36,7 @@ jobs:
       - name: Test
         run: go test -race -count=1 ./...
 
-      - name: Remove stray mongotest containers
+      - name: Remove stray dbtest containers
         if: always()
         run: docker ps -aq --filter label=mongotest=regression | xargs -r docker rm --force --volumes
 ```
@@ -91,9 +91,9 @@ func startMongo(t *testing.T) *mongotest.Instance {
 
     Use a runner with the Docker socket mounted, or the shell executor on a
     host that runs Docker. Docker-in-Docker (`docker:dind` as a service)
-    should work: mongotest dials the daemon's host, as
+    should work: dbtest dials the daemon's host, as
     [Remote and nested daemons](remote-daemons.md) explains. Proving it in CI
-    is [#52](https://github.com/TopherGopher/mongotest/issues/52).
+    is [#52](https://github.com/TopherGopher/dbtest/issues/52).
 
     ```yaml
     test:
@@ -113,7 +113,7 @@ func startMongo(t *testing.T) *mongotest.Instance {
 
     GitHub's macOS runners do not ship Docker. Windows runners run Windows
     containers by default and cannot run the Linux `mongo` image. Run the
-    mongotest suite on Linux and restrict other platforms to tests that use
+    dbtest suite on Linux and restrict other platforms to tests that use
     `Attach` against a service, or skip them.
 
 When the tests run in a container, or the daemon is on another machine,

@@ -15,8 +15,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tophergopher/mongotest/dockerapi"
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockerapi"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 // The examples in this file talk to an in-process stand-in for the Docker

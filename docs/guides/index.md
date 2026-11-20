@@ -1,12 +1,12 @@
 ---
 title: Guides
-description: Usage patterns for mongotest, from a single test to a CI pipeline.
+description: Usage patterns for dbtest, from a single test to a CI pipeline.
 status: current
 ---
 
 # Guides
 
-Each guide covers one way of using mongotest, with a complete example. Read
+Each guide covers one way of using dbtest, with a complete example. Read
 them in any order.
 
 <div class="grid cards" markdown>

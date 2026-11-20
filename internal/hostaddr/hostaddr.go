@@ -13,12 +13,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // EnvHostIP is the address containers are reachable at, when set. It takes
 // precedence over the address worked out from the daemon and the network.
-const EnvHostIP = "MONGOTEST_HOST_IP"
+const EnvHostIP = "DBTEST_HOST_IP"
 
 // The two addresses a port is published on.
 const (
@@ -102,7 +102,7 @@ type containerisation struct {
 
 // detectContainerisation looks for the marker file Docker or Podman creates
 // in every container. A runtime that leaves neither is not detected; set
-// MONGOTEST_HOST_IP there.
+// DBTEST_HOST_IP there.
 func detectContainerisation() containerisation {
 	return containerisationFrom(existsOS)
 }

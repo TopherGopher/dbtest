@@ -8,8 +8,8 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 // startMongo is the kind of code this package exists for: it works against
@@ -280,10 +280,10 @@ func ExampleAPIVersionError() {
 
 func ExampleAPIVersionError_client() {
 	// The daemon is newer than the client. The fix is on this side, so the
-	// message says to upgrade mongotest rather than docker.
+	// message says to upgrade dbtest rather than docker.
 	err := &dockerclient.APIVersionError{ServerMin: "1.50", ClientMax: "1.44"}
 	fmt.Println(err)
-	// Output: docker: the docker daemon requires API 1.50 or newer but this client supports at most 1.44. Upgrade mongotest, or set DOCKER_API_VERSION to a version the daemon accepts if you know it works
+	// Output: docker: the docker daemon requires API 1.50 or newer but this client supports at most 1.44. Upgrade dbtest, or set DOCKER_API_VERSION to a version the daemon accepts if you know it works
 }
 
 func ExampleStatusError_Hint() {

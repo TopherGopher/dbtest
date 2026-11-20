@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Where the replica set key goes inside the container.

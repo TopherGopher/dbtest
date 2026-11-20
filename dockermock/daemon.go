@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Fixed values the default routes answer with, so tests and examples can

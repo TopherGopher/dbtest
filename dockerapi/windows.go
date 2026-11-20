@@ -17,7 +17,7 @@ const dockerDesktopTCP = "localhost:2375"
 // podman machine socket.
 var ErrNoWindowsEndpoint = &ConnectionError{
 	Host: "tcp://" + dockerDesktopTCP,
-	Problem: "the daemon's address is Docker's Windows named pipe, which mongotest's default Docker client (dockerapi) cannot open; " +
+	Problem: "the daemon's address is Docker's Windows named pipe, which dbtest's default Docker client (dockerapi) cannot open; " +
 		"nothing is listening on Docker Desktop's optional TCP endpoint, and no podman machine socket answered " +
 		"in the Windows temporary directory",
 	Fix: `Enable "Expose daemon on tcp://localhost:2375 without TLS" in Docker Desktop settings, ` +

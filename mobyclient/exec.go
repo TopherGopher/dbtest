@@ -10,7 +10,7 @@ import (
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // ExecCreate registers a command to run inside a container and returns the

@@ -4,11 +4,11 @@ import (
 	"context"
 	"sync"
 
-	"github.com/tophergopher/mongotest/dockerapi"
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/internal/container"
-	"github.com/tophergopher/mongotest/internal/hostaddr"
-	"github.com/tophergopher/mongotest/internal/reaper"
+	"github.com/tophergopher/dbtest/dockerapi"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/internal/container"
+	"github.com/tophergopher/dbtest/internal/hostaddr"
+	"github.com/tophergopher/dbtest/internal/reaper"
 )
 
 // Start runs MongoDB with the default options: the official image on a host

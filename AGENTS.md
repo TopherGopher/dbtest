@@ -1,6 +1,6 @@
 # Working in this repository
 
-mongotest starts real MongoDB containers for Go tests. This file is the
+dbtest starts real MongoDB containers for Go tests. This file is the
 standard every change is held to, whoever or whatever writes it. `CLAUDE.md`
 only imports this file, so there is one copy to keep current.
 
@@ -121,7 +121,8 @@ defined in `.claude/agents/`.
 ## Before a change is done
 
 1. `gofmt -l .` prints nothing, and `go vet ./...` passes.
-2. `go test -race ./...` passes here and in `mobyclient/`. The integration
+2. `go test -race ./...` passes here and in `mongotest/`,
+   `mongotest/exporter/` and `mobyclient/`. The integration
    tests need a Docker daemon, and fail rather than skip without one.
 3. Reviewers with no context read the change adversarially: a newly
    spawned `tone-reviewer` for the writing, and the experts the change

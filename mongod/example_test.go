@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockermock"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // stage stands in for Docker so the examples run anywhere. It is a fake

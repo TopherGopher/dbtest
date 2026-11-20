@@ -1,7 +1,9 @@
 // Package exporter writes a MongoDB collection out as JSON or CSV. It runs
 // mongoexport, from MongoDB's database tools, as a Go library, so no
 // mongoexport program needs to be installed. It lives in its own module so
-// that only callers who export download those tools.
+// that only callers who export download those tools. It takes a connection
+// string, not a client: it uses version 2 of MongoDB's Go driver, while the
+// mongotest package gives a version 1 client.
 //
 //	c, err := mongod.Start(ctx)
 //	...

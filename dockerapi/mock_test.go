@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 // In-process stubbing, following the pattern the official moby client uses

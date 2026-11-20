@@ -10,7 +10,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // daemonErrorPrefix is what the moby client's checkResponseErr prepends to

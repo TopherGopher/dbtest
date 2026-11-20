@@ -1,6 +1,6 @@
 // Command reaphelper is a test helper, never part of the library: the
 // reaper's integration test builds it and runs it as a subprocess, and no
-// program that uses mongotest ever starts it or sees what it prints.
+// program that uses dbtest ever starts it or sees what it prints.
 //
 // It starts a MongoDB container and waits to be signalled, so the test can
 // check that a signalled process removes its container and still dies of
@@ -17,8 +17,8 @@ import (
 	"runtime/coverage"
 	"time"
 
-	"github.com/tophergopher/mongotest/internal/reaper"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/internal/reaper"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 func main() {

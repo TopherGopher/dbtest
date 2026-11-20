@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 func TestContainerCreateRejectsBadInputBeforeRequest(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // A message is for a person, so its wording is free to change. What must not

@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockermock"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // containerID is the id the mocked daemon gives every container.

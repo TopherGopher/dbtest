@@ -12,21 +12,21 @@ explained, and links out for signatures.
 
 <div class="grid cards" markdown>
 
--   :fontawesome-brands-golang:{ .lg .middle } **[mongotest on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/mongotest)**
+-   :fontawesome-brands-golang:{ .lg .middle } **[dbtest on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/dbtest)**
 
     ---
 
     The root package: `Run`, `Start`, `Attach`, `Instance`, and the earlier
     names kept as wrappers.
 
--   :material-database-export:{ .lg .middle } **[exporter on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/mongotest/exporter)**
+-   :material-database-export:{ .lg .middle } **[exporter on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotest/exporter)**
 
     ---
 
     Writes a collection out as JSON or CSV; see
     [Exporting data](../guides/exporting-data.md).
 
--   :material-code-braces:{ .lg .middle } **[dockerclient](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerclient)** · **[dockerapi](https://pkg.go.dev/github.com/tophergopher/mongotest/dockerapi)** · **[dockermock](https://pkg.go.dev/github.com/tophergopher/mongotest/dockermock)** · **[mobyclient](https://pkg.go.dev/github.com/tophergopher/mongotest/mobyclient)**
+-   :material-code-braces:{ .lg .middle } **[dockerclient](https://pkg.go.dev/github.com/tophergopher/dbtest/dockerclient)** · **[dockerapi](https://pkg.go.dev/github.com/tophergopher/dbtest/dockerapi)** · **[dockermock](https://pkg.go.dev/github.com/tophergopher/dbtest/dockermock)** · **[mobyclient](https://pkg.go.dev/github.com/tophergopher/dbtest/mobyclient)**
 
     ---
 
@@ -97,6 +97,6 @@ connection do not (see CHANGELOG.md). New code uses the right-hand column.
 
 - [The mongod package](mongod.md), which starts a container and returns its
   URI without importing a MongoDB driver.
-- [Environment variables](environment.md) that mongotest and its Docker
+- [Environment variables](environment.md) that dbtest and its Docker
   clients read.
 - [Writing a new page](writing-docs.md) for this site.

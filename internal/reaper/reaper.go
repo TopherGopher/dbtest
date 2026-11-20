@@ -273,7 +273,7 @@ func (e *ReapError) Error() string {
 	for _, failed := range e.Failures {
 		lines = append(lines, failed.Error())
 	}
-	return "mongotest: " + strings.Join(lines, "\n") + "\nRemove what is left with: docker rm -fv " + strings.Join(names(e.Failures), " ")
+	return "dbtest: " + strings.Join(lines, "\n") + "\nRemove what is left with: docker rm -fv " + strings.Join(names(e.Failures), " ")
 }
 
 // names returns the name of everything that failed.
@@ -439,7 +439,7 @@ func (l leftBehind) names() []string {
 // them.
 func (l leftBehind) report(sig os.Signal) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "mongotest: stopped by %v, but %d container(s) could not be removed within %s and may still be running:\n",
+	fmt.Fprintf(&b, "dbtest: stopped by %v, but %d container(s) could not be removed within %s and may still be running:\n",
 		sig, len(l.names()), reapTimeout)
 	for _, failed := range l.failed {
 		fmt.Fprintf(&b, "  %s: %v\n", failed.Name, failed.Err)

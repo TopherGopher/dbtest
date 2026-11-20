@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Add mongotest to a Go module and check that a Docker daemon is reachable.
+description: Add dbtest to a Go module and check that a Docker daemon is reachable.
 status: current
 ---
 
@@ -8,13 +8,26 @@ status: current
 
 ## Add the module
 
+Most tests need only `mongotest`, which gives a test a connected client of
+MongoDB's Go driver:
+
 ```sh
-go get github.com/tophergopher/mongotest
+go get github.com/tophergopher/dbtest/mongotest
 ```
+
+The other modules are for particular needs, so that you download only what you
+use:
+
+| Module | Use it for |
+| --- | --- |
+| `github.com/tophergopher/dbtest/mongotest` | Tests that use MongoDB's Go driver, v1. `mongotest.Run(t)` returns a connected client. |
+| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) package, which starts MongoDB without importing a driver, and the Docker client packages. `mongotest` requires it, so you rarely add it yourself. |
+| `github.com/tophergopher/dbtest/mobyclient` | Code that already uses Docker's Go client, moby, and wants dbtest to share it. See [`mobyclient`](../docker-clients/mobyclient.md). |
+| `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. See [Exporting data](../guides/exporting-data.md). |
 
 ## Check the daemon
 
-mongotest finds the daemon as the docker CLI does: `DOCKER_HOST`, then the
+dbtest finds the daemon as the docker CLI does: `DOCKER_HOST`, then the
 current docker context, then the usual Docker and Podman sockets. Check that
 a daemon is running:
 
@@ -22,7 +35,7 @@ a daemon is running:
 docker version
 ```
 
-If that prints a server version, mongotest finds the same daemon, except on
+If that prints a server version, dbtest finds the same daemon, except on
 Windows; see the Docker Desktop tab.
 
 === "Docker Engine (Linux)"
@@ -38,19 +51,19 @@ Windows; see the Docker Desktop tab.
 
 === "Docker Desktop (macOS, Windows)"
 
-    Start Docker Desktop. On macOS mongotest finds its socket without
+    Start Docker Desktop. On macOS dbtest finds its socket without
     configuration.
 
-    On Windows, mongotest's default Docker client cannot open Docker's named
+    On Windows, dbtest's default Docker client cannot open Docker's named
     pipe. You have two choices. Turn on "Expose daemon on
     tcp://localhost:2375 without TLS" in Docker Desktop's settings, and
-    mongotest finds it. This lets any program on the machine control Docker.
+    dbtest finds it. This lets any program on the machine control Docker.
     Or use the [`mobyclient`](../docker-clients/mobyclient.md) client, which
     opens the pipe.
 
 === "Podman"
 
-    Podman serves the same API as Docker, and mongotest finds its socket.
+    Podman serves the same API as Docker, and dbtest finds its socket.
     On Linux, start the socket:
 
     ```sh
@@ -59,7 +72,7 @@ Windows; see the Docker Desktop tab.
 
     On macOS and Windows, run `podman machine start`.
 
-    If Docker also runs, mongotest finds Docker's socket first. To use
+    If Docker also runs, dbtest finds Docker's socket first. To use
     Podman instead, set `DOCKER_HOST`:
 
     ```sh
@@ -83,7 +96,7 @@ Run the [quickstart](quickstart.md) test.
 ## Troubleshooting the first run
 
 ??? failure "`cannot connect to the docker daemon at …`"
-    The daemon is not running, or it is listening somewhere mongotest did not
+    The daemon is not running, or it is listening somewhere dbtest did not
     look. Run `docker version`; if that fails too, start the daemon. If it
     works, you are probably on Windows with the default client; see the
     Docker Desktop tab. Elsewhere, set `DOCKER_HOST` to the address the CLI

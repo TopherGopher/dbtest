@@ -1,12 +1,12 @@
 ---
 title: Getting started
-description: What mongotest is, what it needs from your machine, and where to go first.
+description: What dbtest is, what it needs from your machine, and where to go first.
 status: current
 ---
 
 # Getting started
 
-mongotest gives a Go test its own MongoDB server. It starts the official
+dbtest gives a Go test its own MongoDB server. It starts the official
 `mongo` image in a container, connects a client to it, and removes the
 container when the test ends.
 
@@ -53,10 +53,10 @@ container when the test ends.
 
 | Requirement | Why |
 | --- | --- |
-| **Go 1.26 or newer** | It is the oldest Go release still supported, so requiring mongotest raises your module's `go` line no further. |
-| **A Docker-compatible daemon** | Docker Engine, Docker Desktop or Podman. mongotest talks to the Engine API; it never shells out to the `docker` binary. |
+| **Go 1.26 or newer** | It is the oldest Go release still supported, so requiring dbtest raises your module's `go` line no further. |
+| **A Docker-compatible daemon** | Docker Engine, Docker Desktop or Podman. dbtest talks to the Engine API; it never shells out to the `docker` binary. |
 | **Network access to Docker Hub on the first run** | The `mongo` image is pulled once and cached by the daemon. Later runs need no network. |
-| **mongo-driver v1** | An instance embeds the driver's v1 `*mongo.Client`. Support for v2 is tracked in issue [#42](https://github.com/TopherGopher/mongotest/issues/42). |
+| **mongo-driver v1** | An instance embeds the driver's v1 `*mongo.Client`. Support for v2 is tracked in issue [#42](https://github.com/TopherGopher/dbtest/issues/42). |
 
 Without a daemon, `mongotest.Run` fails the test; it never skips it.
 

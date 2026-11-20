@@ -26,7 +26,7 @@
           for every Go test.
         </h1>
         <p class="mt-lede">
-          mongotest starts a MongoDB container for a Go test, hands you a
+          dbtest starts a MongoDB container for a Go test, hands you a
           connected client, and removes the container when the test ends.
           Each test gets an empty server of its own.
         </p>
@@ -39,7 +39,7 @@
             Browse the guides
           </a>
         </div>
-        <pre class="mt-install"><code><span class="mt-install__prompt">$</span> go get github.com/tophergopher/mongotest</code></pre>
+        <pre class="mt-install"><code><span class="mt-install__prompt">$</span> go get github.com/tophergopher/dbtest/mongotest</code></pre>
       </div>
       <div class="mt-hero__code">
         <div class="mt-window">
@@ -58,7 +58,7 @@
   <section class="mt-section" aria-labelledby="mt-why">
     <div class="md-grid">
       <header class="mt-section__head">
-        <p class="mt-kicker">Why mongotest</p>
+        <p class="mt-kicker">Why dbtest</p>
         <h2 id="mt-why">Test against the database you ship with</h2>
         <p class="mt-section__lede">
           Each test gets a real <code>mongod</code> of its own, so there is no
@@ -79,7 +79,7 @@
         <article class="mt-feature">
           <span class="mt-feature__icon">{% include ".icons/material/swap-horizontal.svg" %}</span>
           <h3>The official driver</h3>
-          <p>An instance is a connected <code>*mongo.Client</code> of the official driver, v1. v2 is <a href="https://github.com/TopherGopher/mongotest/issues/42">#42</a>.</p>
+          <p>An instance is a connected <code>*mongo.Client</code> of the official driver, v1. v2 is <a href="https://github.com/TopherGopher/dbtest/issues/42">#42</a>.</p>
         </article>
         <article class="mt-feature">
           <span class="mt-feature__icon">{% include ".icons/material/source-branch.svg" %}</span>
@@ -115,7 +115,7 @@
         <li class="mt-flow__step">
           <span class="mt-flow__num">3</span>
           <h3>Connect and wait</h3>
-          <p>mongotest waits until <code>mongod</code> answers, then connects a client.</p>
+          <p>dbtest waits until <code>mongod</code> answers, then connects a client.</p>
         </li>
         <li class="mt-flow__step">
           <span class="mt-flow__num">4</span>

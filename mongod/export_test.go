@@ -3,7 +3,7 @@ package mongod
 import (
 	"strings"
 
-	"github.com/tophergopher/mongotest/internal/pull"
+	"github.com/tophergopher/dbtest/internal/pull"
 )
 
 // This file is compiled only into the tests. It lets a test outside the

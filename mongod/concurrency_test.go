@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // fanOut is how many containers the test below starts at the same moment:

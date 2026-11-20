@@ -19,7 +19,7 @@ import (
 
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
-    "github.com/tophergopher/mongotest"
+    "github.com/tophergopher/dbtest/mongotest"
     "go.mongodb.org/mongo-driver/bson"
     "go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -48,7 +48,7 @@ Fetch the dependencies and run the test. It needs Go 1.26 or newer and a
 running Docker daemon:
 
 ```sh
-go get github.com/tophergopher/mongotest github.com/stretchr/testify
+go get github.com/tophergopher/dbtest/mongotest github.com/stretchr/testify
 go test -run TestInsertAndFind -v .
 ```
 

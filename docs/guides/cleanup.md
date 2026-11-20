@@ -1,6 +1,6 @@
 ---
 title: Cleanup and reaping
-description: Everything that removes a mongotest container, in the order it is tried, and how to remove stray ones.
+description: Everything that removes a dbtest container, in the order it is tried, and how to remove stray ones.
 status: current
 ---
 
@@ -30,7 +30,7 @@ The last row is why the others exist.
 
 ## 2. The signal handler
 
-The first container mongotest starts installs a handler for `SIGINT` and
+The first container dbtest starts installs a handler for `SIGINT` and
 `SIGTERM`. When one arrives, every container started in this process and not
 yet removed is force-removed, and the signal is raised again so the process
 still exits. This covers ++ctrl+c++ during a run. A second ++ctrl+c++ while
@@ -77,7 +77,7 @@ Add the removal command to a CI job's always-run step, so containers left by
 a crashed run do not hold ports and memory the next run needs:
 
 ```yaml
-- name: Remove stray mongotest containers
+- name: Remove stray dbtest containers
   if: always()
   run: docker ps -aq --filter label=mongotest=regression | xargs -r docker rm --force --volumes
 ```

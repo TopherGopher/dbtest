@@ -7,7 +7,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // BenchFactory returns a client for a benchmark, with the test image already
@@ -111,7 +111,7 @@ func Benchmarks(b *testing.B, newClient BenchFactory) {
 	})
 
 	b.Run("ContainerInspectParallel", func(b *testing.B) {
-		// Many callers sharing one client, which is how mongotest drives it
+		// Many callers sharing one client, which is how dbtest drives it
 		// from parallel tests.
 		c, id := prepared(b)
 		b.ReportAllocs()

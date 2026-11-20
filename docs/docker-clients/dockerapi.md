@@ -6,9 +6,9 @@ status: current
 
 # dockerapi
 
-`github.com/tophergopher/mongotest/dockerapi` is the default implementation of
+`github.com/tophergopher/dbtest/dockerapi` is the default implementation of
 [`dockerclient.Client`](index.md). It has no third-party dependencies, and
-implements exactly the endpoints mongotest needs.
+implements exactly the endpoints dbtest needs.
 
 ## Getting a client
 

@@ -7,7 +7,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // ImagePull fetches ref from its registry. It returns once the daemon has

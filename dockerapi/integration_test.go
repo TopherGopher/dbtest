@@ -19,7 +19,7 @@ import (
 
 // These tests talk to a real Docker daemon located through the normal
 // environment (DOCKER_HOST or the default socket). They fail, rather than
-// skip, when no daemon is reachable: mongotest is a Docker-based test helper
+// skip, when no daemon is reachable: dbtest is a Docker-based test helper
 // and a silently skipped suite would hide a broken client.
 
 // integrationImage is the image the tests pull and run. It comes from Amazon

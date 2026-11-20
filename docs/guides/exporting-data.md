@@ -12,7 +12,7 @@ It runs `mongoexport`, from MongoDB's database tools, as a Go library, so no
 only code that exports downloads those tools:
 
 ```sh
-go get github.com/tophergopher/mongotest/exporter
+go get github.com/tophergopher/dbtest/mongotest/exporter
 ```
 
 Pass `New` a connection string, a database and a collection, choose which
@@ -113,7 +113,7 @@ fails, rather than writing nothing, when:
 
 The root package's `DatabaseExporter` is replaced by this module, and is
 removed with the rest of the old implementation
-([#44](https://github.com/TopherGopher/mongotest/issues/44)). The connection
+([#44](https://github.com/TopherGopher/dbtest/issues/44)). The connection
 string the old `conn` used is `conn.URI()`.
 
 | Before | After |

@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Mock is a dockerclient.Client whose behaviour is supplied per method and

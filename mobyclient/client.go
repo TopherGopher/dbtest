@@ -8,7 +8,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Client wraps a *client.Client from github.com/moby/moby/client so it
@@ -20,7 +20,7 @@ type Client struct {
 	logger dockerclient.Logger
 }
 
-// Client satisfies the interface every mongotest package depends on.
+// Client satisfies the interface every dbtest package depends on.
 var _ dockerclient.Client = (*Client)(nil)
 
 // Option configures a Client built by New.

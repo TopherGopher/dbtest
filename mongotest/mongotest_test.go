@@ -14,9 +14,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest"
-	"github.com/tophergopher/mongotest/dockerapi"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/dockerapi"
+	"github.com/tophergopher/dbtest/mongod"
+	"github.com/tophergopher/dbtest/mongotest"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )

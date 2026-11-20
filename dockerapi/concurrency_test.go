@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 // containerFake wires a fake daemon that behaves like a tiny container store

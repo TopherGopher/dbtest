@@ -14,7 +14,7 @@ import (
 	"runtime/coverage"
 	"time"
 
-	"github.com/tophergopher/mongotest/internal/reaper"
+	"github.com/tophergopher/dbtest/internal/reaper"
 )
 
 func main() {

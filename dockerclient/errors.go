@@ -363,7 +363,7 @@ func (e *APIVersionError) Error() string {
 			e.Feature, e.Required, subject, e.Negotiated, upgrade, e.Feature)
 	}
 	if e.ServerMin != "" && e.ClientMax != "" && compareAPIVersions(e.ServerMin, e.ClientMax) > 0 {
-		return fmt.Sprintf("docker: %s requires API %s or newer but this client supports at most %s. Upgrade mongotest, or set DOCKER_API_VERSION to a version the daemon accepts if you know it works",
+		return fmt.Sprintf("docker: %s requires API %s or newer but this client supports at most %s. Upgrade dbtest, or set DOCKER_API_VERSION to a version the daemon accepts if you know it works",
 			daemon, e.ServerMin, e.ClientMax)
 	}
 	return fmt.Sprintf("docker: %s only supports API %s or older but this client needs at least %s. Upgrade %s",

@@ -6,17 +6,17 @@ status: current
 
 # mobyclient
 
-`github.com/tophergopher/mongotest/mobyclient` wraps the official
+`github.com/tophergopher/dbtest/mobyclient` wraps the official
 `github.com/moby/moby/client` so it satisfies
 [`dockerclient.Client`](index.md). Use it when your project already depends on
 the official client and you want one Docker connection pool, one set of
-options and one TLS configuration across your code and mongotest.
+options and one TLS configuration across your code and dbtest.
 
 It is a **separate Go module**, so its dependency tree only reaches builds
 that import it:
 
 ```sh
-go get github.com/tophergopher/mongotest/mobyclient
+go get github.com/tophergopher/dbtest/mobyclient
 ```
 
 ## Getting a client

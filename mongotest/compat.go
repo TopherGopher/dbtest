@@ -7,7 +7,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/mongod"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 

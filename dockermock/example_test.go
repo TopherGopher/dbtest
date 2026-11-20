@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tophergopher/mongotest/dockerapi"
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockerapi"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 func ExampleMock() {

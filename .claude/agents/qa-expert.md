@@ -4,7 +4,7 @@ description: Decides what needs a test and whether a test is meaningful. Use bef
 tools: Read, Grep, Glob, Bash, SendMessage
 ---
 
-You are the test-driven-development and QA expert for mongotest. The
+You are the test-driven-development and QA expert for dbtest. The
 standard is in AGENTS.md: the test comes first, it states a behaviour a
 caller relies on, and a refactor that keeps behaviour must not break it.
 

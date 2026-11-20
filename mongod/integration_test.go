@@ -13,14 +13,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/dockerapi"
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/dockerapi"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // These tests start real containers on a real Docker daemon, located through
 // the normal environment. They fail, rather than skip, when no daemon is
-// reachable: mongotest exists to start MongoDB containers, and a suite that
+// reachable: dbtest exists to start MongoDB containers, and a suite that
 // quietly skipped would hide the package being completely broken.
 //
 // They need the images they name, such as mongod.ImageDockerHub. Start pulls

@@ -1,4 +1,4 @@
-// Package dockerclient declares the Docker Engine API surface that mongotest
+// Package dockerclient declares the Docker Engine API surface that dbtest
 // depends on, together with the types and errors that surface carries.
 //
 // It lets callers depend on an interface rather than on one particular
@@ -10,13 +10,13 @@
 //
 // # Choosing an implementation
 //
-//   - github.com/tophergopher/mongotest/dockerapi is the default: a client
+//   - github.com/tophergopher/dbtest/dockerapi is the default: a client
 //     built on the Go standard library alone, with no third-party
 //     dependencies.
-//   - github.com/tophergopher/mongotest/mobyclient wraps the official
+//   - github.com/tophergopher/dbtest/mobyclient wraps the official
 //     github.com/moby/moby/client. It is a separate module, so its
 //     dependency tree only reaches builds that ask for it.
-//   - github.com/tophergopher/mongotest/dockermock provides test doubles: a
+//   - github.com/tophergopher/dbtest/dockermock provides test doubles: a
 //     Mock that records calls, a Fake with an in-memory container store, and
 //     an HTTP-level Daemon that a real client can be pointed at.
 //

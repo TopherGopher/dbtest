@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // These validators stand between caller input and a URL path or a request
