@@ -77,12 +77,3 @@ require.Zero(t, result.ExitCode, result.Stderr)
 
 For anything larger than a few lines, insert through the driver instead; it
 is faster and avoids quoting.
-
-## The earlier methods
-
-`RunMongoScriptOnContainer` and `ExecCommandInMongoContainer` are kept for
-existing code; new code uses `RunScript` and `Exec`. On a non-zero exit, both return
-what the process wrote and an error matching `mongotest.ErrCommandFailed`.
-`ExecCommandInMongoContainer` always returns standard output followed by
-standard error. Both return `mongotest.ErrNoContainer` for an instance from
-`Attach`.

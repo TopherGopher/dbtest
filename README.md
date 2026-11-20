@@ -25,12 +25,9 @@ func TestOrders(t *testing.T) {
 ```
 
 Upgrading from `github.com/tophergopher/mongotest`? Import
-`github.com/tophergopher/dbtest/mongotest` instead. The earlier function names
-still exist. v0.2.9's `TestConnection` embedded a connection from easymongo,
-a separate MongoDB library, and the new `Instance` embeds the driver's client
-instead, so calls that went through easymongo change. If you set
+`github.com/tophergopher/dbtest/mongotest` instead. The v0.2.9 names are
+removed, and [CHANGELOG.md](CHANGELOG.md) lists what replaces each. If you set
 `MONGOTEST_HOST_IP`, rename it `DBTEST_HOST_IP`: the old name is ignored.
-[CHANGELOG.md](CHANGELOG.md) shows each change.
 
 ## Cleaning up stray containers
 
