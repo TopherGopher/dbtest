@@ -113,10 +113,14 @@
 // # Cleaning up
 //
 // Stop removes the container. A container that is never stopped is still
-// removed if the process gets SIGINT or SIGTERM. [ReapRunningContainers]
+// removed if the process gets SIGINT or SIGTERM, and the process then exits
+// as the signal would make it, whatever handlers the program installed. A
+// program with its own shutdown calls [DisableSignalHandler].
+// [ReapRunningContainers]
 // removes this process's containers on demand: call it after m.Run in
-// TestMain. SIGKILL cannot be handled, so containers outlive it. Each is
-// labelled so it can be found, and removed with its volumes:
+// TestMain. SIGKILL cannot be handled, so its containers are left running.
+// Each container carries the label [RequiredLabelKey]=[RequiredLabelValue],
+// so it can be found and removed with its volumes:
 //
 //	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 package mongod

@@ -5,6 +5,15 @@ what to do if it affects you.
 
 ## Unreleased
 
+### A program that handles SIGINT and SIGTERM itself can turn off the `mongod` package's signal handler
+
+- **`mongod.DisableSignalHandler()`** turns off the `mongod` package's
+  signal handler. That handler removes the containers on SIGINT or SIGTERM
+  and then ends the process with the same signal, so a program's own
+  shutdown never runs. After calling `DisableSignalHandler`, call
+  `mongod.ReapRunningContainers` from your own shutdown, or containers are
+  left running. Nothing changes if you do not call it.
+
 ### mobyclient finds the daemon as the docker CLI does
 
 - **`mobyclient.New()` and `FromEnv()` now find the daemon as the docker CLI

@@ -433,3 +433,27 @@ func TestAStuckRemovalIsNamedOnce(t *testing.T) {
 
 	assert.Equal(t, []string{"mongotest-1a2b3c4d"}, left.names(), "a stuck removal is named once")
 }
+
+func TestDisableRemovesTheHandlerAndKeepsRegistrations(t *testing.T) {
+	resetForTest(t)
+	var torn atomic.Bool
+	Register("kept", func(context.Context) error { torn.Store(true); return nil }, nil)
+	require.True(t, Installed(), "the registration installed a handler")
+
+	Disable()
+	Disable()
+
+	assert.False(t, Installed(), "the handler is removed")
+	assert.Equal(t, []string{"kept"}, Names(), "the registration is kept")
+	require.NoError(t, Reap(context.Background()), "an explicit reap still works")
+	assert.True(t, torn.Load(), "the reap runs the teardown")
+}
+
+func TestRegisterAfterDisableInstallsNothing(t *testing.T) {
+	resetForTest(t)
+	Disable()
+
+	Register("later", func(context.Context) error { return nil }, nil)
+
+	assert.False(t, Installed(), "no handler is installed")
+}
