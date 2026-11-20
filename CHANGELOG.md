@@ -5,6 +5,35 @@ what to do if it affects you.
 
 ## Unreleased
 
+### mobyclient finds the daemon as the docker CLI does
+
+- **`mobyclient.New()` and `FromEnv()` now find the daemon as the docker CLI
+  does,** unless you pass `WithHost` or `WithMobyClient`: `DOCKER_HOST`, then
+  the docker context, then the first Docker or Podman socket that answers. `dockerapi` finds the same daemon. Before, `FromEnv`
+  took the address from `DOCKER_HOST` alone, and `New()` ignored the
+  environment and used the platform default.
+- **`New()` now reads `DOCKER_API_VERSION` and, for a `tcp://` daemon,
+  `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`,** whether the address is passed
+  with `WithHost` or found. When `DOCKER_TLS_VERIFY` is set and
+  `DOCKER_CERT_PATH` is not, the certificates come from the Docker config
+  directory, as with the docker CLI.
+- **`DOCKER_CERT_PATH` without `DOCKER_TLS_VERIFY` no longer turns on TLS,**
+  as with `dockerapi` and the docker CLI. Before, `FromEnv` used TLS without
+  checking the server's certificate. Set `DOCKER_TLS_VERIFY=1` to use TLS.
+- **`New()` can now fail where it did not:** a broken `config.json`, a
+  `DOCKER_CONTEXT` that does not exist, or a bad `DOCKER_API_VERSION` or
+  `DOCKER_CERT_PATH`. Each error matches `dockerclient.ErrInvalidArgument`,
+  and its `Argument` names the setting to fix.
+- **If `New()` now reaches a different daemon,** pass `WithHost` with the
+  address you want. To use the moby client's own discovery, build it with
+  `client.New(client.FromEnv)` and pass it to `WithMobyClient`.
+- **On Windows the two clients reach different endpoints.**
+  `mobyclient` opens Docker's named pipe. `dockerapi`, which cannot, tries
+  Docker Desktop's TCP endpoint and then a podman machine socket.
+- **New: `dockerclient.ResolveHost`** returns the daemon address both clients
+  start from, and **`dockerclient.ConfigDir`** the Docker config directory,
+  for anyone writing a client of their own.
+
 ### mongotest needs Go 1.26 or newer
 
 - **Every module declares `go 1.26`,** the oldest release the Go team still

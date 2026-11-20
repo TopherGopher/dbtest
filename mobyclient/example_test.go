@@ -23,8 +23,8 @@ import (
 // Real code gets its client from mobyclient.FromEnv instead.
 
 func ExampleFromEnv() {
-	// FromEnv locates the daemon like the docker CLI: DOCKER_HOST, then
-	// DOCKER_API_VERSION, DOCKER_CERT_PATH and DOCKER_TLS_VERIFY for TLS.
+	// FromEnv finds the daemon as the docker CLI does: DOCKER_HOST, then the
+	// docker context, then the Docker and Podman sockets.
 	os.Setenv("DOCKER_HOST", stubHost())
 	defer os.Unsetenv("DOCKER_HOST")
 

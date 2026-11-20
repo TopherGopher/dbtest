@@ -1,4 +1,4 @@
-package dockerapi
+package dockerclient
 
 import (
 	"path/filepath"
@@ -39,25 +39,25 @@ func TestDefaultHostProbesForASocket(t *testing.T) {
 
 	t.Run("rootless docker wins when everything is present", func(t *testing.T) {
 		got, err := defaultHostFor("linux", withXDG,
-			sockets(rootlessDocker, rootfulDocker, rootlessPodman, rootfulPodmanRun), nil)
+			sockets(rootlessDocker, rootfulDocker, rootlessPodman, rootfulPodmanRun))
 		require.NoError(t, err, "a listening socket must resolve without error")
 		assert.Equal(t, "unix://"+rootlessDocker, got, "the user's own docker socket is preferred over every other candidate")
 	})
 
 	t.Run("system docker when there is no rootless docker", func(t *testing.T) {
-		got, err := defaultHostFor("linux", withXDG, sockets(rootfulDocker, rootlessPodman), nil)
+		got, err := defaultHostFor("linux", withXDG, sockets(rootfulDocker, rootlessPodman))
 		require.NoError(t, err, "the system docker socket must resolve")
 		assert.Equal(t, "unix://"+rootfulDocker, got, "docker is preferred over podman when both are listening")
 	})
 
 	t.Run("rootless podman when there is no docker at all", func(t *testing.T) {
-		got, err := defaultHostFor("linux", withXDG, sockets(rootlessPodman, rootfulPodmanRun), nil)
+		got, err := defaultHostFor("linux", withXDG, sockets(rootlessPodman, rootfulPodmanRun))
 		require.NoError(t, err, "a podman socket must resolve")
 		assert.Equal(t, "unix://"+rootlessPodman, got, "rootless podman is preferred over the system podman socket")
 	})
 
 	t.Run("system podman is the last candidate", func(t *testing.T) {
-		got, err := defaultHostFor("linux", withXDG, sockets(rootfulPodmanRun), nil)
+		got, err := defaultHostFor("linux", withXDG, sockets(rootfulPodmanRun))
 		require.NoError(t, err, "the system podman socket must resolve")
 		assert.Equal(t, "unix://"+rootfulPodmanRun, got, "the system podman socket is used when it is the only one listening")
 	})
@@ -68,7 +68,7 @@ func TestDefaultHostProbesForASocket(t *testing.T) {
 		// worse than not probing at all.
 		probed := map[string]bool{}
 		probe := func(p string) bool { probed[p] = true; return p == rootfulDocker }
-		got, err := defaultHostFor("linux", env(nil), probe, nil)
+		got, err := defaultHostFor("linux", env(nil), probe)
 		require.NoError(t, err, "discovery must still work with no XDG_RUNTIME_DIR")
 		assert.Equal(t, "unix://"+rootfulDocker, got, "the system docker socket is found without XDG_RUNTIME_DIR")
 		for p := range probed {
@@ -81,7 +81,7 @@ func TestDefaultHostProbesForASocket(t *testing.T) {
 		// behind by a stopped daemon does not shadow a running one. This is
 		// the case that makes the whole feature worth having on a machine
 		// that used to run docker and now runs podman.
-		got, err := defaultHostFor("linux", withXDG, sockets(rootlessPodman), nil)
+		got, err := defaultHostFor("linux", withXDG, sockets(rootlessPodman))
 		require.NoError(t, err, "a live podman socket must be found")
 		assert.Equal(t, "unix://"+rootlessPodman, got, "a dead docker socket must not win over a live podman one")
 	})
@@ -91,7 +91,7 @@ func TestDefaultHostProbesForASocket(t *testing.T) {
 		// dial time already names the socket and says what to do, and
 		// failing during construction would move the failure for callers
 		// who build a client eagerly.
-		got, err := defaultHostFor("linux", withXDG, noSockets(), nil)
+		got, err := defaultHostFor("linux", withXDG, noSockets())
 		require.NoError(t, err, "discovery must not fail when nothing is listening")
 		assert.Equal(t, defaultUnixSocket, got, "the docker default is the fallback so the dial produces the actionable error")
 	})
@@ -247,47 +247,4 @@ func TestXDGRuntimeDirWinsOverTheUIDFallback(t *testing.T) {
 	got, err := defaultHostForLookup(l)
 	require.NoError(t, err, "discovery with XDG_RUNTIME_DIR set")
 	assert.Equal(t, "unix:///custom/run/podman/podman.sock", got, "XDG_RUNTIME_DIR must be used rather than the /run/user/$UID guess")
-}
-
-func TestWindowsFindsAPodmanMachineSocket(t *testing.T) {
-	// Podman 5.3 and later expose a real AF_UNIX socket on the Windows
-	// filesystem, which this client can dial even though it cannot dial a
-	// named pipe. Before this, Windows without Docker Desktop's TCP
-	// endpoint was simply an error.
-	// Paths are built with filepath.Join so the separators match whichever
-	// OS runs the test; on Windows itself these are backslashed.
-	winTemp := filepath.Join("C:", "Users", "me", "AppData", "Local", "Temp")
-	winEnv := env(map[string]string{"TEMP": winTemp})
-	apiSock := filepath.Join(winTemp, "podman", "podman-machine-default-api.sock")
-	globbing := func(pattern string) []string {
-		if ok, _ := filepath.Match(pattern, apiSock); ok {
-			return []string{apiSock}
-		}
-		return nil
-	}
-
-	t.Run("the machine socket is used when Docker Desktop is not exposing TCP", func(t *testing.T) {
-		l := lookup{goos: "windows", getenv: winEnv, dialable: sockets(apiSock), glob: globbing,
-			listening: func(string) bool { return false }}
-		got, err := defaultHostForLookup(l)
-		require.NoError(t, err, "a podman machine socket must resolve on windows")
-		assert.Equal(t, "unix://"+apiSock, got, "the podman machine socket must be used when nothing else answers")
-	})
-
-	t.Run("Docker Desktop's TCP endpoint still wins", func(t *testing.T) {
-		l := lookup{goos: "windows", getenv: winEnv, dialable: sockets(apiSock), glob: globbing,
-			listening: func(addr string) bool { return addr == dockerDesktopTCP }}
-		got, err := defaultHostForLookup(l)
-		require.NoError(t, err, "the TCP endpoint must resolve")
-		assert.Equal(t, "tcp://"+dockerDesktopTCP, got, "docker is preferred over podman on windows too")
-	})
-
-	t.Run("with neither, the error mentions both", func(t *testing.T) {
-		l := lookup{goos: "windows", getenv: winEnv, dialable: noSockets(), glob: globbing,
-			listening: func(string) bool { return false }}
-		_, err := defaultHostForLookup(l)
-		require.ErrorIs(t, err, ErrConnectionFailed, "nothing reachable on windows is a connection problem")
-		assert.Contains(t, err.Error(), "DOCKER_HOST", "the error must name the variable to set")
-		assert.Contains(t, err.Error(), "podman", "the error must mention podman now that it is also looked for")
-	})
 }

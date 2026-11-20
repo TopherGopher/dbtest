@@ -104,9 +104,10 @@ func TestIntegrationDiscoveryFindsTheRunningDaemon(t *testing.T) {
 	// The probe is the code path a user with no DOCKER_HOST hits. Run it
 	// against this machine and require that it finds whatever is actually
 	// running, rather than falling through to the default.
-	l := realLookup()
-	l.getenv = func(string) string { return "" } // ignore any DOCKER_HOST in the environment
-	host, err := defaultHostForLookup(l)
+	t.Setenv("DOCKER_HOST", "")            // ignore any configured daemon,
+	t.Setenv("DOCKER_CONTEXT", "")         // any context named in the environment,
+	t.Setenv("DOCKER_CONFIG", t.TempDir()) // and any context in the config file
+	host, err := resolveHostFromEnv()
 	require.NoError(t, err, "discovery must succeed on a machine with a daemon running")
 	t.Logf("discovered %s", host)
 
