@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-const defaultUserAgent = "mongotest-dockerapi/1"
+const defaultUserAgent = "dbtest-dockerapi/1"
 
 // Client talks to one Docker Engine API endpoint. It is safe for concurrent
 // use; API version negotiation happens once, on the first request.

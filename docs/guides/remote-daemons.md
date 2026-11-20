@@ -17,7 +17,7 @@ network.
 | --- | --- | --- |
 | **Socket bind-mount** (sibling containers) | Tests run in a container started with `-v /var/run/docker.sock:/var/run/docker.sock` | On the host's loopback, which the test container cannot reach |
 | **True docker-in-docker** | A `docker:dind` service, `DOCKER_HOST=tcp://docker:2375` | On the dind container, reachable as `docker:<port>` |
-| **Socket proxy** | `tecnativa/docker-socket-proxy` in front of the socket | Wherever the daemon behind the proxy puts it. The proxy may also refuse calls mongotest makes. |
+| **Socket proxy** | `tecnativa/docker-socket-proxy` in front of the socket | Wherever the daemon behind the proxy puts it. The proxy may also refuse calls dbtest makes. |
 | **Remote daemon** | `DOCKER_HOST=tcp://build-host:2376` | On `build-host` |
 
 The socket bind-mount is the most common in CI. It is often called
@@ -32,13 +32,13 @@ the first of these that applies. A process counts as containerised when
 | # | Condition | Address |
 | --- | --- | --- |
 | 1 | `Options.WithHostIP` was given | that value |
-| 2 | `MONGOTEST_HOST_IP` is set | that value |
+| 2 | `DBTEST_HOST_IP` is set | that value |
 | 3 | The daemon is `tcp://`, `http://`, `https://` or `ssh://` | the daemon's hostname |
 | 4 | Unix socket or named pipe, and this process is not containerised | `127.0.0.1` |
 | 5 | Unix socket, this process is containerised but shares the host network (`--network host`, `hostNetwork` pods) | `127.0.0.1` |
 | 6 | Unix socket, this process is containerised on a network of its own | the default route's gateway, from `/proc/net/route` |
 
-Use the first two when the detection is wrong. `MONGOTEST_HOST_IP` is for CI
+Use the first two when the detection is wrong. `DBTEST_HOST_IP` is for CI
 configuration that cannot pass an option.
 
 When the address is loopback, the port is published on `127.0.0.1` only.
@@ -52,13 +52,13 @@ With `mongotest.Run` or `mongod.Start` these setups need no configuration, apart
 proxy that refuses a call. If the address is wrong, set it:
 
 ```sh
-MONGOTEST_HOST_IP=172.17.0.1 go test ./...
+DBTEST_HOST_IP=172.17.0.1 go test ./...
 ```
 
 or in code, `mongotest.DefaultOptions().WithHostIP("172.17.0.1")`.
 
 ## Still open
 
-The rest of [#52](https://github.com/TopherGopher/mongotest/issues/52) is
+The rest of [#52](https://github.com/TopherGopher/dbtest/issues/52) is
 open: a CI matrix for the four setups, and clearer errors behind a socket
-proxy ([#72](https://github.com/TopherGopher/mongotest/issues/72)).
+proxy ([#72](https://github.com/TopherGopher/dbtest/issues/72)).

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Spec is what a start needs from an image's package. Each hook may be nil.

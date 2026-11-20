@@ -1,17 +1,17 @@
-# Documentation site for mongotest.
+# Documentation site for dbtest.
 # Build locally with:   pip install -r docs/requirements.txt && mkdocs serve
 # Published to GitHub Pages by .github/workflows/docs.yml on every push to main.
 
-site_name: mongotest
-site_url: https://tophergopher.github.io/mongotest/
+site_name: dbtest
+site_url: https://tophergopher.github.io/dbtest/
 site_description: >-
   Starts a real MongoDB container for a Go test and removes it afterwards.
 site_author: Topher Sterling
 copyright: >-
   Copyright &copy; 2020 Topher Sterling &middot; MIT License
 
-repo_name: TopherGopher/mongotest
-repo_url: https://github.com/TopherGopher/mongotest
+repo_name: TopherGopher/dbtest
+repo_url: https://github.com/TopherGopher/dbtest
 edit_uri: edit/main/docs/
 
 docs_dir: docs
@@ -83,10 +83,10 @@ extra_css:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/TopherGopher/mongotest
-      name: mongotest on GitHub
+      link: https://github.com/TopherGopher/dbtest
+      name: dbtest on GitHub
     - icon: fontawesome/brands/golang
-      link: https://pkg.go.dev/github.com/tophergopher/mongotest
+      link: https://pkg.go.dev/github.com/tophergopher/dbtest
       name: API reference on pkg.go.dev
   # Page status, set per page in front matter. The nav shows an icon; the
   # page shows a banner (see overrides/main.html). Keep these four.

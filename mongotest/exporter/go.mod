@@ -1,4 +1,4 @@
-module github.com/tophergopher/mongotest/exporter
+module github.com/tophergopher/dbtest/mongotest/exporter
 
 go 1.26.8
 
@@ -7,7 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/mongodb/mongo-tools v0.0.0-20261117220938-eb3792147072
 	github.com/stretchr/testify v1.12.1
-	github.com/tophergopher/mongotest v0.0.0
+	github.com/tophergopher/dbtest v0.0.0
 	go.mongodb.org/mongo-driver/v2 v2.10.0
 )
 
@@ -39,4 +39,8 @@ require (
 	golang.org/x/text v0.44.0 // indirect
 )
 
-replace github.com/tophergopher/mongotest => ..
+// Inside this repository, the root module comes from the working tree, so a
+// change to it is tested here before it is tagged. Go ignores replace lines
+// in a module that another module requires, so this line stays in released
+// versions: a user gets the root module at the version required above.
+replace github.com/tophergopher/dbtest => ../..

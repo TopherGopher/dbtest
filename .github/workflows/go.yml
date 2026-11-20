@@ -35,10 +35,10 @@ jobs:
 
     # Each module's go.mod pins a Go release, but CI installs only the root's.
     # This step fails if a module pins a different one. To fix it, set the
-    # same toolchain line in all three go.mod files.
+    # same toolchain line in all four go.mod files.
     - name: Check every module pins the Go that CI installs
       run: |
-        for dir in . mobyclient exporter; do
+        for dir in . mongotest mongotest/exporter mobyclient; do
           want=$(awk '$1 == "toolchain" { print $2 }' "$dir/go.mod")
           got=$(cd "$dir" && go env GOVERSION)
           echo "$dir: go.mod pins ${want:-nothing}, CI runs $got"
@@ -46,7 +46,7 @@ jobs:
         done
 
     # gofmt works on files, not modules, so one run from the root checks
-    # all three modules.
+    # all four modules.
     - name: Check formatting
       run: |
         unformatted=$(gofmt -l .)
@@ -62,11 +62,20 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    # The root ./... does not reach mobyclient or exporter, which have their
-    # own go.mod files, so each gets its own steps. Testing each module from
-    # its own go.mod tests the dependency versions that module's users get.
-    # A go.work would resolve all three modules' dependencies together, so
-    # the root could be tested against newer versions another module requires.
+    # The root ./... does not reach mongotest, its exporter or mobyclient,
+    # which have their own go.mod files, so each gets its own steps. Testing
+    # each module from its own go.mod tests the dependency versions that
+    # module's users get. A go.work would resolve all four modules'
+    # dependencies together, so the root could be tested against newer
+    # versions another module requires.
+    # mongotest is its own module, so that only its callers download
+    # MongoDB's Go driver.
+    - name: Vet and build mongotest
+      working-directory: ./mongotest
+      run: |
+        go vet -v ./...
+        go build -v ./...
+
     - name: Vet and build mobyclient
       working-directory: ./mobyclient
       run: |
@@ -76,7 +85,7 @@ jobs:
     # The exporter is its own module, so that only callers who export pay
     # for mongo-tools.
     - name: Vet and build exporter
-      working-directory: ./exporter
+      working-directory: ./mongotest/exporter
       run: |
         go vet -v ./...
         go build -v ./...
@@ -135,13 +144,13 @@ jobs:
 
     # The reaper's tests start two helper programs, reaphelper and
     # ignorehelper, and go test does not count coverage in programs the tests
-    # start. Setting MONGOTEST_HELPER_COVERDIR makes the tests build the
+    # start. Setting DBTEST_HELPER_COVERDIR makes the tests build the
     # helpers with coverage and write it to that directory.
     - name: Test package
       env:
-        MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
+        DBTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
       run: |
-        mkdir -p "$MONGOTEST_HELPER_COVERDIR"
+        mkdir -p "$DBTEST_HELPER_COVERDIR"
         go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     # Adds the helpers' coverage to coverage.out. The counts for each code
@@ -152,9 +161,9 @@ jobs:
     # counts to add up.
     - name: Add the helper programs' coverage
       env:
-        MONGOTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
+        DBTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
       run: |
-        go tool covdata textfmt -i="$MONGOTEST_HELPER_COVERDIR" -o helpers.out
+        go tool covdata textfmt -i="$DBTEST_HELPER_COVERDIR" -o helpers.out
         awk 'FNR == 1 { if (NR == 1) { mode = $0; print } else if ($0 != mode) { print "coverage modes differ: " $0 > "/dev/stderr"; failed = 1; exit 1 } next }
              { key = $1 " " $2 }
              NR == FNR { if (!(key in count)) order[++n] = key; count[key] += $3; next }
@@ -163,6 +172,10 @@ jobs:
           coverage.out helpers.out > merged.out
         mv merged.out coverage.out
 
+    - name: Test mongotest
+      working-directory: ./mongotest
+      run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
+
     # Separate module, so it needs its own invocation. Its conformance and
     # benchmark suites are the same ones dockerapi runs.
     - name: Test mobyclient
@@ -170,7 +183,7 @@ jobs:
       run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     - name: Test exporter
-      working-directory: ./exporter
+      working-directory: ./mongotest/exporter
       run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
     # The total for each module, on the run's summary page. go tool cover runs
@@ -185,7 +198,7 @@ jobs:
           echo ""
           echo "| Module | Statements covered |"
           echo "| --- | --- |"
-          for dir in . mobyclient exporter; do
+          for dir in . mongotest mongotest/exporter mobyclient; do
             total=$(cd "$dir" && go tool cover -func=coverage.out | tail -n 1 | awk '{print $NF}')
             echo "| ${dir/#./root} | $total |"
           done
@@ -196,9 +209,9 @@ jobs:
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # The coverage profiles from the three test steps, in Go's format,
+        # The coverage profiles from the four test steps, in Go's format,
         # sent as one report.
-        files: coverage.out mobyclient/coverage.out exporter/coverage.out
+        files: coverage.out mongotest/coverage.out mongotest/exporter/coverage.out mobyclient/coverage.out
         format: golang
         # The reporter this action downloads; without it, the newest one.
         coverage-reporter-version: v0.6.22

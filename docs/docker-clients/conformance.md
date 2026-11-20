@@ -6,7 +6,7 @@ status: current
 
 # Conformance suite
 
-`github.com/tophergopher/mongotest/dockerclient/dockerclienttest` holds one
+`github.com/tophergopher/dbtest/dockerclient/dockerclienttest` holds one
 test suite and one benchmark suite. `dockerapi`, `mobyclient` and
 `dockermock.Fake` all run them, so the three are held to the same behaviour
 and measured on the same scale. A new implementation of the interface is
@@ -27,9 +27,9 @@ import (
     "testing"
 
     "github.com/stretchr/testify/require"
-    "github.com/tophergopher/mongotest/dockerclient"
-    "github.com/tophergopher/mongotest/dockerclient/dockerclienttest"
-    "github.com/tophergopher/mongotest/dockermock"
+    "github.com/tophergopher/dbtest/dockerclient"
+    "github.com/tophergopher/dbtest/dockerclient/dockerclienttest"
+    "github.com/tophergopher/dbtest/dockermock"
 
     "example.com/myclient"
 )

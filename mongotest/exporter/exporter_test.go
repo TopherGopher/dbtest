@@ -16,8 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/exporter"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/mongod"
+	"github.com/tophergopher/dbtest/mongotest/exporter"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"

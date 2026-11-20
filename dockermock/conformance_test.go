@@ -3,9 +3,9 @@ package dockermock_test
 import (
 	"testing"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockerclient/dockerclienttest"
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient/dockerclienttest"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 // TestFakeConformance holds the Fake to the same behaviour as a real client.

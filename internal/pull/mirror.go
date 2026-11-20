@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // A Mirror returns another registry's name for an image, if it has one.

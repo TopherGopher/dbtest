@@ -3,7 +3,7 @@ package mongod
 import (
 	"strings"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // The registries, repositories and versions the known images are built from.

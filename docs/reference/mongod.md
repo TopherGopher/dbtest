@@ -7,7 +7,7 @@ tracks: ["#32", "#33"]
 
 # The mongod package
 
-`github.com/tophergopher/mongotest/mongod` starts a MongoDB container, waits
+`github.com/tophergopher/dbtest/mongod` starts a MongoDB container, waits
 until it answers, tells you where to connect, and removes it if the process
 is interrupted. It imports no MongoDB driver, so any driver version works
 with it.
@@ -65,7 +65,7 @@ suite. An option beats the variable, and the variable beats the default.
 | --- | --- |
 | `MONGOTEST_IMAGE` | The image, in any shape `WithImage` accepts. |
 | `MONGOTEST_START_TIMEOUT` | The start timeout, as a Go duration such as `90s`. |
-| `MONGOTEST_HOST_IP` | The address containers are reachable at. |
+| `DBTEST_HOST_IP` | The address containers are reachable at. |
 
 A version from an option combines with an image from the environment:
 `WithImage("7.0")` under `MONGOTEST_IMAGE=mirror.corp.example/mongo` runs
@@ -179,7 +179,7 @@ its own limit, ten minutes by default; see `WithPullTimeout`.
 Containers can be started in parallel, and each is its own server with its
 own data. How many a machine manages at once depends on its CPUs, because
 every `mongod` has to be ready within the start timeout; issue
-[#82](https://github.com/TopherGopher/mongotest/issues/82) will make extra
+[#82](https://github.com/TopherGopher/dbtest/issues/82) will make extra
 starts wait their turn.
 
 ## Who can connect
@@ -292,7 +292,7 @@ docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ## Not here yet
 
 - **Data that outlives the container.** Issue
-  [#55](https://github.com/TopherGopher/mongotest/issues/55).
+  [#55](https://github.com/TopherGopher/dbtest/issues/55).
 
 ## Testing code that starts containers
 

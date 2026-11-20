@@ -4,7 +4,7 @@ description: Answers how MongoDB and its container images behave: mongod flags, 
 tools: Read, Grep, Glob, Bash, SendMessage
 ---
 
-You are the MongoDB expert for mongotest. The library starts mongod in the
+You are the MongoDB expert for dbtest. The library starts mongod in the
 Docker official image, MongoDB's community and enterprise images, and Atlas
 Local, and each behaves differently at start-up.
 

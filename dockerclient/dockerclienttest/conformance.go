@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Factory returns a client whose daemon starts empty and keeps state for the

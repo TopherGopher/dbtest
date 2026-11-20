@@ -14,7 +14,7 @@ import (
 // separate program. When the variable holds a directory, the helpers are
 // built with -cover and write their counts there, and CI adds them to
 // coverage.out.
-const helperCoverDirEnv = "MONGOTEST_HELPER_COVERDIR"
+const helperCoverDirEnv = "DBTEST_HELPER_COVERDIR"
 
 // buildProgram compiles pkg for a test that runs it as a separate process. It
 // is built rather than run through `go run`, because `go run` would receive
@@ -27,7 +27,7 @@ func buildProgram(t *testing.T, pkg string) string {
 	binary := filepath.Join(t.TempDir(), filepath.Base(pkg))
 	args := []string{"build", "-o", binary}
 	if os.Getenv(helperCoverDirEnv) != "" {
-		args = append(args, "-cover", "-covermode=atomic", "-coverpkg=github.com/tophergopher/mongotest/...")
+		args = append(args, "-cover", "-covermode=atomic", "-coverpkg=github.com/tophergopher/dbtest/...")
 	}
 	build := exec.Command("go", append(args, pkg)...)
 	build.Stderr = os.Stderr

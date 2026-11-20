@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Environment variables that configure a whole suite without editing code.
@@ -22,7 +22,7 @@ const (
 	// EnvStartTimeout is how long to wait for mongod, as a Go duration: "90s".
 	EnvStartTimeout = "MONGOTEST_START_TIMEOUT"
 	// EnvHostIP is the address containers are reachable at; see WithHostIP.
-	EnvHostIP = "MONGOTEST_HOST_IP"
+	EnvHostIP = "DBTEST_HOST_IP"
 )
 
 const (
@@ -138,7 +138,7 @@ func (o Options) WithName(name string) Options {
 // WithHostIP states the address or hostname containers are reachable at, for
 // a network the detection gets wrong. Without it the first of these is used:
 //
-//  1. the MONGOTEST_HOST_IP environment variable;
+//  1. the DBTEST_HOST_IP environment variable;
 //  2. the daemon's own host, when the daemon is remote (tcp, http, https, ssh);
 //  3. loopback, when this process shares the daemon host's network;
 //  4. the default gateway, when this process is in a container with a network

@@ -6,7 +6,7 @@ status: current
 
 # Docker clients
 
-mongotest only needs a handful of Docker Engine operations: pull an image,
+dbtest only needs a handful of Docker Engine operations: pull an image,
 create and start a container, copy files into it, run a command inside it,
 inspect it, remove it. Rather than tying the whole library to one Docker SDK,
 those operations are declared as an interface, and you choose the
@@ -83,7 +83,7 @@ type Client interface {
 }
 ```
 
-Implementations must be safe for concurrent use; mongotest drives one client
+Implementations must be safe for concurrent use; dbtest drives one client
 from parallel tests.
 
 ## Writing code against it

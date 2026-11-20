@@ -1,6 +1,6 @@
 package dockerapi
 
-import "github.com/tophergopher/mongotest/dockerclient"
+import "github.com/tophergopher/dbtest/dockerclient"
 
 // The request and response types, the Logger and every error this package
 // reports are declared by dockerclient, so that a caller can swap this
@@ -28,7 +28,7 @@ type (
 	NetworkSettings = dockerclient.NetworkSettings
 	// Top is the process listing inside a container.
 	Top = dockerclient.Top
-	// ImageInspect is the image metadata mongotest uses.
+	// ImageInspect is the image metadata dbtest uses.
 	ImageInspect = dockerclient.ImageInspect
 	// File is one regular file to place in a container.
 	File = dockerclient.File
@@ -108,5 +108,5 @@ func wrapConnError(host string, err error) error {
 	return dockerclient.WrapConnectionError(host, err)
 }
 
-// Client satisfies the interface every mongotest package depends on.
+// Client satisfies the interface every dbtest package depends on.
 var _ dockerclient.Client = (*Client)(nil)

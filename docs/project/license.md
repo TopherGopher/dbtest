@@ -1,12 +1,12 @@
 ---
 title: License
-description: mongotest is released under the MIT License.
+description: dbtest is released under the MIT License.
 ---
 
 # License
 
-mongotest is released under the MIT License. The full text is in the
-[`LICENSE`](https://github.com/TopherGopher/mongotest/blob/main/LICENSE) file
+dbtest is released under the MIT License. The full text is in the
+[`LICENSE`](https://github.com/TopherGopher/dbtest/blob/main/LICENSE) file
 at the root of the repository and reproduced below.
 
 ```text
@@ -15,7 +15,7 @@ at the root of the repository and reproduced below.
 
 ## Third-party software
 
-mongotest runs the official
+dbtest runs the official
 [`mongo`](https://hub.docker.com/_/mongo) image, which is distributed under
 MongoDB's own licence terms. The root module depends on the official
 [MongoDB Go driver](https://github.com/mongodb/mongo-go-driver), released

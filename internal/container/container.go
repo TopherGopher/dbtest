@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/internal/reaper"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/internal/reaper"
 )
 
 // cleanupTimeout bounds a removal whose caller set no deadline, or whose

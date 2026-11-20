@@ -1,6 +1,6 @@
 ---
 title: Environment variables
-description: Every environment variable mongotest and its Docker clients read.
+description: Every environment variable dbtest and its Docker clients read.
 status: current
 ---
 
@@ -33,10 +33,10 @@ An option beats the variable, and the variable beats the default. See
 | --- | --- | --- |
 | `MONGOTEST_IMAGE` | The image: a version, a repository, or a full reference such as `localhost:5000/team/mongo:8` | `docker.io/library/mongo:8.0` |
 | `MONGOTEST_START_TIMEOUT` | The start timeout, as a Go duration | `60s` |
-| `MONGOTEST_HOST_IP` | The address containers are reachable at, when the detection is wrong | see [Remote and nested daemons](../guides/remote-daemons.md) |
+| `DBTEST_HOST_IP` | The address containers are reachable at, when the detection is wrong | see [Remote and nested daemons](../guides/remote-daemons.md) |
 
 ## Not read
 
-mongotest does not read `MONGO_URI`, `MONGODB_URI` or similar. The earlier
+dbtest does not read `MONGO_URI`, `MONGODB_URI` or similar. The earlier
 `NewTestConnection(false)` always connects to `mongodb://127.0.0.1:27017`.
 To point tests at another server, pass its URI to `mongotest.Attach(ctx, uri)`.

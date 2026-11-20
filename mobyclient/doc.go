@@ -1,6 +1,6 @@
 // Package mobyclient wraps the official Docker client,
 // github.com/moby/moby/client, so it satisfies
-// github.com/tophergopher/mongotest/dockerclient.Client. It is its own Go
+// github.com/tophergopher/dbtest/dockerclient.Client. It is its own Go
 // module so a caller who does not need it never pulls in the moby client's
 // dependency tree (containerd/errdefs, opentelemetry, distribution/reference
 // and the rest).
@@ -9,12 +9,12 @@
 //
 // dockerapi, the standard-library client in the parent module, is the
 // default: it takes no third-party dependency and covers everything
-// mongotest needs. Reach for mobyclient instead when the process already
+// dbtest needs. Reach for mobyclient instead when the process already
 // depends on github.com/moby/moby/client for other reasons (so this adds
 // nothing new to the build), or when a caller needs a daemon endpoint
 // dockerapi does not implement and wants to keep using the moby client's own
 // richer surface (options, streaming responses, the full Engine API) for
-// that, while still handing mongotest a Client it understands.
+// that, while still handing dbtest a Client it understands.
 //
 // # Getting a client
 //

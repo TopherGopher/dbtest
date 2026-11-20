@@ -7,11 +7,11 @@ import (
 	"log/slog"
 )
 
-// Client is the Docker Engine API surface mongotest depends on. It is
+// Client is the Docker Engine API surface dbtest depends on. It is
 // implemented by dockerapi (the standard-library client), mobyclient (the
 // official client) and the doubles in dockermock.
 //
-// Implementations must be safe for concurrent use: mongotest drives one
+// Implementations must be safe for concurrent use: dbtest drives one
 // client from parallel tests.
 type Client interface {
 	// Host reports the daemon address the client resolved, in DOCKER_HOST
@@ -49,7 +49,7 @@ type Client interface {
 	// ContainerLogsTo copies what a container has written so far, stdout
 	// and stderr each to its own writer, and returns. It does not wait for
 	// more output. Either writer may be nil to discard that stream. It is
-	// for a container created without a TTY, as mongotest creates them.
+	// for a container created without a TTY, as dbtest creates them.
 	ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error
 
 	// ContainerTop lists the processes running inside a container.
@@ -97,7 +97,7 @@ type ContainerConfig struct {
 	Cmd []string `json:"Cmd,omitempty"`
 	// Env holds KEY=value entries.
 	Env []string `json:"Env,omitempty"`
-	// Labels are attached to the container; mongotest always sets
+	// Labels are attached to the container; dbtest always sets
 	// mongotest=regression so stray containers can be found and removed.
 	Labels map[string]string `json:"Labels,omitempty"`
 	// ExposedPorts lists container ports such as "27017/tcp".
@@ -197,13 +197,13 @@ type Top struct {
 	Processes [][]string `json:"Processes"`
 }
 
-// ImageInspect is the image metadata mongotest uses.
+// ImageInspect is the image metadata dbtest uses.
 type ImageInspect struct {
 	ID           string   `json:"Id"`
 	RepoTags     []string `json:"RepoTags"`
 	Architecture string   `json:"Architecture"`
 	OS           string   `json:"Os"`
-	// Config is the part of the image's configuration mongotest reads.
+	// Config is the part of the image's configuration dbtest reads.
 	Config ImageConfig `json:"Config"`
 }
 

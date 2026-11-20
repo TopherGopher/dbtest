@@ -1,6 +1,6 @@
 ---
 template: home.html
-title: mongotest
+title: dbtest
 hide:
   - navigation
   - toc

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tophergopher/mongotest/exporter"
+	"github.com/tophergopher/dbtest/mongotest/exporter"
 )
 
 // The exporter writes to any io.Writer, so you choose where the output

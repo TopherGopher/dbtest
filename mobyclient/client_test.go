@@ -21,8 +21,8 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 // --- construction and options ----------------------------------------------

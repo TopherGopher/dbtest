@@ -12,7 +12,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Where the TLS files go inside the container. They are copied in before

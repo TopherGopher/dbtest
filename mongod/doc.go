@@ -26,7 +26,7 @@
 //
 //	MONGOTEST_IMAGE           the image, in any shape WithImage accepts
 //	MONGOTEST_START_TIMEOUT   how long to wait for mongod, such as "90s"
-//	MONGOTEST_HOST_IP         the address containers are reachable at
+//	DBTEST_HOST_IP            the address containers are reachable at
 //
 // # Images
 //
@@ -64,7 +64,7 @@
 //
 // A Docker Hub image with no mirror is tried again for about a minute. If
 // the limit still refuses it, the error matches
-// [github.com/tophergopher/mongotest/dockerclient.ErrRateLimited], and later
+// [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited], and later
 // pulls of that image in this process fail at once for five minutes. So does
 // an image whose mirror fails too, and that error names both failures.
 //

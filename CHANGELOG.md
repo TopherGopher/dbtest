@@ -5,6 +5,30 @@ what to do if it affects you.
 
 ## Unreleased
 
+### The modules are renamed to `github.com/tophergopher/dbtest`
+
+The name now fits the other databases that are planned. Change your imports:
+
+| Before | After |
+| --- | --- |
+| `github.com/tophergopher/mongotest` | `github.com/tophergopher/dbtest/mongotest` |
+| `github.com/tophergopher/mongotest/mongod`, `dockerclient`, `dockerapi`, `dockermock` | `github.com/tophergopher/dbtest/mongod` and so on |
+| `github.com/tophergopher/mongotest/mobyclient` | `github.com/tophergopher/dbtest/mobyclient` |
+| `github.com/tophergopher/mongotest/exporter` | `github.com/tophergopher/dbtest/mongotest/exporter` |
+
+- **The `mongotest` package keeps its name and API,** so code that calls
+  `mongotest.Run(t)` changes only its import. It is now a module of its own,
+  so the root module no longer requires MongoDB's Go driver.
+- **`MONGOTEST_HOST_IP` is now `DBTEST_HOST_IP`,** and `mongod.EnvHostIP`
+  holds the new name. The old name is no longer read, so a CI setting that
+  uses it is ignored without an error. Rename it.
+- **Unchanged:** `MONGOTEST_IMAGE`, `MONGOTEST_START_TIMEOUT`, the
+  `mongotest=regression` label, the `mongotest-` container name prefix and the
+  default username `mongotest`.
+- `dockerapi`'s default user agent is now `dbtest-dockerapi/1`, and the
+  reaper's messages begin with `dbtest:`.
+- The old path, `github.com/tophergopher/mongotest`, stays at v0.2.9.
+
 ### A program that handles SIGINT and SIGTERM itself can turn off the `mongod` package's signal handler
 
 - **`mongod.DisableSignalHandler()`** turns off the `mongod` package's
@@ -66,10 +90,10 @@ what to do if it affects you.
 - **A daemon or socket proxy that refuses to list a container's processes**
   no longer stops a start.
 
-### mongotest needs Go 1.26 or newer
+### dbtest needs Go 1.26 or newer
 
 - **Every module declares `go 1.26`,** the oldest release the Go team still
-  supports; v0.2.9 declared `go 1.18`. Requiring mongotest, even only for
+  supports; v0.2.9 declared `go 1.18`. Requiring dbtest, even only for
   tests, raises your module's `go` line to no more than that.
 
 ### A rate-limited pull comes from a mirror
@@ -129,7 +153,7 @@ what to do if it affects you.
   `ExecCommandInMongoContainer`, `GetAvailablePort`, `ReapRunningContainers`
   and `GenerateCARoot` still compile: most are thin wrappers, and
   `GetAvailablePort` and `GenerateCARoot` are kept as they were. The
-  [reference](https://tophergopher.github.io/mongotest/reference/#earlier-names)
+  [reference](https://tophergopher.github.io/dbtest/reference/#earlier-names)
   lists what new code uses instead.
 - **easymongo is gone.** `TestConnection` embedded an easymongo connection;
   `Instance` embeds the driver's client. Calls through easymongo stop
@@ -141,8 +165,8 @@ what to do if it affects you.
   `easymongo.ConnectWith(inst.URI()).FromMongoDriverClient(inst.Client)`.
   `EasyMongoWithContainer` is removed; use `Run`.
 - **`DatabaseExporter` is removed.** It moves to its own module,
-  `github.com/tophergopher/mongotest/exporter`, which writes to any
-  `io.Writer`; its [guide](https://tophergopher.github.io/mongotest/guides/exporting-data/#moving-from-databaseexporter)
+  `github.com/tophergopher/dbtest/mongotest/exporter`, which writes to any
+  `io.Writer`; its [guide](https://tophergopher.github.io/dbtest/guides/exporting-data/#moving-from-databaseexporter)
   has a table for migrating. `ErrNotImplemented`, `MongoTestError` and `NewMongoTestError` go with
   it.
 - **The default image is `mongo:8.0`,** not `mongo:latest`. Set
@@ -169,14 +193,14 @@ what to do if it affects you.
 
 ### Changed
 
-- **Ctrl-C now ends the process.** On SIGINT or SIGTERM mongotest removes the
+- **Ctrl-C now ends the process.** On SIGINT or SIGTERM dbtest removes the
   containers it started and then lets the signal end the process, as it would
-  have without mongotest. Before, the containers were removed but the test
+  have without dbtest. Before, the containers were removed but the test
   binary kept running. Nothing to change, unless a long-running program of
   yours relied on surviving the signal; a way to opt out is planned in
-  [#67](https://github.com/TopherGopher/mongotest/issues/67).
+  [#67](https://github.com/TopherGopher/dbtest/issues/67).
 - **The signal handler is installed when the first container is created, not
-  when the package is imported.** A program that imports mongotest and starts
+  when the package is imported.** A program that imports dbtest and starts
   no container keeps its own handling of Ctrl-C. Only SIGINT and SIGTERM are
   handled.
 - **`KillMongoContainer` returns nil for a container that is already gone.**

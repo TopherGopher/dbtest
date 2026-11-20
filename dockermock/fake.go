@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Fake is a dockerclient.Client backed by an in-memory image and container

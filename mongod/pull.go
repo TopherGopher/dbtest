@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/internal/pull"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/internal/pull"
 )
 
 // mongoDBImages finds MongoDB's own images, such as the community server,

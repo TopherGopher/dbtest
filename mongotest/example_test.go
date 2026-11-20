@@ -5,7 +5,7 @@ import (
 	"log"
 	"testing"
 
-	"github.com/tophergopher/mongotest"
+	"github.com/tophergopher/dbtest/mongotest"
 	"go.mongodb.org/mongo-driver/bson"
 )
 

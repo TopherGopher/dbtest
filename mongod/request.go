@@ -4,8 +4,8 @@ import (
 	"maps"
 	"strconv"
 
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/internal/hostaddr"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/internal/hostaddr"
 )
 
 // containerConfig builds the create request. host is the address the caller

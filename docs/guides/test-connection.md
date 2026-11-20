@@ -125,6 +125,6 @@ error with `errors.Is` against these values:
 | Error | Meaning |
 | --- | --- |
 | `mongotest.ErrNotConnected` | The client could not connect to the server. |
-| `dockerclient.ErrConnectionFailed` (`github.com/tophergopher/mongotest/dockerclient`) | No Docker daemon answered. See [Installation](../getting-started/installation.md#check-the-daemon). |
+| `dockerclient.ErrConnectionFailed` (`github.com/tophergopher/dbtest/dockerclient`) | No Docker daemon answered. See [Installation](../getting-started/installation.md#check-the-daemon). |
 | `mongod.ErrNotReady`, `mongod.ErrContainerExited`, … | The container did not become a usable `mongod`; see the [mongod reference](../reference/mongod.md). |
 | `mongotest.ErrNoContainer` | Returned by the earlier script and command methods for an instance from `Attach`. |

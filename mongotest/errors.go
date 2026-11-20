@@ -3,7 +3,7 @@ package mongotest
 import (
 	"errors"
 
-	"github.com/tophergopher/mongotest/dockerclient"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Sentinels to match with errors.Is. A start's other errors come from the

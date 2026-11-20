@@ -1,9 +1,9 @@
 // Package dockerapi is a minimal Docker Engine API client built on the Go
 // standard library only.
 //
-// It exists so that mongotest can pull an image, start a container, copy
+// It exists so that dbtest can pull an image, start a container, copy
 // files into it, run commands inside it and remove it, without depending on
-// github.com/docker/docker or its successors. Only the endpoints mongotest
+// github.com/docker/docker or its successors. Only the endpoints dbtest
 // needs are implemented: image pull and inspect; container create, start,
 // remove, inspect and top; copying an archive into a container; and exec
 // with streamed stdout and stderr.
@@ -183,7 +183,7 @@
 //
 // Point the client at a fake daemon with WithHost, or hand it an http.Client
 // whose Transport is an in-process http.RoundTripper with WithHTTPClient.
-// The test doubles live in github.com/tophergopher/mongotest/dockermock:
+// The test doubles live in github.com/tophergopher/dbtest/dockermock:
 // Daemon is an httptest-based daemon that records requests and serves
 // configurable routes over a unix socket or TCP, and Mock and Fake stand in
 // for a Client without any HTTP at all. Every example in this package runs

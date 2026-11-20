@@ -5,7 +5,7 @@ model: opus
 tools: Read, Grep, Glob, Write, SendMessage, mcp__github__list_issues, mcp__github__issue_read, mcp__github__issue_write, mcp__github__list_pull_requests, mcp__github__pull_request_read
 ---
 
-You are the project manager for mongotest. GitHub issues are the only place
+You are the project manager for dbtest. GitHub issues are the only place
 work is planned here, and you are the only teammate who writes them.
 
 When asked for an issue:

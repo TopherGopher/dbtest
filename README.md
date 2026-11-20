@@ -1,15 +1,15 @@
-# mongotest
+# dbtest
 
-[![Documentation](https://img.shields.io/badge/docs-tophergopher.github.io%2Fmongotest-0e8f7a)](https://tophergopher.github.io/mongotest/)
-[![Go Reference](https://pkg.go.dev/badge/github.com/tophergopher/mongotest.svg)](https://pkg.go.dev/github.com/tophergopher/mongotest)
-[![Coverage](https://coveralls.io/repos/github/TopherGopher/mongotest/badge.svg?branch=main)](https://coveralls.io/github/TopherGopher/mongotest?branch=main)
+[![Documentation](https://img.shields.io/badge/docs-tophergopher.github.io%2Fdbtest-0e8f7a)](https://tophergopher.github.io/dbtest/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/tophergopher/dbtest.svg)](https://pkg.go.dev/github.com/tophergopher/dbtest)
+[![Coverage](https://coveralls.io/repos/github/TopherGopher/dbtest/badge.svg?branch=main)](https://coveralls.io/github/TopherGopher/dbtest?branch=main)
 
-mongotest starts a real MongoDB server in a Docker container for a Go test,
+dbtest starts a real MongoDB server in a Docker container for a Go test,
 hands the test a connected client of the official MongoDB Go driver (v1), and
 removes the container when the test ends.
 
 ```sh
-go get github.com/tophergopher/mongotest
+go get github.com/tophergopher/dbtest/mongotest
 ```
 
 It needs Go 1.26 or newer, and Docker or Podman. Without one, the test fails;
@@ -23,13 +23,15 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-Upgrading? The earlier function names still exist, but code that used the
-easymongo connection must change; [CHANGELOG.md](CHANGELOG.md) shows how.
-For Podman, see the [Podman guide](https://tophergopher.github.io/mongotest/guides/podman/).
+Upgrading from `github.com/tophergopher/mongotest`? Import
+`github.com/tophergopher/dbtest/mongotest` instead. The earlier function names
+still exist, but code that used the easymongo connection must change;
+[CHANGELOG.md](CHANGELOG.md) shows how.
+For Podman, see the [Podman guide](https://tophergopher.github.io/dbtest/guides/podman/).
 
 ## Cleaning up stray containers
 
-Every container mongotest starts carries the label `mongotest=regression`. If
+Every container dbtest starts carries the label `mongotest=regression`. If
 a killed test run leaves containers behind, this command removes them and
 their volumes:
 
@@ -50,4 +52,4 @@ mkdocs serve
 ```
 
 New usage patterns go in `docs/guides/`; see
-[Writing a new page](https://tophergopher.github.io/mongotest/reference/writing-docs/).
+[Writing a new page](https://tophergopher.github.io/dbtest/reference/writing-docs/).

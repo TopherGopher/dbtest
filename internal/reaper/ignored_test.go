@@ -65,7 +65,7 @@ func TestIgnoredSignalsAreLeftIgnored(t *testing.T) {
 // buildIgnoreHelper compiles the helper for this test.
 func buildIgnoreHelper(t *testing.T) string {
 	t.Helper()
-	return buildProgram(t, "github.com/tophergopher/mongotest/internal/ignorehelper")
+	return buildProgram(t, "github.com/tophergopher/dbtest/internal/ignorehelper")
 }
 
 // A program built with -cover writes its coverage only when it exits

@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tophergopher/mongotest/dockerclient"
-	"github.com/tophergopher/mongotest/dockermock"
-	"github.com/tophergopher/mongotest/mongod"
+	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // rateLimitedOnDockerHub makes m's pulls from Docker Hub fail on its rate

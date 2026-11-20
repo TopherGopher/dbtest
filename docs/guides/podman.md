@@ -1,14 +1,14 @@
 ---
 title: Podman
-description: Running mongotest against Podman's Docker-compatible socket.
+description: Running dbtest against Podman's Docker-compatible socket.
 status: current
 tracks: ["#51"]
 ---
 
 # Podman
 
-Podman serves the Docker Engine API, so mongotest works against it unchanged
-once it can find the socket. Nothing in mongotest shells out to a `docker` or
+Podman serves the Docker Engine API, so dbtest works against it unchanged
+once it can find the socket. Nothing in dbtest shells out to a `docker` or
 `podman` binary.
 
 ## Start the socket
@@ -39,7 +39,7 @@ once it can find the socket. Nothing in mongotest shells out to a `docker` or
     AF_UNIX socket under `%TEMP%` since Podman 5.3, which the new client can
     dial.
 
-## Point mongotest at it
+## Point dbtest at it
 
 Set `DOCKER_HOST` the same way you would for the `docker` CLI:
 
@@ -48,7 +48,7 @@ export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
 go test ./...
 ```
 
-Even this is optional. When nothing is configured, mongotest's
+Even this is optional. When nothing is configured, dbtest's
 [`dockerapi`](../docker-clients/dockerapi.md) client probes, in order,
 rootless Docker, system Docker, rootless Podman and system Podman, and uses
 the first socket that answers.

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tophergopher/mongotest/dockermock"
+	"github.com/tophergopher/dbtest/dockermock"
 )
 
 func TestNewRequiresValidHost(t *testing.T) {
@@ -104,7 +104,7 @@ func TestDoWithoutBodyHasNoContentType(t *testing.T) {
 	resp.Body.Close()
 	first := fd.Requests()[0]
 	assert.Empty(t, first.Header.Get("Content-Type"), "a body-less request must not claim a content type")
-	assert.True(t, strings.HasPrefix(first.Header.Get("User-Agent"), "mongotest"), "the default user agent must identify mongotest, got %q", first.Header.Get("User-Agent"))
+	assert.True(t, strings.HasPrefix(first.Header.Get("User-Agent"), "dbtest"), "the default user agent identifies dbtest, got %q", first.Header.Get("User-Agent"))
 }
 
 func TestWithHTTPClientIsUsedAsIs(t *testing.T) {

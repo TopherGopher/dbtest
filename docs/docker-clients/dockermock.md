@@ -6,7 +6,7 @@ status: current
 
 # dockermock
 
-`github.com/tophergopher/mongotest/dockermock` is the single home for test
+`github.com/tophergopher/dbtest/dockermock` is the single home for test
 doubles of [`dockerclient.Client`](index.md), so a project needs exactly one
 of them rather than a stub per package. Three are offered, in increasing order
 of how much they do for you.
