@@ -7,7 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/mongodb/mongo-tools v0.0.0-20261117220938-eb3792147072
 	github.com/stretchr/testify v1.12.1
-	github.com/tophergopher/dbtest v0.0.0
+	github.com/tophergopher/dbtest v0.3.0
 	go.mongodb.org/mongo-driver/v2 v2.10.0
 )
 
