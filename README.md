@@ -25,8 +25,10 @@ func TestOrders(t *testing.T) {
 ```
 
 Upgrading from `github.com/tophergopher/mongotest`? Import
-`github.com/tophergopher/dbtest/mongotest` instead. The v0.2.9 names are
-removed, and [CHANGELOG.md](CHANGELOG.md) lists what replaces each. If you set
+`github.com/tophergopher/dbtest/mongotest` instead. Its exported names from
+v0.2.9 are removed, and
+[CHANGELOG.md](CHANGELOG.md#the-mongotest-package-is-rebuilt-on-the-new-mongod-package)
+lists what replaces each. If you set
 `MONGOTEST_HOST_IP`, rename it `DBTEST_HOST_IP`: the old name is ignored.
 
 ## Cleaning up stray containers

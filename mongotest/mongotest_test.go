@@ -135,7 +135,7 @@ func TestAStartWithNoDaemonIsAConnectionFailure(t *testing.T) {
 	inst, err := mongotest.StartWithOptions(context.Background(), mongotest.DefaultOptions().WithDocker(nowhere))
 	t.Cleanup(func() { _ = inst.Stop(context.Background()) })
 
-	assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "an unreachable daemon is reported as one")
+	assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "callers can detect an unreachable daemon with errors.Is")
 }
 
 func TestIntegrationAContainerNameInUseIsAConflict(t *testing.T) {
@@ -143,7 +143,8 @@ func TestIntegrationAContainerNameInUseIsAConflict(t *testing.T) {
 	opts := mongotest.DefaultOptions().WithName(name)
 	mongotest.RunWithOptions(t, opts)
 
-	_, err := mongotest.StartWithOptions(context.Background(), opts)
+	second, err := mongotest.StartWithOptions(context.Background(), opts)
+	t.Cleanup(func() { _ = second.Stop(context.Background()) })
 
 	assert.ErrorIs(t, err, dockerclient.ErrConflict, "a name already in use is a conflict")
 }

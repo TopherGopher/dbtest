@@ -150,33 +150,35 @@ The name now fits the other databases that are planned. Everything in this
 
 - **New entry points.** `mongotest.Run(t)` starts a container, connects a
   client of the official MongoDB Go driver (v1, at v1.17.10 or later), and
-  removes the container when the test ends. `RunWithOptions`, `Start`, `StartWithOptions` and `Attach` cover
-  options, code outside a test, and a server you already run. Each returns an
-  `*Instance`, which embeds `*mongo.Client`.
-- **The v0.2.9 names are removed.** They were kept for easymongo, whose
-  tests used them, and dbtest no longer supports it. v0.2.9's `TestConnection`
-  embedded an easymongo connection; `Instance` embeds the driver's client, so
-  `conn.D("db").C("coll")` becomes `inst.Database("db").Collection("coll")`,
-  `conn.MongoDriverClient()` becomes `inst.Client` and `conn.MongoURI()`
-  becomes `inst.URI()`. For the rest:
+  removes the container when the test ends. `RunWithOptions` takes options.
+  `Start` and `StartWithOptions` work outside a test. `Attach` connects to a
+  server you already run. Each returns an `*Instance`, which embeds
+  `*mongo.Client`.
+- **The exported names from v0.2.9 are removed.** They existed for
+  easymongo, a MongoDB library whose tests used them, which dbtest no longer
+  supports. v0.2.9's `TestConnection` embedded an easymongo connection;
+  `Instance` embeds the driver's client, so `conn.D("db").C("coll")` becomes
+  `inst.Database("db").Collection("coll")`, `conn.MongoDriverClient()` becomes
+  `inst.Client` and `conn.MongoURI()` becomes `inst.URI()`. Every other
+  removed name, and what replaces it, where `inst` is the `*Instance`:
 
   | Removed | Use instead |
   | --- | --- |
   | `TestConnection` | `Instance` |
   | `NewTestConnection(true)`, `EasyMongoWithContainer` | `Run(t)` in a test, or `Start(ctx)` |
-  | `NewTestConnection(false)` | `Attach(ctx, uri)` |
+  | `NewTestConnection(false)` | `Attach(ctx, "mongodb://127.0.0.1:27017")`, the server it always connected to |
   | `NewReplicaSetContainer(name)` | `StartWithOptions(ctx, DefaultOptions().WithReplicaSet(name))` |
-  | `MongoClientWithContainer(f)` | `Run(t).Client` |
+  | `MongoClientWithContainer(f)`, which called `f` with a client | `Run(t).Client` |
   | `KillMongoContainer()` | `inst.Stop(ctx)` |
-  | `MongoContainerID()` | `inst.Container.ID()` |
-  | `RunMongoScriptOnContainer(js)` | `inst.Container.RunScript(ctx, js)` |
-  | `ExecCommandInMongoContainer(cmd)` | `inst.Container.Exec(ctx, cmd...)` |
-  | `GetAvailablePort()` | Nothing: Docker chooses the port. |
-  | `ReapRunningContainers()` | `mongod.ReapRunningContainers(ctx)`, which returns its error |
+  | `MongoContainerID()` | `inst.Container.ID()`; `Container` is nil for an instance from `Attach` |
+  | `RunMongoScriptOnContainer(js)` | `inst.Container.RunScript(ctx, js)`; when the script fails, its output is in the `*mongod.ScriptError` |
+  | `ExecCommandInMongoContainer(cmd)` | `inst.Container.Exec(ctx, cmd...)`; check `ExitCode`, because a non-zero exit is no longer an error |
+  | `GetAvailablePort()` | Nothing: Docker chooses the port |
+  | `ReapRunningContainers()` | `mongod.ReapRunningContainers(ctx)`, which now returns an error |
   | `GenerateCARoot()` | `DefaultOptions().WithTLS()`, which makes the certificates |
   | `ErrFailedToConnectToDockerDaemon` | `dockerclient.ErrConnectionFailed` |
   | `ErrMongoContainerAlreadyRunning` | `dockerclient.ErrConflict` |
-  | `ErrNoAvailablePorts` | Nothing: only `GetAvailablePort` returned it. |
+  | `ErrNoAvailablePorts` | Nothing: only `GetAvailablePort` returned it |
 
 - **`DatabaseExporter` is removed.** It moves to its own module,
   `github.com/tophergopher/dbtest/mongotest/exporter`, which writes to any
@@ -198,7 +200,7 @@ The name now fits the other databases that are planned. Everything in this
   whose container name is taken matches `dockerclient.ErrConflict`. Check for
   them with `errors.Is` on the error a start returns.
 - **A failed start returns no instance and leaves no container.** A cleanup
-  call on the error path is no longer needed, and is harmless.
+  call on the error path is no longer needed, but does no harm.
 - **The `mongotest` module needs only the driver, testify and the root
   module.** logrus, easymongo and mongo-tools are no longer dependencies.
 
@@ -207,17 +209,16 @@ The name now fits the other databases that are planned. Everything in this
 - **Ctrl-C now ends the process.** On SIGINT or SIGTERM dbtest removes the
   containers it started and then lets the signal end the process, as it would
   have without dbtest. Before, the containers were removed but the test
-  binary kept running. Nothing to change, unless a long-running program of
-  yours relied on surviving the signal; a way to opt out is planned in
-  [#67](https://github.com/TopherGopher/dbtest/issues/67).
+  binary kept running. Nothing to change, unless a program of yours handles
+  these signals itself; it can call `mongod.DisableSignalHandler`.
 - **The signal handler is installed when the first container is created, not
   when the package is imported.** A program that imports dbtest and starts
   no container keeps its own handling of Ctrl-C. Only SIGINT and SIGTERM are
   handled.
-- **`KillMongoContainer` returns nil for a container that is already gone.**
-  It used to return the daemon's "not found" error. If you read that error to
-  learn whether a container still existed, ask the daemon instead; killing a
-  container twice is now safe.
+- **`Stop` returns nil for a container that is already gone.** v0.2.9's
+  `KillMongoContainer` returned the daemon's "not found" error. If you read
+  that error to learn whether a container still existed, ask the daemon
+  instead; stopping a container twice is safe.
 - **Daemon errors keep the whole message.** When a container fails to start
   because its port or its name is already in use, the error now says so.
   Before, that part was cut off.
