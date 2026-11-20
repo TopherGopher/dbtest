@@ -58,7 +58,7 @@ func TestWhyAnImageIsRefused(t *testing.T) {
 		t.Run(tc.ref, func(t *testing.T) {
 			_, err := ParseMongoImage(tc.ref)
 
-			assert.ErrorIs(t, err, tc.want, "the reason given is the one that applies, so the advice with it does too")
+			assert.ErrorIs(t, err, tc.want, "the reason that applies")
 		})
 	}
 }

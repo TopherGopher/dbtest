@@ -64,9 +64,9 @@ func TestARateLimitedPullComesFromTheMirror(t *testing.T) {
 
 			err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithImage(tc.image))
 
-			require.NoError(t, err, "a rate limit on Docker Hub is no reason to fail when a mirror has the same image")
+			require.NoError(t, err, "a rate limit falls back to a mirror")
 			assert.Equal(t, []string{tc.hub, tc.mirror}, pulled(m),
-				"Docker Hub is asked once, since its limit lasts hours, and then the mirror for the same tag or digest")
+				"Docker Hub once, then the mirror")
 		})
 	}
 }
@@ -81,7 +81,7 @@ func TestARegistryFailureIsRetriedAndNeverMirrored(t *testing.T) {
 
 	require.NoError(t, err, "a registry that is briefly down is waited out")
 	assert.Equal(t, []string{"docker.io/library/mongo:8.0", "docker.io/library/mongo:8.0", "docker.io/library/mongo:8.0"}, pulled(m),
-		"only a rate limit sends the pull to a mirror; anything else that may pass is tried again where it was")
+		"only a rate limit goes to a mirror")
 }
 
 func TestARememberedRateLimitGoesStraightToTheMirror(t *testing.T) {
@@ -181,7 +181,7 @@ func TestAContainerIsCreatedFromTheMirrorsImage(t *testing.T) {
 	request, ok := creates[len(creates)-1].Args[1].(dockerclient.ContainerConfig)
 	require.True(t, ok, "the create call records its request")
 	assert.Equal(t, "public.ecr.aws/docker/library/mongo:8.0", request.Image,
-		"the image is not tagged with Docker Hub's name, so the container is created from the mirror's")
+		"created from the mirror's image")
 	assert.Equal(t, "public.ecr.aws/docker/library/mongo:8.0", c.Image(), "and the container reports the image it runs")
 }
 
@@ -200,7 +200,7 @@ func TestAMirrorsCopyOnTheDaemonIsNotPulledAgain(t *testing.T) {
 
 	require.NoError(t, err, "the image is on the daemon, under its mirror's name")
 	assert.Equal(t, []string{"docker.io/library/mongo:8.0"}, pulled(m),
-		"Docker Hub is asked once, and the mirror's copy is used without downloading it again")
+		"Docker Hub once, and the mirror's copy reused")
 }
 
 func TestAStartUsesTheMirrorsCopyOnTheDaemon(t *testing.T) {

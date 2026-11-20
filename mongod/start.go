@@ -109,7 +109,8 @@ func PullImage(ctx context.Context, opts Options) error {
 
 // ReapRunningContainers removes every container Start created in this
 // process that has not been stopped. Call it after m.Run in TestMain so a
-// run leaves nothing behind:
+// run leaves nothing behind. After [DisableSignalHandler], it is the only
+// thing that removes a container nobody stopped:
 //
 //	func TestMain(m *testing.M) {
 //		code := m.Run()
@@ -120,7 +121,7 @@ func PullImage(ctx context.Context, opts Options) error {
 //	}
 //
 // Every removal is attempted, all at the same time, even if one fails. The
-// error matches ErrReap, and is a [ReapError] with an entry for each
+// error matches [ErrReap], and is a [ReapError] with an entry for each
 // container that is still there:
 //
 //	var re *mongod.ReapError
@@ -130,6 +131,14 @@ func PullImage(ctx context.Context, opts Options) error {
 //		}
 //	}
 func ReapRunningContainers(ctx context.Context) error { return reaper.Reap(ctx) }
+
+// DisableSignalHandler stops this package from removing containers on
+// SIGINT or SIGTERM and then ending the process, which would skip a
+// program's own shutdown. Call it before the first Start, such as at the top
+// of main. It applies to every container, for the rest of the process, so
+// call [ReapRunningContainers] from your own shutdown or they are left
+// running.
+func DisableSignalHandler() { reaper.Disable() }
 
 // defaultClient finds the daemon the way the docker CLI does, once for the
 // process. A client keeps connections open and has no Close, so a client

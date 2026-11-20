@@ -60,6 +60,8 @@ var registry struct {
 	next    Handle
 	// handler is non-nil once a signal handler is installed.
 	handler chan os.Signal
+	// disabled stops Register installing a handler.
+	disabled bool
 }
 
 // signals are the ones handled: SIGINT and SIGTERM. SIGKILL cannot be
@@ -79,7 +81,7 @@ func Register(name string, tear func(context.Context) error, log Logger) Handle 
 	defer registry.mu.Unlock()
 	registry.next++
 	registry.entries = append(registry.entries, entry{handle: registry.next, name: name, tear: tear, log: log})
-	if registry.handler == nil {
+	if registry.handler == nil && !registry.disabled {
 		installLocked(signals)
 	}
 	return registry.next
@@ -293,6 +295,35 @@ func (e *ReapError) Unwrap() []error {
 
 func (e *ReapError) Is(target error) bool { return target == ErrReap }
 
+// Disable removes the signal handler, if one is installed, and stops later
+// registrations installing one. Registrations are kept, so Reap still tears
+// them down. If a signal has already arrived, its reap still runs and the
+// process still exits.
+func Disable() {
+	registry.mu.Lock()
+	registry.disabled = true
+	ch := takeHandlerLocked()
+	registry.mu.Unlock()
+	stopHandler(ch)
+}
+
+// takeHandlerLocked clears the installed handler and returns it, or nil.
+// The caller holds the registry lock.
+func takeHandlerLocked() chan os.Signal {
+	ch := registry.handler
+	registry.handler = nil
+	return ch
+}
+
+// stopHandler stops a handler taken from the registry, if there was one,
+// and ends its goroutine.
+func stopHandler(ch chan os.Signal) {
+	if ch != nil {
+		signal.Stop(ch)
+		close(ch)
+	}
+}
+
 // Installed reports whether a signal handler is in place.
 func Installed() bool {
 	registry.mu.Lock()
@@ -332,7 +363,7 @@ func filterSignals(wanted []os.Signal, ignored func(os.Signal) bool) []os.Signal
 func reapOnSignal(ch chan os.Signal) {
 	sig, ok := <-ch
 	if !ok {
-		return // the handler was removed, which only the tests do
+		return // the handler was removed
 	}
 	// Stop handling first, so a second Ctrl-C kills at once. Only this
 	// signal is reset: Reset undoes every package's Notify for it.
@@ -486,17 +517,15 @@ func exitCodeFor(sig os.Signal) int {
 	return 1
 }
 
-// stopForTest empties the registry and removes any handler, because the
-// tests in this package share the one global registry.
+// stopForTest resets the global registry, which this package's tests share.
+// It drops every registration and any handler, and lets the next Register
+// install a handler again.
 func stopForTest() {
 	registry.mu.Lock()
-	ch := registry.handler
-	registry.handler = nil
 	registry.entries = nil
 	registry.running = nil
+	registry.disabled = false
+	ch := takeHandlerLocked()
 	registry.mu.Unlock()
-	if ch != nil {
-		signal.Stop(ch)
-		close(ch)
-	}
+	stopHandler(ch)
 }

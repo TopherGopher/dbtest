@@ -36,7 +36,7 @@ func TestTheErrorReportsWhatTheLastCompletedPollFound(t *testing.T) {
 
 		_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(80*time.Millisecond))
 
-		assert.ErrorIs(t, err, mongod.ErrHelloRefused, "what the wait last learned is kept, not replaced by the timeout that ended it")
+		assert.ErrorIs(t, err, mongod.ErrHelloRefused, "the last poll's refusal is kept")
 	})
 
 	t.Run("a completed poll replaces what the one before found", func(t *testing.T) {
@@ -54,7 +54,7 @@ func TestTheErrorReportsWhatTheLastCompletedPollFound(t *testing.T) {
 		require.ErrorIs(t, err, mongod.ErrNoReply, "the last poll found nothing answering")
 		assert.NotErrorIs(t, err, mongod.ErrHelloRefused, "so the earlier refusal is not reported")
 		var notReady *mongod.NotReadyError
-		require.ErrorAs(t, err, &notReady, "with the details")
+		require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
 		assert.True(t, mongod.AddressInDoubt(notReady), "nothing answering is what a wrong address looks like")
 	})
 }
@@ -66,7 +66,7 @@ func TestAMongodThatIgnoresItsCredentialsIsRefused(t *testing.T) {
 
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(300*time.Millisecond).WithAuth("admin", "secret"))
 
-	require.ErrorIs(t, err, mongod.ErrAuthNotEnforced, "an open mongod must not be returned behind a URI that claims credentials")
+	require.ErrorIs(t, err, mongod.ErrAuthNotEnforced, "an open mongod is not returned")
 	assert.ErrorIs(t, err, mongod.ErrNotReady, "it was waited on, in case it was an image's set-up mongod")
 	var open *mongod.AuthNotEnforcedError
 	require.ErrorAs(t, err, &open, "the error names the container")
@@ -118,7 +118,7 @@ func TestStartDoesNotNeedTheProcessList(t *testing.T) {
 
 			_, err := start(t, m, tc.opts.WithStartTimeout(10*time.Second))
 
-			assert.NoError(t, err, "a mongod that answers, and enforces any credentials it was given, is ready")
+			assert.NoError(t, err, "an enforcing mongod is ready")
 		})
 	}
 }
@@ -179,7 +179,7 @@ func TestACredentialsCheckThatSettlesLaterIsReady(t *testing.T) {
 
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(10*time.Second).WithAuth("admin", "secret"))
 
-	assert.NoError(t, err, "once mongod refuses an unauthenticated command, it enforces its credentials")
+	assert.NoError(t, err, "a refused command means credentials are enforced")
 }
 
 // A failed hello whose inspect also fails says nothing about the container,
@@ -263,7 +263,7 @@ func TestStartWaitsForTheHealthCheckAnImageDeclares(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, err, "the check passes inside the timeout")
-	assert.True(t, *healthy, "a mongod that answers is not returned while its image says it is still starting")
+	assert.True(t, *healthy, "returned only once the image reported healthy")
 }
 
 func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {
@@ -291,8 +291,8 @@ func TestAPortWhereSomethingOtherThanMongodAnswersIsNotReady(t *testing.T) {
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a reply that is not mongod's does not make the address a mongod")
 	assert.ErrorIs(t, err, mongod.ErrNotMongod, "and the error says that something else answered")
 	var notReady *mongod.NotReadyError
-	require.ErrorAs(t, err, &notReady, "with the details")
-	assert.True(t, mongod.AddressInDoubt(notReady), "the address may be the wrong one, so the error says how to correct it")
+	require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+	assert.True(t, mongod.AddressInDoubt(notReady), "the error says how to correct the address")
 }
 
 func TestAPortThatAnswersWithGarbageIsNotReady(t *testing.T) {
@@ -320,8 +320,8 @@ func TestAMongodThatAnswersWithAnErrorIsNotReady(t *testing.T) {
 	require.ErrorIs(t, err, mongod.ErrNotReady, "a server that refuses commands is not ready for a test's")
 	assert.ErrorIs(t, err, mongod.ErrHelloRefused, "the server's own refusal reaches the caller")
 	var notReady *mongod.NotReadyError
-	require.ErrorAs(t, err, &notReady, "with the details")
-	assert.False(t, mongod.AddressInDoubt(notReady), "a mongod answered, so the address is right and advice about it would mislead")
+	require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+	assert.False(t, mongod.AddressInDoubt(notReady), "the error does not blame the address")
 }
 
 // A server from before the hello command says it does not know it, which
@@ -364,8 +364,8 @@ func TestAFailureToAskTheDaemonIsNotBlamedOnTheAddress(t *testing.T) {
 			require.ErrorIs(t, err, mongod.ErrNotReady, "the start runs out of time")
 			assert.ErrorIs(t, err, refused, "the daemon's own error is kept")
 			var notReady *mongod.NotReadyError
-			require.ErrorAs(t, err, &notReady, "with the details")
-			assert.False(t, mongod.AddressInDoubt(notReady), "the daemon failed, not the address, so advice about the address would mislead")
+			require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+			assert.False(t, mongod.AddressInDoubt(notReady), "the error does not blame the address")
 		})
 	}
 }
@@ -399,7 +399,7 @@ func TestAnImageWithNoHealthCheckIsNotWaitedOn(t *testing.T) {
 
 			_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(5*time.Second))
 
-			assert.NoError(t, err, "this is what the daemon reports for an image that declares no check, so there is nothing to wait for")
+			assert.NoError(t, err, "no check, nothing to wait for")
 		})
 	}
 }

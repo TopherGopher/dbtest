@@ -38,7 +38,7 @@ func TestIgnoredSignalsAreLeftIgnored(t *testing.T) {
 
 	ready := firstLine(t, stdout, 2*time.Minute)
 	require.Equal(t, "ready true", ready,
-		"SIGTERM is not ignored here, so there is still something worth listening for and the handler has to go in; %q means the filter threw away the whole set", ready)
+		"SIGTERM is still worth listening for; got %q", ready)
 
 	require.NoError(t, cmd.Process.Signal(syscall.SIGINT), "sending SIGINT to the helper must succeed")
 
@@ -46,9 +46,9 @@ func TestIgnoredSignalsAreLeftIgnored(t *testing.T) {
 	// re-raised: the reap is immediate here, and the re-raise follows it.
 	time.Sleep(2 * time.Second)
 	require.NoError(t, cmd.Process.Signal(syscall.Signal(0)),
-		"the process was started with SIGINT ignored and must still be running: registering a container must not change how a process answers a signal it never asked about, which is the same bug as installing a handler from an init()")
+		"an ignored SIGINT does not end the process")
 	assert.NoFileExists(t, marker,
-		"and nothing may have been torn down either, since the signal that would have triggered it was one this process was told to ignore")
+		"nor tear anything down")
 
 	// The other half: a signal that was not ignored still works, so the
 	// filter has not simply disabled the package.
@@ -56,10 +56,10 @@ func TestIgnoredSignalsAreLeftIgnored(t *testing.T) {
 	state := waitFor(t, cmd, 60*time.Second)
 
 	status, ok := state.Sys().(syscall.WaitStatus)
-	require.True(t, ok, "this test is unix-only, where a wait status is how a signal death is observed")
-	assert.True(t, status.Signaled(), "SIGTERM was not ignored, so the handler installed for it has to reap and then let the process die of it (exit code was %d)", state.ExitCode())
+	require.True(t, ok, "the test is unix-only")
+	assert.True(t, status.Signaled(), "SIGTERM reaps, then ends the process (exit code %d)", state.ExitCode())
 	assert.Equal(t, syscall.SIGTERM, status.Signal(), "and it has to die of the signal it was sent")
-	assert.FileExists(t, marker, "the teardown registered with the reaper has to have run for the signal that was not ignored")
+	assert.FileExists(t, marker, "the teardown ran")
 }
 
 // buildIgnoreHelper compiles the helper for this test.
@@ -84,7 +84,7 @@ func TestASignalledHelperKeepsItsCoverage(t *testing.T) {
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Start(), "the helper binary must start")
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
-	require.Equal(t, "ready true", firstLine(t, stdout, 2*time.Minute), "the helper has registered its teardown, and the reaper's handler is installed")
+	require.Equal(t, "ready true", firstLine(t, stdout, 2*time.Minute), "the helper registered, with the handler installed")
 
 	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM), "sending SIGTERM to the helper must succeed")
 	state := waitFor(t, cmd, 60*time.Second)

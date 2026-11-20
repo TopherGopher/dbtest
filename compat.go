@@ -124,5 +124,6 @@ func (inst *Instance) ExecCommandInMongoContainer(cmd []string) (string, error) 
 
 // ReapRunningContainers is a convenience wrapper around
 // mongod.ReapRunningContainers that discards its error; new code may prefer
-// that function.
+// that function. A program with its own SIGINT or SIGTERM handling calls
+// mongod.DisableSignalHandler, then this from its shutdown.
 func ReapRunningContainers() { _ = mongod.ReapRunningContainers(context.Background()) }

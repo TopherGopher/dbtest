@@ -36,6 +36,11 @@ yet removed is force-removed, and the signal is raised again so the process
 still exits. This covers ++ctrl+c++ during a run. A second ++ctrl+c++ while
 the containers are being removed stops the process at once.
 
+The process exits even if the program installed a handler of its own, so its
+own shutdown never runs. A program that handles these signals itself calls
+`mongod.DisableSignalHandler()` before the first container starts, then
+removes the containers from its shutdown with `ReapRunningContainers`.
+
 You can remove the same containers yourself, for instance from a `TestMain`.
 `mongod.ReapRunningContainers` returns an error naming any container it could
 not remove:

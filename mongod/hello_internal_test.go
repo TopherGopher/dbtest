@@ -186,7 +186,7 @@ func FuzzHelloReply(f *testing.F) {
 		err := readHelloReply(peer)
 
 		known := err == nil || isOneOf(err, errHelloRefused, errNotMongod, errNoReply)
-		assert.True(t, known, "every reply is ok, an error from the server, not mongod, or nothing: got %v", err)
+		assert.True(t, known, "ok, a server error, or nothing: got %v", err)
 		assert.LessOrEqual(t, after.read, maxReplyLen, "a peer's stated length is never followed past the cap")
 	})
 }

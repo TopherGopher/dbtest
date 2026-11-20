@@ -91,7 +91,7 @@ func TestWhatAShellThatFailedToInitiateSaidReachesTheCaller(t *testing.T) {
 	require.ErrorAs(t, err, &failed, "and the error holds what the shell said")
 	assert.Equal(t, "mongosh", failed.Shell, "which shell")
 	assert.Equal(t, 1, failed.ExitCode, "how it exited")
-	assert.Equal(t, said, strings.TrimSpace(failed.Stderr), "and what it wrote to standard error, which is where mongosh explains itself")
+	assert.Equal(t, said, strings.TrimSpace(failed.Stderr), "with what mongosh wrote to stderr")
 }
 
 // A shell that ran and failed is not a missing shell: trying the other one
@@ -125,7 +125,7 @@ func TestWithReplicaSetInitiatesTheSet(t *testing.T) {
 
 	mustStart(t, m, mongod.DefaultOptions().WithReplicaSet("rs0"))
 
-	assert.Len(t, *commands, 1, "a member that is never initiated accepts no writes, so Start initiates it")
+	assert.Len(t, *commands, 1, "Start initiates the member")
 }
 
 // A command line is visible to every user of the daemon's host, so the
@@ -194,7 +194,7 @@ func TestAnInitiationThatFinishesAsTheTimeoutPassesIsStillAStart(t *testing.T) {
 
 	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0").WithStartTimeout(150*time.Millisecond))
 
-	assert.NoError(t, err, "a set that accepts writes is what was asked for, however close to the deadline it came")
+	assert.NoError(t, err, "a set that accepts writes is a start")
 }
 
 func TestAnEmptyReplicaSetNameIsRefused(t *testing.T) {

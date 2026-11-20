@@ -130,7 +130,7 @@ func TestStartsAndPullImageThatNeedTheSameImageShareOnePull(t *testing.T) {
 	for range callers {
 		assert.NoError(t, receive(t, done), "every caller gets the image")
 	}
-	assert.Len(t, m.CallsTo("ImagePull"), 1, "parallel tests on a fresh machine ask the registry once, not once each, which keeps them under Docker Hub's limit")
+	assert.Len(t, m.CallsTo("ImagePull"), 1, "the registry is asked once")
 }
 
 func TestTheSameImageNamedTwoWaysSharesOnePull(t *testing.T) {
@@ -304,7 +304,7 @@ func TestAPullNobodyIsWaitingForIsAbandoned(t *testing.T) {
 	select {
 	case <-abandoned:
 	case <-time.After(10 * time.Second):
-		require.Fail(t, "a pull nobody is waiting for should be cancelled, not left running against the registry")
+		require.Fail(t, "an abandoned pull is cancelled")
 	}
 
 	assert.NoError(t, mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m)), "a later caller starts a pull of its own")
