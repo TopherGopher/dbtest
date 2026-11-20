@@ -50,7 +50,7 @@ func TestIntegrationSignalReapsAndStillDies(t *testing.T) {
 			})
 
 			_, err = docker.ContainerInspect(context.Background(), id)
-			require.NoError(t, err, "the container the helper reported must exist before it is signalled; otherwise this test proves nothing about the reap")
+			require.NoError(t, err, "the container exists before the signal")
 
 			require.NoError(t, cmd.Process.Signal(sig), "sending %s to the helper must succeed", sig)
 
@@ -60,15 +60,15 @@ func TestIntegrationSignalReapsAndStillDies(t *testing.T) {
 			state := waitFor(t, cmd, 60*time.Second)
 
 			status, ok := state.Sys().(syscall.WaitStatus)
-			require.True(t, ok, "this test is unix-only, where a wait status is how a signal death is observed")
+			require.True(t, ok, "the test is unix-only")
 			assert.True(t, status.Signaled(),
-				"the process has to die of the signal, not exit on its own terms: a handler that reaps and returns leaves Ctrl-C no longer terminating, which is the bug this replaces (exit code was %d)", state.ExitCode())
+				"the process dies of the signal (exit code %d)", state.ExitCode())
 			assert.Equal(t, sig, status.Signal(),
-				"and it has to die of the signal it was actually sent, since that is what the shell and any supervisor will report")
+				"of the signal it was sent")
 
 			_, err = docker.ContainerInspect(context.Background(), id)
 			assert.True(t, dockerclient.IsNotFound(err),
-				"container %s (%s) is still there after the process was signalled, so the reap did not run or did not finish; err was %v", name, id, err)
+				"container %s (%s) was not reaped; err %v", name, id, err)
 		})
 	}
 }
@@ -113,7 +113,7 @@ func firstLine(t *testing.T, stdout interface{ Read([]byte) (int, error) }, time
 		require.NoError(t, got.err, "reading the helper's first line must succeed")
 		return got.text
 	case <-time.After(timeout):
-		require.Fail(t, "the helper never announced itself", "it may be building or pulling, or it may have died before printing anything")
+		require.Fail(t, "the helper never announced itself", "it may be pulling, or it died before printing")
 		return ""
 	}
 }
@@ -127,13 +127,13 @@ func waitFor(t *testing.T, cmd *exec.Cmd, timeout time.Duration) *os.ProcessStat
 	case err := <-done:
 		var exit *exec.ExitError
 		if err != nil && !errors.As(err, &exit) {
-			require.NoError(t, err, "waiting for the helper must not fail for any reason other than its exit status")
+			require.NoError(t, err, "only the exit status may fail")
 		}
 		return cmd.ProcessState
 	case <-time.After(timeout):
 		_ = cmd.Process.Kill()
 		require.Fail(t, "the helper did not exit after being signalled",
-			"it reaped but kept running, or the reap itself hung; either way a signalled process has to end")
+			"a signalled process ends")
 		return nil
 	}
 }
@@ -142,7 +142,7 @@ func waitFor(t *testing.T, cmd *exec.Cmd, timeout time.Duration) *os.ProcessStat
 func liveDocker(t *testing.T) dockerclient.Client {
 	t.Helper()
 	client, err := dockerapi.FromEnv()
-	require.NoError(t, err, "reaper integration: cannot configure a Docker client; set DOCKER_HOST to point at a running Docker daemon")
+	require.NoError(t, err, "no Docker client; set DOCKER_HOST to a running daemon")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	t.Cleanup(cancel)
 	require.NoError(t, client.Negotiate(ctx), "reaper integration: no Docker daemon reachable at %s", client.Host())

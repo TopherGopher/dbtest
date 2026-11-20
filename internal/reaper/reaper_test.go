@@ -45,7 +45,7 @@ func TestReapRunsEveryTeardown(t *testing.T) {
 	require.NoError(t, Reap(context.Background()), "every teardown succeeds, so the reap does")
 
 	assert.ElementsMatch(t, []string{"first", "second", "third"}, torn, "every registration is torn down, in no promised order")
-	assert.Empty(t, Names(), "a reaped registration is gone; leaving it would tear the same container down twice")
+	assert.Empty(t, Names(), "a reaped registration is gone")
 }
 
 func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
@@ -60,10 +60,10 @@ func TestReapReportsEveryFailureAndStillRunsTheRest(t *testing.T) {
 
 	err := Reap(context.Background())
 
-	require.Error(t, err, "two teardowns failed, so the reap did")
+	require.Error(t, err, "the reap fails when any teardown fails")
 	assert.ErrorIs(t, err, first, "the first failure is reported")
-	assert.ErrorIs(t, err, second, "and so is the second; a reaper that stopped at the first would leak everything after it")
-	assert.EqualValues(t, 4, ran.Load(), "every teardown runs regardless, because the containers left behind are the thing being prevented")
+	assert.ErrorIs(t, err, second, "the second is reported too")
+	assert.EqualValues(t, 4, ran.Load(), "every teardown runs")
 }
 
 func TestReapNamesWhatFailed(t *testing.T) {
@@ -94,7 +94,7 @@ func TestReapListsFailuresInRegistrationOrder(t *testing.T) {
 	for _, failed := range reap.Failures {
 		names = append(names, failed.Name)
 	}
-	assert.Equal(t, []string{"first", "second", "third"}, names, "teardowns run together, so the report is in the order things were started")
+	assert.Equal(t, []string{"first", "second", "third"}, names, "reported in the order they were started")
 }
 
 // One removal that never returns must not cost every other container: on a
@@ -129,8 +129,8 @@ func TestOneStuckTeardownDoesNotStopTheOthers(t *testing.T) {
 
 	err := Reap(ctx)
 
-	require.ErrorIs(t, err, stillStuck, "the rest were removed while the stuck one was still stuck, and it is reported")
-	assert.EqualValues(t, others, removed.Load(), "all of them")
+	require.ErrorIs(t, err, stillStuck, "the stuck teardown is reported")
+	assert.EqualValues(t, others, removed.Load(), "every other teardown ran")
 }
 
 // A teardown runs on a goroutine of its own, where a panic would end the
@@ -149,7 +149,7 @@ func TestATeardownThatPanicsIsReportedAndTheRestStillRun(t *testing.T) {
 	assert.ErrorIs(t, err, errPanicked, "saying that its removal panicked")
 	assert.True(t, removed, "the other container is removed all the same")
 	registered, running := outstanding()
-	assert.Zero(t, registered+running, "and nothing is left counted as still being removed, which would hold a signal's reap open")
+	assert.Zero(t, registered+running, "nothing is left counted as in progress")
 }
 
 // The process is dying, so what it writes is all the reader gets: it has to
@@ -164,7 +164,7 @@ func TestWhatIsLeftBehindIsEveryFailureAndEverythingUnfinished(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"mongotest-1a2b3c4d", "mongotest-5e6f7a8b", "mongotest-9c0d1e2f"}, left.names(),
-		"a container whose removal failed and one there was no time to try are both still there to remove by hand")
+		"failed and untried containers are both reported")
 }
 
 func TestASignalsReapWritesWhatItLeftBehind(t *testing.T) {
@@ -214,11 +214,11 @@ func TestReapStopsAtTheContextDeadline(t *testing.T) {
 	select {
 	case err = <-reaped:
 	case <-time.After(5 * time.Second):
-		require.Fail(t, "Reap did not return when its context ended: one stuck teardown must not hang the reaper")
+		require.Fail(t, "Reap returns when its context ends")
 	}
 
 	var failed *TeardownError
-	require.ErrorAs(t, err, &failed, "the teardown never finished, so the reap reports it rather than pretending")
+	require.ErrorAs(t, err, &failed, "the unfinished teardown is reported")
 	assert.Equal(t, "hangs", failed.Name, "the error names the container that may be left")
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "the context deadline is what ended it")
 }
@@ -228,11 +228,11 @@ func TestUnregisterKeepsAReapFromTouchingIt(t *testing.T) {
 	torn := false
 	handle := Register("stopped-already", func(context.Context) error { torn = true; return nil }, nil)
 
-	assert.True(t, Unregister(handle), "the handle was registered, so unregistering it reports that it did something")
+	assert.True(t, Unregister(handle), "reports that it removed something")
 	require.NoError(t, Reap(context.Background()), "there is nothing left to reap")
 
-	assert.False(t, torn, "a container its owner already stopped must not be torn down again; the second removal would be a 404 at best and another caller's container at worst")
-	assert.False(t, Unregister(handle), "unregistering twice reports that the second call found nothing, which is how a double Stop stays silent")
+	assert.False(t, torn, "an unregistered container is not torn down")
+	assert.False(t, Unregister(handle), "a second unregister finds nothing")
 }
 
 func TestNamesReportsWhatWouldBeReaped(t *testing.T) {
@@ -240,10 +240,10 @@ func TestNamesReportsWhatWouldBeReaped(t *testing.T) {
 	Register("first", func(context.Context) error { return nil }, nil)
 	second := Register("second", func(context.Context) error { return nil }, nil)
 
-	assert.Equal(t, []string{"first", "second"}, Names(), "Names is in registration order, because that is the order they were started in")
+	assert.Equal(t, []string{"first", "second"}, Names(), "in registration order")
 
 	Unregister(second)
-	assert.Equal(t, []string{"first"}, Names(), "and it tracks what is actually still registered, which is what makes a leak diagnosable")
+	assert.Equal(t, []string{"first"}, Names(), "only what is still registered")
 }
 
 func TestHandlesAreNotReused(t *testing.T) {
@@ -253,16 +253,16 @@ func TestHandlesAreNotReused(t *testing.T) {
 	second := Register("second", func(context.Context) error { return nil }, nil)
 
 	assert.NotEqual(t, first, second,
-		"handles are never reused, so a stale Unregister from a container that already stopped cannot remove a different container that started afterwards")
+		"a stale handle removes nothing newer")
 }
 
 func TestRegisterInstallsTheHandlerLazily(t *testing.T) {
 	resetForTest(t)
-	assert.False(t, Installed(), "nothing is installed until something is registered: importing this package must not change how a binary responds to Ctrl-C")
+	assert.False(t, Installed(), "nothing is installed before a registration")
 
 	Register("first", func(context.Context) error { return nil }, nil)
 
-	assert.True(t, Installed(), "the first registration installs the handler, because only then is there anything to reap")
+	assert.True(t, Installed(), "the first registration installs the handler")
 }
 
 func TestRegisterIsSafeUnderConcurrentUse(t *testing.T) {
@@ -294,13 +294,13 @@ func TestRegisterIsSafeUnderConcurrentUse(t *testing.T) {
 	require.NoError(t, Reap(context.Background()), "the reap succeeds")
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Len(t, torn, workers/2, "exactly the registrations nobody unregistered were torn down; parallel tests register and unregister from many goroutines at once, so the registry has to be correct under that and not merely race-free")
+	assert.Len(t, torn, workers/2, "exactly what was never unregistered is torn down")
 }
 
 func TestReapWithNothingRegisteredIsNil(t *testing.T) {
 	resetForTest(t)
 
-	assert.NoError(t, Reap(context.Background()), "a process that started no containers has nothing to tear down, and a deferred reap should not have to check first")
+	assert.NoError(t, Reap(context.Background()), "reaping nothing is not an error")
 }
 
 func TestReapUntilEmptyTearsDownWhatRegistersWhileItRuns(t *testing.T) {
@@ -315,7 +315,7 @@ func TestReapUntilEmptyTearsDownWhatRegistersWhileItRuns(t *testing.T) {
 
 	require.Empty(t, reapUntilEmpty(context.Background()), "both teardowns succeed")
 
-	assert.True(t, late, "a signal does not stop the rest of the process, so something registered during the reap is still this process's to remove before it dies")
+	assert.True(t, late, "a registration made during the reap is reaped too")
 	assert.Empty(t, Names(), "nothing is left registered when the signal is re-raised")
 }
 
@@ -342,10 +342,10 @@ func TestReapUntilEmptyGivesUpAtItsDeadline(t *testing.T) {
 
 	failures := reapUntilEmpty(ctx)
 
-	require.Len(t, failures, rounds, "it goes round again while there is time, and what went wrong on the way is reported")
+	require.Len(t, failures, rounds, "it retries while there is time, and reports failures")
 	assert.ErrorIs(t, failures[0], failure, "with its cause")
-	assert.Equal(t, rounds, attempts, "and it stops when the time is up")
-	assert.NotEmpty(t, Names(), "rather than holding a dying process open for something that never drains")
+	assert.Equal(t, rounds, attempts, "no round starts after the deadline")
+	assert.NotEmpty(t, Names(), "a teardown that keeps re-registering is left registered")
 }
 
 func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
@@ -369,7 +369,7 @@ func TestReapUntilEmptyWaitsForAReapAlreadyRunning(t *testing.T) {
 
 	select {
 	case <-done:
-		assert.Fail(t, "the signal path returned while a teardown was still running, so the process would die and leave it unfinished")
+		assert.Fail(t, "reapUntilEmpty waits for a teardown already running")
 	case <-time.After(100 * time.Millisecond):
 	}
 	close(release)
@@ -431,5 +431,5 @@ func TestAStuckRemovalIsNamedOnce(t *testing.T) {
 	defer cancel()
 	left := reapLeavingBehind(ctx)
 
-	assert.Equal(t, []string{"mongotest-1a2b3c4d"}, left.names(), "a stuck removal is named once, so the docker rm command it prints works")
+	assert.Equal(t, []string{"mongotest-1a2b3c4d"}, left.names(), "a stuck removal is named once")
 }

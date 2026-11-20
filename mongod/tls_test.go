@@ -194,7 +194,7 @@ func TestWithTLSMakesMongodRequireIt(t *testing.T) {
 	keyFile, passed := flagValue(cmd, "--tlsCertificateKeyFile")
 	require.True(t, passed, "mongod is given a certificate")
 	_, err := tls.X509KeyPair(into.file(t, keyFile), into.file(t, keyFile))
-	assert.NoError(t, err, "in a file holding the certificate and its key, which mongod reads together")
+	assert.NoError(t, err, "certificate and key in one file")
 	// Whether mongod accepts these flags is for the integration test to show.
 	caFile, passed := flagValue(cmd, "--tlsCAFile")
 	require.True(t, passed, "mongod 7.0.10 and later need a CA file")
@@ -337,7 +337,7 @@ func TestTheShellUsesTLSWhenMongodRequiresIt(t *testing.T) {
 			assert.Contains(t, cmd, "--tls", "the shell connects with TLS")
 			caFile, _ := flagValue(cmd, "--tlsCAFile")
 			assert.NoError(t, signedBy(t, into.file(t, keyFile), into.file(t, caFile), "127.0.0.1"),
-				"trusting the CA that signed mongod's certificate, at the address the shell dials")
+				"trusting the CA, at the dialled address")
 		}
 	})
 	t.Run("without TLS", func(t *testing.T) {

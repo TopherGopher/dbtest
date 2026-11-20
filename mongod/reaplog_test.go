@@ -83,7 +83,7 @@ func TestAContainerLeftAfterASignalIsLoggedToItsStartsLogger(t *testing.T) {
 		logged = append(logged, r)
 	}
 	assert.Contains(t, logged, logRecord{Level: "ERROR", Container: name, Signal: syscall.SIGTERM.String()},
-		"the logger given to WithLogger is told about the container the signal left behind")
+		"the caller's logger is told")
 }
 
 // nextRecord returns the next record, or fails rather than hanging.

@@ -20,5 +20,5 @@ func TestTheDefaultClientIsCreatedOnceAndShared(t *testing.T) {
 	second, err := config{}.client()
 	require.NoError(t, err, "and asked for again")
 
-	assert.Same(t, first, second, "starts that are given no client share one, so its connections are opened once for the whole process")
+	assert.Same(t, first, second, "starts with no client share one")
 }

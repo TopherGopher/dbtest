@@ -134,7 +134,7 @@ func TestRunScriptNeverPutsThePasswordOnTheCommandLine(t *testing.T) {
 	require.NoError(t, err, "the script runs")
 	require.Len(t, *commands, 1, "in one shell")
 	assert.False(t, mentions((*commands)[0], password),
-		"the shell reads the password inside the container: a command line is visible to every user of the daemon's host")
+		"the password is not on the command line")
 }
 
 // The shell has to log in on a container with credentials and not try to on

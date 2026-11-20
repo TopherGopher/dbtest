@@ -29,7 +29,7 @@ func TestPullImageLeavesAnImageTheDaemonHasAlone(t *testing.T) {
 	inspections := m.CallsTo("ImageInspect")
 	require.Len(t, inspections, 1, "the daemon is asked whether it has the image")
 	assert.Equal(t, "docker.io/library/mongo:8.0", inspections[0].Args[0], "and it is asked about the image a start would run")
-	assert.Empty(t, m.CallsTo("ImagePull"), "pulling it again would be a trip to the registry for nothing, and can hit a rate limit")
+	assert.Empty(t, m.CallsTo("ImagePull"), "a present image is not pulled")
 }
 
 func TestPullImagePullsAnImageTheDaemonLacks(t *testing.T) {
@@ -43,7 +43,7 @@ func TestPullImagePullsAnImageTheDaemonLacks(t *testing.T) {
 	require.Len(t, inspections, 1, "the daemon is asked whether it has the image")
 	require.Len(t, pulls, 1, "and the image is pulled once")
 	assert.Equal(t, "docker.io/library/mongo:7.0", pulls[0].Args[0], "it is the image a start with these options would run")
-	assert.Equal(t, pulls[0].Args[0], inspections[0].Args[0], "and the one the daemon was asked about, not some other it happens to have")
+	assert.Equal(t, pulls[0].Args[0], inspections[0].Args[0], "the image asked about")
 	assert.Empty(t, m.CallsTo("ContainerCreate"), "no container is created")
 }
 
@@ -136,7 +136,7 @@ func TestAPullWithinThePullTimeoutMayOutlastTheStartTimeout(t *testing.T) {
 
 	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(startTimeout).WithPullTimeout(time.Minute))
 
-	assert.NoError(t, err, "the pull has its own bound, and the start timeout begins again once the image is there")
+	assert.NoError(t, err, "the start timeout restarts after the pull")
 }
 
 func TestTheCallersContextEndsAPullBeforeThePullTimeout(t *testing.T) {

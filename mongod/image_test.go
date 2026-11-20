@@ -36,7 +36,7 @@ func TestParseMongoImage(t *testing.T) {
 			got, err := mongod.ParseMongoImage(tc.ref)
 
 			require.NoError(t, err, "a reference docker accepts is parsed")
-			assert.Equal(t, tc.want, got, "into the parts it names, with a short name spelled out as Docker Hub's and a named registry left alone")
+			assert.Equal(t, tc.want, got, "split into its parts, with Docker Hub spelled out")
 		})
 	}
 }
@@ -56,7 +56,7 @@ func TestParseMongoImageRefusesWhatDockerWould(t *testing.T) {
 }
 
 func TestMustParseMongoImagePanicsOnAReferenceDockerWouldRefuse(t *testing.T) {
-	assert.Panics(t, func() { mongod.MustParseMongoImage("Mongo:8") }, "it is for a reference written in the source, where an error has nowhere to go")
+	assert.Panics(t, func() { mongod.MustParseMongoImage("Mongo:8") }, "for a reference written in the source")
 	assert.Equal(t, "docker.io/library/mongo:8.0", mongod.MustParseMongoImage("mongo:8.0").Reference(), "and returns a good one, under its full name")
 }
 

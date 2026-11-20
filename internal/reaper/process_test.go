@@ -61,7 +61,7 @@ func TestASecondSignalDuringAReapEndsTheProcessAtOnce(t *testing.T) {
 	require.NoError(t, h.cmd.Process.Signal(syscall.SIGTERM), "the second signal arrives during the reap")
 	state := h.waitForExit(t, 10*time.Second)
 
-	assert.Equal(t, syscall.SIGTERM, signalOf(t, state), "the process dies of the second signal without waiting for the stuck teardown, which is what a second Ctrl-C means")
+	assert.Equal(t, syscall.SIGTERM, signalOf(t, state), "a second signal ends the process at once")
 }
 
 func TestTheReapAfterASignalStopsAtItsTimeout(t *testing.T) {
@@ -73,7 +73,7 @@ func TestTheReapAfterASignalStopsAtItsTimeout(t *testing.T) {
 
 	state := h.waitForExit(t, 20*time.Second)
 
-	assert.Equal(t, syscall.SIGTERM, signalOf(t, state), "a teardown that never returns cannot keep a dying process alive: the reap gives up and the signal still ends it")
+	assert.Equal(t, syscall.SIGTERM, signalOf(t, state), "a stuck teardown cannot keep the process alive")
 	assert.GreaterOrEqual(t, time.Since(signalled), timeout, "the reap gave the stuck teardown its whole timeout before giving up")
 }
 

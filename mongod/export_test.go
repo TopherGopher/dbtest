@@ -1,7 +1,8 @@
 package mongod
 
 import (
-	"github.com/tophergopher/mongotest/internal/container"
+	"strings"
+
 	"github.com/tophergopher/mongotest/internal/pull"
 )
 
@@ -17,8 +18,9 @@ var (
 	ErrAuthUnknown  = errAuthUnknown
 )
 
-// AddressInDoubt reports whether the error advises correcting the address.
-func AddressInDoubt(e *NotReadyError) bool { return addressInDoubt(e.LastErr) }
+// AddressInDoubt reports whether the error tells the caller how to correct
+// the address, by naming EnvHostIP.
+func AddressInDoubt(err error) bool { return strings.Contains(err.Error(), EnvHostIP) }
 
 // The pull hooks live with the pulls; see the internal/pull package.
 var (
@@ -27,9 +29,6 @@ var (
 	ForgetSpentLimits  = pull.ForgetSpentLimits
 	SetRateLimitMemory = pull.SetRateLimitMemory
 )
-
-// ExitOutputLimit is how much of an exited container's output is kept.
-const ExitOutputLimit = container.ExitOutputLimit
 
 // NotReadyAdvice is the advice a start that ran out of time gives, after
 // lastErr.
