@@ -56,32 +56,6 @@ explained, and links out for signatures.
 | Identifier | Meaning |
 | --- | --- |
 | `ErrNotConnected` | The client could not connect to the server. |
-| `ErrNoContainer` | An instance from `Attach` was asked to run a script or command. |
-| `ErrCommandFailed` | A command or script run with the earlier methods exited non-zero. |
-
-### Earlier names
-
-The earlier names below still compile; calls through the easymongo
-connection do not (see CHANGELOG.md). New code uses the right-hand column.
-
-| Earlier name | New code uses |
-| --- | --- |
-| `TestConnection` | `Instance` |
-| `NewTestConnection(true)` | `Run` or `Start` |
-| `NewTestConnection(false)` | `Attach` |
-| `NewReplicaSetContainer(name)` | `StartWithOptions(ctx, DefaultOptions().WithReplicaSet(name))` |
-| `MongoClientWithContainer(f)` | `Run(t).Client` |
-| `KillMongoContainer()` | `Stop(ctx)` |
-| `MongoContainerID()` | `Container.ID()` |
-| `RunMongoScriptOnContainer(js)` | `Container.RunScript` |
-| `ExecCommandInMongoContainer(cmd)` | `Container.Exec` |
-| `GetAvailablePort()` | Leave the port to Docker. |
-| `ReapRunningContainers()` | `mongod.ReapRunningContainers`, which returns its error |
-| `GenerateCARoot()` | `WithTLS`, which makes a container's certificates itself |
-| `DatabaseExporter(db, coll)` | The `exporter` module; see [Moving from `DatabaseExporter`](../guides/exporting-data.md#moving-from-databaseexporter) |
-| `ErrFailedToConnectToDockerDaemon` | `dockerclient.ErrConnectionFailed`, the same value |
-| `ErrMongoContainerAlreadyRunning` | `dockerclient.ErrConflict`, the same value |
-| `ErrNoAvailablePorts` | Returned only by `GetAvailablePort`. |
 
 ## Docker client surface
 

@@ -37,8 +37,6 @@ to the member's own address, `localhost` inside the container, which the test
 cannot reach. Code that builds its own client should use `inst.URI()`
 unchanged.
 
-The earlier `NewReplicaSetContainer(name)` still works, and does the same.
-
 The [Atlas Local image](../reference/mongod.md#which-image) already runs as a
 replica set. Do not add `WithReplicaSet` with it; the start fails with
 `mongod.ErrUnsupportedForImage`.

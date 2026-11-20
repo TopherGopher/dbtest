@@ -37,6 +37,4 @@ An option beats the variable, and the variable beats the default. See
 
 ## Not read
 
-dbtest does not read `MONGO_URI`, `MONGODB_URI` or similar. The earlier
-`NewTestConnection(false)` always connects to `mongodb://127.0.0.1:27017`.
-To point tests at another server, pass its URI to `mongotest.Attach(ctx, uri)`.
+dbtest does not read `MONGO_URI`, `MONGODB_URI` or similar. To point tests at another server, pass its URI to `mongotest.Attach(ctx, uri)`.

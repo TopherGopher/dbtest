@@ -80,9 +80,3 @@ well-formed, image references must parse, destination directories must be
 absolute, file modes must be valid, port bindings must name a protocol. This
 means a test against `dockermock.NewFake()` rejects the same bad input a real
 daemon would, and the error is identical.
-
-## The root package's own errors
-
-The root package's `ErrFailedToConnectToDockerDaemon` and
-`ErrMongoContainerAlreadyRunning` are `ErrConnectionFailed` and `ErrConflict`
-under their earlier names.
