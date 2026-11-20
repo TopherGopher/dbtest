@@ -6,9 +6,10 @@ status: current
 
 # Exporting data
 
-The `exporter` module writes a collection to any `io.Writer` as JSON or CSV,
-using `mongoexport` from MongoDB's database tools. It is a module of its own,
-so only code that exports downloads those tools:
+The `exporter` module writes a collection to any `io.Writer` as JSON or CSV.
+It runs `mongoexport`, from MongoDB's database tools, as a Go library, so no
+`mongoexport` program needs to be installed. It is a module of its own, so
+only code that exports downloads those tools:
 
 ```sh
 go get github.com/tophergopher/mongotest/exporter
@@ -27,7 +28,7 @@ n, err := exporter.New(c.URI(), "app", "people").
     Query(`{"city": "Gotham"}`).
     Sort(`{"name": 1}`).
     Limit(100).
-    WriteJSON(f, exporter.JSONOptions{Canonical: true})
+    WriteJSON(t.Context(), f, exporter.JSONOptions{Canonical: true})
 require.NoError(t, err)
 ```
 
@@ -46,7 +47,7 @@ several exports.
 
 ## Formats
 
-`WriteJSON(w, opts)` writes
+`WriteJSON(ctx, w, opts)` writes
 [MongoDB Extended JSON](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/).
 By default it writes relaxed Extended JSON, one document per line.
 `JSONOptions` changes that:
@@ -54,12 +55,27 @@ By default it writes relaxed Extended JSON, one document per line.
 | Field | Effect |
 | --- | --- |
 | `Array` | One JSON array instead of one document per line. |
-| `Pretty` | Indented, for a person to read. |
+| `Pretty` | Indented over several lines, for a person to read. |
 | `Canonical` | Canonical Extended JSON, which keeps every BSON type exactly, such as `{"n": {"$numberInt": "1"}}`. Use it for fixtures you will import again. |
 
-`WriteCSV(w, fields)` writes a header naming the fields, then a row for each
-document. It needs at least one field. Name a nested field with dots, such as
-`address.city`.
+`WriteCSV(ctx, w, fields)` writes a header naming the fields, then a row for
+each document. It needs at least one field. Name a nested field with dots,
+such as `address.city`.
+
+
+## Timeouts and cancellation
+
+A deadline on the context limits how long an export waits to reach the
+server, unless the connection string sets `serverSelectionTimeoutMS`, which
+then applies instead. A deadline later than the driver's thirty seconds
+changes nothing.
+
+Once the context is cancelled or its deadline passes, the export stops at
+its next write, and its error matches the context's error as well as
+`ErrExport`. JSON is written a document at a time, CSV in blocks of several.
+
+The context cannot stop a read the server never answers: `mongoexport` does
+not pass it to MongoDB's Go driver.
 
 ## Files and compression
 
@@ -72,7 +88,7 @@ require.NoError(t, err)
 t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 compressed := gzip.NewWriter(f)
-_, err = exporter.New(c.URI(), "app", "people").WriteJSON(compressed, exporter.JSONOptions{})
+_, err = exporter.New(c.URI(), "app", "people").WriteJSON(t.Context(), compressed, exporter.JSONOptions{})
 require.NoError(t, err)
 require.NoError(t, compressed.Close())
 require.NoError(t, f.Close())
@@ -106,5 +122,5 @@ string the old `conn` used is `conn.URI()`.
 | `Database(name)`, `Collection(name)` | Pass them to `New`. |
 | `ToJSONFile(...)`, which wrote to a temporary file and returned its path | `os.CreateTemp`, then `WriteJSON` into it. |
 | `ToJSONFile`'s `compressToGZIP` argument | Wrap the file in `gzip.NewWriter`. |
-| `CSVFile()`, which could not be given fields | `WriteCSV(w, fields)` |
+| `CSVFile()`, which could not be given fields | `WriteCSV(ctx, w, fields)` |
 | `Filepath(path)` | `os.Create(path)`, then write into it. |
