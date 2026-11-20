@@ -183,6 +183,14 @@ func TestTLSFromEnv(t *testing.T) {
 		assert.NotNil(t, cfg.RootCAs, "ca.pem must populate the root pool")
 	})
 
+	t.Run("DOCKER_TLS_VERIFY alone takes the files from the Docker config directory", func(t *testing.T) {
+		t.Setenv("DOCKER_CONFIG", certDir)
+		cfg, err := tlsConfigFromEnv(env(map[string]string{"DOCKER_TLS_VERIFY": "1"}))
+		require.NoError(t, err, "ca.pem in DOCKER_CONFIG must load")
+		require.NotNil(t, cfg, "DOCKER_TLS_VERIFY turns TLS on")
+		assert.NotNil(t, cfg.RootCAs, "the CA in the config directory is trusted")
+	})
+
 	t.Run("no DOCKER_TLS_VERIFY means no tls", func(t *testing.T) {
 		cfg, err := tlsConfigFromEnv(env(map[string]string{"DOCKER_CERT_PATH": certDir}))
 		require.NoError(t, err, "an unset DOCKER_TLS_VERIFY is not an error")

@@ -1,21 +1,36 @@
-// Package exporter writes a MongoDB collection out as JSON or CSV, using
-// mongoexport from MongoDB's database tools. It lives in its own module so
+// Package exporter writes a MongoDB collection out as JSON or CSV. It runs
+// mongoexport, from MongoDB's database tools, as a Go library, so no
+// mongoexport program needs to be installed. It lives in its own module so
 // that only callers who export download those tools.
 //
-//	c, err := mongod.Start(ctx) // or any server's connection string
+//	c, err := mongod.Start(ctx)
 //	...
-//	n, err := exporter.New(c.URI(), "app", "people").WriteJSON(file, exporter.JSONOptions{})
+//	// c.URI() can be any MongoDB connection string.
+//	n, err := exporter.New(c.URI(), "app", "people").WriteJSON(ctx, file, exporter.JSONOptions{})
+//
+// A deadline on ctx limits how long an export waits to reach the server,
+// unless the connection string sets serverSelectionTimeoutMS, which then
+// applies instead; a deadline later than the driver's thirty seconds changes
+// nothing. Once ctx is cancelled or its deadline passes, the export stops at
+// its next write, and its error matches ctx.Err() as well as ErrExport. JSON
+// is written a document at a time, CSV in blocks of several. ctx cannot stop
+// a read the server never answers: mongoexport does not pass it to MongoDB's
+// Go driver.
 package exporter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mongodb/mongo-tools/common/progress"
 	"github.com/mongodb/mongo-tools/mongoexport"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 )
 
 // ErrExport is what every error from WriteJSON and WriteCSV matches. The
@@ -73,7 +88,8 @@ type JSONOptions struct {
 
 // WriteJSON writes the documents to w as Extended JSON, and returns how many
 // documents it wrote. If it fails partway, w holds what was written so far.
-func (e Exporter) WriteJSON(w io.Writer, opts JSONOptions) (documents int64, err error) {
+// See the package documentation for what ctx can and cannot stop.
+func (e Exporter) WriteJSON(ctx context.Context, w io.Writer, opts JSONOptions) (documents int64, err error) {
 	format := []string{"--type=json"}
 	if opts.Array {
 		format = append(format, "--jsonArray")
@@ -84,15 +100,16 @@ func (e Exporter) WriteJSON(w io.Writer, opts JSONOptions) (documents int64, err
 	if opts.Canonical {
 		format = append(format, "--jsonFormat=canonical")
 	}
-	return e.export(w, format)
+	return e.export(ctx, w, format)
 }
 
 // WriteCSV writes the documents to w as CSV: a header naming the fields,
 // then a row for each document. It returns how many documents it wrote.
 // fields must not be empty; name a nested field with dots, as in
-// "address.city".
-func (e Exporter) WriteCSV(w io.Writer, fields []string) (documents int64, err error) {
-	return e.export(w, []string{"--type=csv", "--fields=" + strings.Join(fields, ",")})
+// "address.city". If it fails partway, w holds what was written so far. See
+// the package documentation for what ctx can and cannot stop.
+func (e Exporter) WriteCSV(ctx context.Context, w io.Writer, fields []string) (documents int64, err error) {
+	return e.export(ctx, w, []string{"--type=csv", "--fields=" + strings.Join(fields, ",")})
 }
 
 // errEmptyName is why an export with an empty connection string, database
@@ -101,25 +118,91 @@ func (e Exporter) WriteCSV(w io.Writer, fields []string) (documents int64, err e
 var errEmptyName = errors.New("the connection string, database and collection given to New must not be empty")
 
 // export runs mongoexport with the format's arguments and the export's own.
-func (e Exporter) export(w io.Writer, format []string) (int64, error) {
+func (e Exporter) export(ctx context.Context, w io.Writer, format []string) (int64, error) {
 	if e.uri == "" || e.database == "" || e.collection == "" {
 		return 0, e.failed(errEmptyName)
 	}
-	opts, err := mongoexport.ParseOptions(append(format, e.args()...), "mongotest", "")
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return 0, e.failed(err)
+	}
+	n, err := e.run(ctx, w, format)
+	if err != nil {
+		return n, e.failed(withContextError(ctx, err))
+	}
+	return n, nil
+}
+
+// run has mongoexport connect to the server and write the documents.
+func (e Exporter) run(ctx context.Context, w io.Writer, format []string) (int64, error) {
+	opts, err := mongoexport.ParseOptions(append(format, e.args(ctx)...), "mongotest", "")
+	if err != nil {
+		return 0, err
 	}
 	export, err := mongoexport.New(opts)
 	if err != nil {
-		return 0, e.failed(err)
+		return 0, err
 	}
 	stopProgressBar(export)
 	defer export.Close()
-	n, err := export.Export(w)
-	if err != nil {
-		return n, e.failed(err)
+	return export.Export(contextWriter{ctx: ctx, w: w})
+}
+
+// contextWriter refuses to write once ctx has ended, which stops the export
+// at mongoexport's next write. JSON is written a document at a time; CSV in
+// blocks of several. It cannot stop a read blocked on the server:
+// mongo-tools passes no context to the driver, and closing its client from
+// another goroutine would race.
+type contextWriter struct {
+	ctx context.Context
+	w   io.Writer
+}
+
+func (c contextWriter) Write(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
 	}
-	return n, nil
+	return c.w.Write(p)
+}
+
+// withContextError makes err match ctx.Err() once ctx has ended.
+// mongoexport reports a refused write, or a server it gave up waiting for,
+// with its own error, which does not wrap the context's.
+func withContextError(ctx context.Context, err error) error {
+	if cause := ctx.Err(); cause != nil && !errors.Is(err, cause) {
+		return fmt.Errorf("%w: %w", cause, err)
+	}
+	return err
+}
+
+// driverSelectionTimeout is how long the driver waits to reach a server
+// when nothing says otherwise.
+const driverSelectionTimeout = 30 * time.Second
+
+// selectionTimeout turns ctx's deadline into mongoexport's
+// --serverSelectionTimeout, in whole seconds rounded up, so that a deadline
+// shortens the wait to reach the server. It returns false when the deadline
+// would not shorten it, and when the connection string sets its own timeout,
+// since mongoexport refuses a flag that disagrees with it. It never returns
+// zero, which mongoexport reads as the driver's default.
+func selectionTimeout(ctx context.Context, uri string) (int, bool) {
+	deadline, ok := ctx.Deadline()
+	if !ok || setsSelectionTimeout(uri) {
+		return 0, false
+	}
+	remaining := time.Until(deadline)
+	if remaining >= driverSelectionTimeout {
+		return 0, false
+	}
+	return max(int(math.Ceil(remaining.Seconds())), 1), true
+}
+
+// setsSelectionTimeout reports whether a connection string sets its own
+// server selection timeout, parsed as mongoexport parses it. One it cannot
+// parse counts as setting it, so the flag adds nothing to mongoexport's own
+// error about the string.
+func setsSelectionTimeout(uri string) bool {
+	cs, err := connstring.Parse(uri)
+	return err != nil || cs.ServerSelectionTimeoutSet
 }
 
 // stopProgressBar stops the progress bar mongoexport starts, which nothing
@@ -138,8 +221,11 @@ func stopProgressBar(export *mongoexport.MongoExport) {
 // starts with a dash is not read as a flag. --quiet stops mongoexport writing
 // to standard error; it sets mongo-tools' log level for the whole process.
 // --assertExists makes a misspelt collection an error, not an empty export.
-func (e Exporter) args() []string {
+func (e Exporter) args(ctx context.Context) []string {
 	args := []string{"--quiet", "--assertExists", "--db=" + e.database, "--collection=" + e.collection}
+	if seconds, ok := selectionTimeout(ctx, e.uri); ok {
+		args = append(args, "--serverSelectionTimeout="+strconv.Itoa(seconds))
+	}
 	if e.query != "" {
 		args = append(args, "--query="+e.query)
 	}
@@ -167,8 +253,17 @@ type exportError struct {
 }
 
 func (e *exportError) Error() string {
-	return fmt.Sprintf("exporter: cannot export %s.%s: %v. Check that the server is reachable at the "+
-		"connection string, and the database, collection, query and sort given", e.database, e.collection, e.err)
+	advice := "Check that the server is reachable at the connection string, and the database, collection, query and sort given"
+	if endedContext(e.err) {
+		advice = "The context ended before the export finished"
+	}
+	return fmt.Sprintf("exporter: cannot export %s.%s: %v. %s", e.database, e.collection, e.err, advice)
+}
+
+// endedContext reports whether err is a context that was cancelled or whose
+// deadline passed.
+func endedContext(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (e *exportError) Unwrap() error { return e.err }

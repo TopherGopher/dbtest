@@ -701,21 +701,6 @@ func BenchmarkClientServerProduct(b *testing.B) {
 	}
 }
 
-// Discovery runs once per client built with FromEnv, and it dials up to five
-// sockets before giving up, so its cost is worth watching.
-func BenchmarkSocketCandidates(b *testing.B) {
-	l := lookup{goos: "linux", getenv: func(k string) string {
-		if k == "XDG_RUNTIME_DIR" {
-			return "/run/user/1000"
-		}
-		return ""
-	}, uid: 1000}
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = socketCandidates(l)
-	}
-}
-
 func BenchmarkDetectRuntime(b *testing.B) {
 	v := versionResponse{
 		APIVersion: "1.41", MinAPIVersion: "1.24",

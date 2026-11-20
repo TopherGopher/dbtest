@@ -35,12 +35,6 @@ func TestNewRequiresValidHost(t *testing.T) {
 	assert.Equal(t, "bogus", ia.Value, "the rejected value must be reported back")
 }
 
-func TestNewWithoutHostUsesMobyDefault(t *testing.T) {
-	c, err := New()
-	require.NoError(t, err, "New with no options must construct against the moby client's own default host")
-	assert.Equal(t, mobydocker.DefaultDockerHost, c.Host(), "with no WithHost, mobyclient must use the moby client's platform default, not perform its own discovery")
-}
-
 func TestWithHostOverridesDefault(t *testing.T) {
 	c, err := New(WithHost("tcp://build-host:2376"))
 	require.NoError(t, err, "a well-formed tcp host must construct")
@@ -238,12 +232,6 @@ func TestMapErrorFallsBackToResponseError(t *testing.T) {
 	require.ErrorIs(t, got, dockerclient.ErrDaemonResponse, "an error containerd/errdefs and WrapConnectionError do not recognise must still be a usable dockerclient error")
 	var re *dockerclient.ResponseError
 	require.ErrorAs(t, got, &re, "the fallback must be a ResponseError, never a bare, unwrapped error")
-}
-
-func TestWrapConstructError(t *testing.T) {
-	assert.NoError(t, wrapConstructError("host", nil), "a nil error must map to nil")
-	err := wrapConstructError("bogus", errors.New(`unable to parse docker host "bogus"`))
-	require.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a host the moby client could not parse must be reported as invalid input, not left as an opaque construction failure")
 }
 
 // --- container.Config / HostConfig translation ------------------------------

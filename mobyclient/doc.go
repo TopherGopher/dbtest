@@ -18,28 +18,39 @@
 //
 // # Getting a client
 //
-// FromEnv locates the daemon the same way the docker CLI does: DOCKER_HOST,
-// then DOCKER_API_VERSION, DOCKER_CERT_PATH and DOCKER_TLS_VERIFY for TLS.
-// It is github.com/moby/moby/client's own FromEnv option, so behaviour
-// matches the moby-based docker CLI exactly:
+// New with no options finds the daemon as the docker CLI does: DOCKER_HOST,
+// then the docker context, then the Docker and Podman sockets (see
+// dockerclient.ResolveHost). FromEnv is the same as New(); use New().
+// dockerapi finds
+// the same daemon, except on Windows, where it cannot open Docker's named
+// pipe and looks for another endpoint.
 //
-//	c, err := mobyclient.FromEnv()
+//	c, err := mobyclient.New()
 //	if err != nil {
 //		return err
 //	}
 //
-// New accepts options for a fixed host, an already-constructed moby client,
-// and logging:
+// WithHost names the daemon instead, and WithLogger logs each request:
 //
 //	c, err := mobyclient.New(
-//		mobyclient.WithHost("tcp://build-host:2376"),
+//		mobyclient.WithHost("tcp://build-host:2375"),
 //		mobyclient.WithLogger(slog.Default()),
 //	)
 //
-// WithMobyClient wraps a *client.Client the caller already built (with its
-// own TLS, headers or transport configured), rather than constructing one:
+// DOCKER_TLS_VERIFY turns on TLS for a tcp:// daemon. The certificates come
+// from DOCKER_CERT_PATH, or from the Docker config directory when it is
+// unset. DOCKER_API_VERSION pins the API version. Both apply whether the
+// address comes from WithHost or is found.
 //
-//	moby, err := client.New(client.WithHost("tcp://build-host:2376"))
+// WithMobyClient wraps a *client.Client the caller already built, with its
+// own TLS, headers or transport. To use the moby client's own discovery,
+// which reads DOCKER_HOST alone with no docker context and no socket search,
+// build it with client.FromEnv and wrap it:
+//
+//	moby, err := client.New(client.FromEnv)
+//	if err != nil {
+//		return err
+//	}
 //	c, err := mobyclient.New(mobyclient.WithMobyClient(moby))
 //
 // # Errors

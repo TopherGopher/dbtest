@@ -14,17 +14,16 @@ go get github.com/tophergopher/mongotest
 
 ## Check the daemon
 
-mongotest finds the daemon through `DOCKER_HOST` if it is set, and otherwise
-at the default socket. Check that a daemon is running:
+mongotest finds the daemon as the docker CLI does: `DOCKER_HOST`, then the
+current docker context, then the usual Docker and Podman sockets. Check that
+a daemon is running:
 
 ```sh
 docker version
 ```
 
-If that prints a server version, a daemon is running. If
-`docker context show` prints anything other than `default`, set `DOCKER_HOST`
-as well; see
-[Troubleshooting](#troubleshooting-the-first-run).
+If that prints a server version, mongotest finds the same daemon, except on
+Windows; see the Docker Desktop tab.
 
 === "Docker Engine (Linux)"
 
@@ -39,16 +38,31 @@ as well; see
 
 === "Docker Desktop (macOS, Windows)"
 
-    Start Docker Desktop. mongotest finds its socket, or its named pipe on
-    Windows, without configuration.
+    Start Docker Desktop. On macOS mongotest finds its socket without
+    configuration.
+
+    On Windows, mongotest's default Docker client cannot open Docker's named
+    pipe. You have two choices. Turn on "Expose daemon on
+    tcp://localhost:2375 without TLS" in Docker Desktop's settings, and
+    mongotest finds it. This lets any program on the machine control Docker.
+    Or use the [`mobyclient`](../docker-clients/mobyclient.md) client, which
+    opens the pipe.
 
 === "Podman"
 
-    Podman serves the same API. Start the socket and either point
-    `DOCKER_HOST` at it or let discovery find it:
+    Podman serves the same API as Docker, and mongotest finds its socket.
+    On Linux, start the socket:
 
     ```sh
     systemctl --user enable --now podman.socket
+    ```
+
+    On macOS and Windows, run `podman machine start`.
+
+    If Docker also runs, mongotest finds Docker's socket first. To use
+    Podman instead, set `DOCKER_HOST`:
+
+    ```sh
     export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
     ```
 
@@ -71,8 +85,9 @@ Run the [quickstart](quickstart.md) test.
 ??? failure "`cannot connect to the docker daemon at …`"
     The daemon is not running, or it is listening somewhere mongotest did not
     look. Run `docker version`; if that fails too, start the daemon. If it
-    works, your CLI is using a context mongotest cannot see. Set `DOCKER_HOST`
-    explicitly:
+    works, you are probably on Windows with the default client; see the
+    Docker Desktop tab. Elsewhere, set `DOCKER_HOST` to the address the CLI
+    uses:
 
     ```sh
     export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')

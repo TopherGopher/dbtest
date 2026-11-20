@@ -22,12 +22,31 @@ go get github.com/tophergopher/mongotest/mobyclient
 ## Getting a client
 
 ```go
-c, err := mobyclient.FromEnv()          // discover the daemon like the docker CLI
-c, err := mobyclient.New(               // or configure it explicitly
+c, err := mobyclient.New() // find the daemon as the docker CLI does
+```
+
+```go
+c, err := mobyclient.New( // or give the address
     mobyclient.WithHost("unix:///var/run/docker.sock"),
     mobyclient.WithLogger(slog.Default()),
 )
 ```
+
+With no `WithHost` or `WithMobyClient`, the client finds the daemon as the
+docker CLI does: `DOCKER_HOST`, then the docker context, then the Docker and
+Podman sockets (see `dockerclient.ResolveHost` for the list). `dockerapi`
+finds the same daemon, except on Windows, where it cannot open Docker's
+named pipe and looks for another endpoint. `FromEnv()` is the same as
+`New()`; use `New()`.
+
+`DOCKER_TLS_VERIFY` turns on TLS for a `tcp://` daemon. The certificates
+come from `DOCKER_CERT_PATH`, or from the Docker config directory when it is
+unset. `DOCKER_API_VERSION` pins the API version. Both apply whether the
+address comes from `WithHost` or is found.
+
+To use the moby client's own discovery instead, which reads `DOCKER_HOST`
+alone with no docker context and no socket search, build the client with
+`client.New(client.FromEnv)` and pass it to `WithMobyClient`.
 
 | Option | Effect |
 | --- | --- |
@@ -63,5 +82,5 @@ classification, streaming, exec demultiplexing and validation.
 | | `dockerapi` | `mobyclient` |
 | --- | --- | --- |
 | Third-party modules linked | none | the official client and what it needs |
-| Features beyond the interface | version negotiation, runtime detection, socket probing | everything the official client offers, via `WithMobyClient` |
-| Pick it when | you want the smallest footprint, or you run against Podman | you already use the official client and want to share its configuration |
+| Features beyond the interface | version negotiation, Docker or Podman detection | everything the official client offers, via `WithMobyClient` |
+| Pick it when | you want the smallest footprint, or need to know whether Docker or Podman answered | you already use the official client and want to share its configuration |

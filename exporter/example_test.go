@@ -2,6 +2,7 @@ package exporter_test
 
 import (
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +19,7 @@ func ExampleExporter_WriteJSON() {
 
 	_, err := exporter.New(uri, "app", "people").
 		Query(`{"active": true}`).
-		WriteJSON(compressed, exporter.JSONOptions{Array: true})
+		WriteJSON(context.Background(), compressed, exporter.JSONOptions{Array: true})
 	// gzip writes its last bytes on Close, so check its error too.
 	err = errors.Join(err, compressed.Close())
 
