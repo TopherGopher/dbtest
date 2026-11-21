@@ -19,7 +19,7 @@ func initiateScript(replicaSet string) string {
 	name, _ := json.Marshal(replicaSet) // a JSON string is a JavaScript string
 	return `var r; try { r = db.adminCommand({replSetInitiate: ` +
 		`{_id: ` + string(name) + `, members: [{_id: 0, host: "localhost:27017"}]}}); } catch (e) { r = e; } ` +
-		`if (!r.ok && r.code !== 23) throw new Error(tojson(r)); ` +
+		`if (!r.ok && r.code !== 23) throw new Error(JSON.stringify(r)); ` +
 		`while (!db.hello().isWritablePrimary) sleep(50);`
 }
 

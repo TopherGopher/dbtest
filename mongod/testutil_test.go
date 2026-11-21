@@ -287,6 +287,19 @@ func (l *levelLogger) about(level, key string, value any) []logLine {
 	return found
 }
 
+// at returns the lines logged at a level.
+func (l *levelLogger) at(level string) []logLine {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var found []logLine
+	for _, line := range l.lines {
+		if line.level == level {
+			found = append(found, line)
+		}
+	}
+	return found
+}
+
 // closedPort returns a loopback port nothing is listening on.
 func closedPort(t testing.TB) int {
 	t.Helper()

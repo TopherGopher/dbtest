@@ -15,8 +15,9 @@ import (
 
 // The round trip a suite with a slow data load relies on: what one container
 // wrote, a new container on the same volume reads. Stop removing the first
-// container must leave the volume, and a replica set must become primary
-// again in a container with a new hostname.
+// container must leave the volume and shut mongod down cleanly, without a
+// warning, and a replica set must become primary again in a container with
+// a new hostname.
 func TestIntegrationDataOnANamedVolumeOutlivesTheContainer(t *testing.T) {
 	official := mongod.DefaultOptions().WithMongoImage(mongod.ImageDockerHub)
 	cases := []struct {
@@ -32,9 +33,9 @@ func TestIntegrationDataOnANamedVolumeOutlivesTheContainer(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			docker, ctx := liveDocker(t)
-			key, value := runLabel(t)
 			volume := testVolume(t)
-			opts := tc.opts.WithDocker(docker).WithNamedVolume(volume).WithLabel(key, value)
+			logger := &levelLogger{}
+			opts := tc.opts.WithDocker(docker).WithNamedVolume(volume).WithLogger(logger)
 
 			first, err := mongod.StartWithOptions(ctx, opts)
 			require.NoError(t, err, "the first container starts on a new volume")
@@ -42,6 +43,7 @@ func TestIntegrationDataOnANamedVolumeOutlivesTheContainer(t *testing.T) {
 			assert.Equal(t, volume, first.Volume(), "the container reports the volume")
 			evalIn(t, ctx, docker, first, `db.getSiblingDB("kept").docs.insertOne({kept: 1}).acknowledged`)
 			require.NoError(t, first.Stop(ctx), "the first container is removed")
+			assert.Empty(t, logger.at("warn"), "after a clean shutdown")
 
 			second, err := mongod.StartWithOptions(ctx, opts)
 			require.NoError(t, err, "a second container starts on the volume the first filled")
@@ -59,8 +61,7 @@ func TestIntegrationDataOnANamedVolumeOutlivesTheContainer(t *testing.T) {
 // keeps serving its data.
 func TestIntegrationASecondContainerCannotUseAVolumeInUse(t *testing.T) {
 	docker, ctx := liveDocker(t)
-	key, value := runLabel(t)
-	opts := mongod.DefaultOptions().WithDocker(docker).WithNamedVolume(testVolume(t)).WithLabel(key, value)
+	opts := mongod.DefaultOptions().WithDocker(docker).WithNamedVolume(testVolume(t))
 	first, err := mongod.StartWithOptions(ctx, opts)
 	require.NoError(t, err, "the first container starts")
 	t.Cleanup(func() { _ = first.Stop(context.Background()) })
@@ -74,6 +75,23 @@ func TestIntegrationASecondContainerCannotUseAVolumeInUse(t *testing.T) {
 	assert.ErrorIs(t, err, mongod.ErrContainerExited, "the second mongod exits because the volume is in use")
 	assert.Equal(t, "1", evalIn(t, ctx, docker, first, `db.getSiblingDB("kept").docs.countDocuments({kept: 1})`),
 		"the first container still has its data")
+}
+
+// A volume keeps the root user of its first start, so a start with another
+// password fails, instead of the caller's first command.
+func TestIntegrationOtherCredentialsOnAKeptVolumeAreReported(t *testing.T) {
+	docker, ctx := liveDocker(t)
+	opts := mongod.DefaultOptions().WithDocker(docker).WithNamedVolume(testVolume(t))
+	first, err := mongod.StartWithOptions(ctx, opts.WithAuth("admin", "first"))
+	require.NoError(t, err, "the first container starts and creates the root user")
+	require.NoError(t, first.Stop(ctx), "the first container is removed")
+
+	second, err := mongod.StartWithOptions(ctx, opts.WithAuth("admin", "second"))
+	if err == nil {
+		t.Cleanup(func() { _ = second.Stop(context.Background()) })
+	}
+
+	assert.ErrorIs(t, err, mongod.ErrVolumeCredentialsChanged, "the start says the volume keeps other credentials")
 }
 
 // testVolume returns a volume name no other test uses, and removes the

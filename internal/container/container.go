@@ -147,9 +147,7 @@ func (c *Container) stop(ctx context.Context) error {
 	if c.stopped {
 		return nil
 	}
-	if c.beforeRemove != nil && c.id != "" {
-		c.beforeRemove(ctx)
-	}
+	c.runBeforeRemove(ctx)
 	if err := c.remove(ctx); err != nil {
 		return err
 	}
@@ -157,6 +155,23 @@ func (c *Container) stop(ctx context.Context) error {
 	reaper.Unregister(c.reaperHandle)
 	c.logger.Debug("Removed the container and its anonymous volumes.", "container", c.name, "id", ShortID(c.id))
 	return nil
+}
+
+// runBeforeRemove runs the hook Start set, once, with half the time ctx has
+// left, so that a hook that hangs cannot use up the removal's time, nor run
+// again on a Stop that is tried again. The caller holds mu.
+func (c *Container) runBeforeRemove(ctx context.Context) {
+	hook := c.beforeRemove
+	c.beforeRemove = nil
+	if hook == nil {
+		return
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Until(deadline)/2)
+		defer cancel()
+	}
+	hook(ctx)
 }
 
 // remove has the daemon remove the container. If Create got no id, there is

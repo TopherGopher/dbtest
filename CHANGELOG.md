@@ -7,19 +7,34 @@ what to do if it affects you.
 
 ### Data can be kept between runs
 
-- **`WithNamedVolume(name)` and `WithDurableStorage()` keep mongod's data in a
-  Docker volume** that a later start with the same option finds again.
-  `WithDurableStorage` names the volume after the test's directory, and
-  `Container.Volume()` returns the name. Nothing in dbtest removes the
-  volume; remove it with `docker volume rm <name>`.
-- **A replica set's member is now `localhost:27017`** instead of the
-  container's hostname, so a new container on a kept volume becomes primary
-  again. Connections are not affected, because the URI carries
-  `directConnection=true`. If your code reads the member's address from
-  `hello` or `rs.conf()`, it now sees `localhost:27017`.
-- **`dockerclient.HostConfig` has a `Binds` field for named volumes, and
-  `dockerclient.ContainerInspect` reports them in `Mounts`.** A bind that
-  names a host directory is refused with `ErrInvalidArgument`.
+Nothing changes unless you use the new option, or read the replica set
+member's address from the server.
+
+- **`WithNamedVolume(name)` keeps mongod's data in a Docker volume** that a
+  later start with the same name finds again. `Container.Volume()` returns
+  the name. Nothing in dbtest removes the volume; remove it with
+  `docker volume rm <name>`. `Stop` shuts mongod down cleanly first, so the
+  volume keeps the last writes.
+- **A start with a volume can fail in new ways,** each before the caller's
+  first command:
+  - `ErrEmptyVolumeName`, or `ErrInvalidArgument` for a name that is not a
+    volume name, such as a host directory.
+  - `ErrVolumeNeedsCredentials` where the start would generate a password,
+    which the volume could not keep. Pass `WithAuth` or `WithoutAuth`.
+  - `ErrVolumeCredentialsChanged` when the volume keeps other credentials
+    than the ones given.
+  - `ErrUnsupportedForImage` for Atlas Local.
+- **The member of a replica set from `WithReplicaSet` is now
+  `localhost:27017`** instead of the container's hostname, so a new container
+  on a kept volume becomes primary again. Connections are not affected,
+  because the URI carries `directConnection=true`. If your code reads the
+  member's address from `hello` or `rs.conf()`, it now sees
+  `localhost:27017`.
+- **`dockerclient.HostConfig` has a `Volumes` field** of `VolumeMount`
+  values, which mount named volumes. `Validate` refuses a name that is not a
+  volume name, such as a host directory, with `ErrInvalidArgument`.
+- **`ContainerExitedError` has an `Advice` field,** which names what to try,
+  such as giving parallel tests their own volume names.
 
 ### Starting Atlas Local waits for its final mongod
 

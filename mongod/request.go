@@ -26,7 +26,7 @@ func (c config) containerConfig(r reach) dockerclient.ContainerConfig {
 func (c config) hostConfig(r reach) *dockerclient.HostConfig {
 	hc := c.reachConfig(r)
 	if c.volume != "" {
-		hc.Binds = []string{c.volume + ":" + dataDir}
+		hc.Volumes = []dockerclient.VolumeMount{{Name: c.volume, Path: dataDir}}
 	}
 	return hc
 }
@@ -106,7 +106,7 @@ func (c config) withCredentialsIfExposed(r reach) config {
 // start would generate another.
 func (c config) checkVolumeCredentials(r reach) error {
 	if c.volume != "" && c.needsGeneratedCredentials(r) {
-		return ErrVolumeNeedsCredentials
+		return &VolumeNeedsCredentialsError{Volume: c.volume, Reach: r.where()}
 	}
 	return nil
 }

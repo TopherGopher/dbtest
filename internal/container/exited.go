@@ -40,6 +40,8 @@ type ExitedError struct {
 	// Err is what the wait for readiness saw that led to the container
 	// being inspected, or nil.
 	Err error
+	// Advice is what the image's package suggests trying, or "".
+	Advice string
 }
 
 func (e *ExitedError) Error() string {
@@ -51,8 +53,12 @@ func (e *ExitedError) Error() string {
 	if e.Status == "dead" {
 		verb = "died"
 	}
-	return fmt.Sprintf("container %s %s with code %d before the server in it was ready. %s",
-		e.where(), verb, e.ExitCode, e.why())
+	advice := ""
+	if e.Advice != "" {
+		advice = e.Advice + ". "
+	}
+	return fmt.Sprintf("container %s %s with code %d before the server in it was ready. %s%s",
+		e.where(), verb, e.ExitCode, advice, e.why())
 }
 
 // where names the container, and its id once the daemon has assigned one.

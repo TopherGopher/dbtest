@@ -24,7 +24,7 @@ var (
 	// containerNamePattern is the daemon's rule for user-chosen names.
 	containerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 	// volumeNamePattern is the daemon's rule for volume names. No host path
-	// matches it, so a bind that passes cannot mount a host directory.
+	// matches it, so a mount that passes cannot mount a host directory.
 	volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 	// imageIDPattern matches a content digest or a (possibly truncated) hex
 	// image id, both accepted by image inspect.
@@ -168,20 +168,15 @@ func CheckHostPort(field, hp string) error {
 	return nil
 }
 
-// checkBind validates one HostConfig.Binds entry: a volume name, an absolute
-// path in the container, and optionally "ro" or "rw".
-func checkBind(bind string) error {
-	const fix = `Write "name:/path/in/container", such as "cart-tests:/data/db"`
-	name, rest, _ := strings.Cut(bind, ":")
-	target, mode, _ := strings.Cut(rest, ":")
-	switch {
-	case !volumeNamePattern.MatchString(name):
-		return InvalidArgument("HostConfig.Binds entry", bind,
-			"it must start with a volume name of at least two characters from [a-zA-Z0-9][a-zA-Z0-9_.-]; a host directory is not allowed", fix)
-	case !strings.HasPrefix(target, "/"):
-		return InvalidArgument("HostConfig.Binds entry", bind, "the path in the container must be absolute", fix)
-	case mode != "" && mode != "ro" && mode != "rw":
-		return InvalidArgument("HostConfig.Binds entry", bind, `the mode after the path must be "ro" or "rw"`, fix)
+// checkVolumeMount validates one HostConfig.Volumes entry.
+func checkVolumeMount(v VolumeMount) error {
+	if !volumeNamePattern.MatchString(v.Name) {
+		return InvalidArgument("HostConfig.Volumes Name", v.Name,
+			"it is not a volume name: it needs at least two characters from [a-zA-Z0-9][a-zA-Z0-9_.-], and a host directory cannot be mounted",
+			`Name a volume, such as "cart-tests"`)
+	}
+	if !strings.HasPrefix(v.Path, "/") {
+		return InvalidArgument("HostConfig.Volumes Path", v.Path, "it must be an absolute path inside the container", `Use a path such as "/data/db"`)
 	}
 	return nil
 }
@@ -224,8 +219,8 @@ func (cfg ContainerConfig) Validate() error {
 				}
 			}
 		}
-		for _, bind := range cfg.HostConfig.Binds {
-			if err := checkBind(bind); err != nil {
+		for _, v := range cfg.HostConfig.Volumes {
+			if err := checkVolumeMount(v); err != nil {
 				return err
 			}
 		}

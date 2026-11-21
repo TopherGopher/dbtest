@@ -92,7 +92,7 @@ func TestValidateContainerConfig(t *testing.T) {
 			"27017/tcp": {{HostIP: "127.0.0.1", HostPort: "34819"}, {HostIP: "", HostPort: ""}, {HostPort: "40000-40010"}},
 			"53/udp":    {{HostIP: "::1", HostPort: "5353"}},
 		},
-			Binds: []string{"cart-tests:/data/db", "cache_1.v2:/data/cache:ro"}},
+			Volumes: []dockerclient.VolumeMount{{Name: "cart-tests", Path: "/data/db"}, {Name: "cache_1.v2", Path: "/data/cache", ReadOnly: true}}},
 	}
 	require.NoError(t, ok.Validate(), "a config with valid ports, bindings, volumes and labels must pass")
 	bad := map[string]dockerclient.ContainerConfig{
@@ -108,12 +108,13 @@ func TestValidateContainerConfig(t *testing.T) {
 		"binding host port": {Image: "mongo", HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{"27017/tcp": {{HostPort: "abc"}}}}},
 		"binding range":     {Image: "mongo", HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{"27017/tcp": {{HostPort: "40010-40000"}}}}},
 		"empty cmd element": {Image: "mongo", Cmd: []string{"--replSet", ""}},
-		"host directory":    {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"/srv/data:/data/db"}}},
-		"relative path":     {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"./data:/data/db"}}},
-		"no destination":    {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"cart-tests"}}},
-		"relative target":   {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"cart-tests:data/db"}}},
-		"empty volume name": {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{":/data/db"}}},
-		"windows path":      {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{`C:\data:/data/db`}}},
+		"host directory":    volumeAt("/srv/data", "/data/db"),
+		"relative path":     volumeAt("./data", "/data/db"),
+		"empty volume name": volumeAt("", "/data/db"),
+		"windows path":      volumeAt(`C:\data`, "/data/db"),
+		"one-letter name":   volumeAt("C", "/data/db"),
+		"relative target":   volumeAt("cart-tests", "data/db"),
+		"no target":         volumeAt("cart-tests", ""),
 	}
 	for name, cfg := range bad {
 		err := cfg.Validate()
@@ -318,4 +319,11 @@ func TestGoTLSAnswerIsRecognisedOnlyOverTCP(t *testing.T) {
 		"over TCP it means the daemon only accepts TLS")
 	assert.Same(t, answer, dockerclient.WrapConnectionError("unix:///var/run/docker.sock", answer),
 		"through a socket it is the daemon's own answer")
+}
+
+// volumeAt is a config that mounts the named volume at path.
+func volumeAt(name, path string) dockerclient.ContainerConfig {
+	return dockerclient.ContainerConfig{Image: "mongo", HostConfig: &dockerclient.HostConfig{
+		Volumes: []dockerclient.VolumeMount{{Name: name, Path: path}},
+	}}
 }

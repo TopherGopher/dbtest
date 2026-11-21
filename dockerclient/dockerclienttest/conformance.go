@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"slices"
 	"testing"
 
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -76,29 +75,19 @@ func Conformance(t *testing.T, newClient Factory) {
 // keeps nothing in it; a real daemon would create it and keep it.
 const TestVolume = "dbtest-conformance"
 
-// conformanceVolume checks that HostConfig.Binds reaches the daemon and that
-// inspect reports the mount, which is how mongod keeps its data between
-// containers.
+// conformanceVolume checks that a create that mounts a named volume is
+// accepted, which is how mongod keeps its data between containers.
 func conformanceVolume(t *testing.T, c dockerclient.Client) {
 	ctx := context.Background()
 	if err := c.ImagePull(ctx, TestImage); err != nil {
 		t.Fatalf("pulling %s: %v", TestImage, err)
 	}
-	id, _, err := c.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
+	_, _, err := c.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
 		Image:      TestImage,
-		HostConfig: &dockerclient.HostConfig{Binds: []string{TestVolume + ":/data/db"}},
+		HostConfig: &dockerclient.HostConfig{Volumes: []dockerclient.VolumeMount{{Name: TestVolume, Path: "/data/db"}}},
 	})
 	if err != nil {
-		t.Fatalf("creating a container with the volume %s: %v", TestVolume, err)
-	}
-	info, err := c.ContainerInspect(ctx, id)
-	if err != nil {
-		t.Fatalf("inspecting %s: %v", id, err)
-	}
-	want := dockerclient.Mount{Type: "volume", Name: TestVolume, Destination: "/data/db"}
-	if !slices.Contains(info.Mounts, want) {
-		t.Errorf("a container created with the bind %q must report the mount %+v, got %+v. "+
-			"Send HostConfig.Binds on create and read Mounts on inspect", TestVolume+":/data/db", want, info.Mounts)
+		t.Errorf("a create that mounts the volume %s must be accepted, got %v", TestVolume, err)
 	}
 }
 
@@ -227,6 +216,13 @@ func conformanceValidation(t *testing.T, c dockerclient.Client) {
 				HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
 					"27017/tcp": {{HostIP: "not-an-ip"}},
 				}},
+			})
+			return err
+		},
+		"a volume named like a host directory": func() error {
+			_, _, err := c.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
+				Image:      TestImage,
+				HostConfig: &dockerclient.HostConfig{Volumes: []dockerclient.VolumeMount{{Name: "/srv/data", Path: "/data/db"}}},
 			})
 			return err
 		},

@@ -369,7 +369,8 @@ func ExampleOptions_WithTLS() {
 }
 
 // A later start with the same name finds the data this one writes. Stop
-// keeps the volume; docker volume rm cart-tests removes it.
+// keeps the volume; docker volume rm cart-tests removes it, and a new name
+// starts afresh.
 func ExampleOptions_WithNamedVolume() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
@@ -386,21 +387,36 @@ func ExampleOptions_WithNamedVolume() {
 	// Output: cart-tests
 }
 
-// WithDurableStorage chooses the name, the same on every run of a package.
-// Volume returns it, to pass to docker volume rm when the data is no longer
-// wanted.
-func ExampleOptions_WithDurableStorage() {
+// A suite that loads a large data set does it once: the first run loads it
+// and leaves a marker, and later runs on the same volume find the marker and
+// skip the load. Here a stand-in daemon plays a shell that finds no marker.
+func ExampleOptions_WithNamedVolume_loadOnce() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
+	docker.(stage).ExecFunc = func(_ string, cmd []string) dockerclient.ExecResult {
+		return dockerclient.ExecResult{Stdout: "0\n"}
+	}
 	ctx := context.Background()
 
-	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithDurableStorage())
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithNamedVolume("cart-fixtures"))
 	if err != nil {
 		fmt.Println("cannot start mongod:", err)
 		return
 	}
 	defer c.Stop(ctx)
 
-	fmt.Println(strings.HasPrefix(c.Volume(), "mongotest-data-"))
-	// Output: true
+	loaded, err := c.RunScript(ctx, `db.getSiblingDB("cart").fixtures.countDocuments({loaded: true})`)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if loaded == "0" {
+		fmt.Println("loading the data set")
+		// Load the data here, then leave the marker.
+		if _, err := c.RunScript(ctx, `db.getSiblingDB("cart").fixtures.insertOne({loaded: true})`); err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+	// Output: loading the data set
 }

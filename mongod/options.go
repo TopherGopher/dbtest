@@ -3,7 +3,6 @@ package mongod
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -52,10 +51,6 @@ const (
 	secretRandomBytes = 16
 	// dataDir is where every supported image keeps mongod's data.
 	dataDir = "/data/db"
-	// durableVolumePrefix and durableVolumeHashBytes shape the volume name
-	// WithDurableStorage makes.
-	durableVolumePrefix    = "mongotest-data-"
-	durableVolumeHashBytes = 6
 )
 
 // volumeNamePattern is the daemon's rule for volume names. A host path never
@@ -74,20 +69,17 @@ var volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 type Options struct {
 	// image holds the registry and repository the caller chose, and version
 	// a version the caller named, so the two combine in either order.
-	image      MongoImage
-	version    string
-	port       int
-	name       string
-	hostIP     string
-	replicaSet string
-	username   string
-	password   string
-	noAuth     bool
-	tls        bool
-	// volume is the named volume that keeps the data, and volumeOption the
-	// option that chose it, for an error that has to name it.
+	image        MongoImage
+	version      string
+	port         int
+	name         string
+	hostIP       string
+	replicaSet   string
+	username     string
+	password     string
+	noAuth       bool
+	tls          bool
 	volume       string
-	volumeOption string
 	mongodArgs   []string
 	startTimeout time.Duration
 	pullTimeout  time.Duration
@@ -230,19 +222,19 @@ func (o Options) WithTLS() Options {
 }
 
 // WithNamedVolume keeps mongod's data in the Docker volume with this name,
-// creating it on first use, so a later start with the same name finds the
-// data again. Nothing in this package removes the volume; remove it with
-// docker volume rm <name>.
+// so a later start with the same name finds it again. Docker creates the
+// volume on first use. Nothing in this package removes it: remove it with
+// docker volume rm <name>, or pass a new name to start afresh.
 //
-// The data comes with what the first start set up. The root user is created
-// only then, so a different WithAuth password later does not take effect,
-// and mongod refuses data that a newer version of mongod wrote. Only one
-// container can use the volume at a time: a second start while the first
-// is running fails with [ErrContainerExited].
+// The root user and password are those of the first start, and a later
+// start with other credentials fails with [ErrVolumeCredentialsChanged]. A
+// volume works with one container at a time, and only with the MongoDB
+// release that created it and the next one; otherwise the start fails with
+// [ErrContainerExited].
 //
-// Where a start would generate credentials, it returns
-// [ErrVolumeNeedsCredentials] instead, because a generated password changes
-// every time; pass WithAuth or WithoutAuth there.
+// Inside a container, against a remote daemon, or with WithHostIP, pass
+// WithAuth or WithoutAuth as well. A start there would generate a password,
+// which the volume could not keep, so it returns [ErrVolumeNeedsCredentials].
 func (o Options) WithNamedVolume(name string) Options {
 	switch {
 	case name == "":
@@ -250,23 +242,7 @@ func (o Options) WithNamedVolume(name string) Options {
 	case !volumeNamePattern.MatchString(name):
 		return o.refused(invalidVolumeName(name))
 	}
-	o.volume, o.volumeOption = name, "WithNamedVolume"
-	return o
-}
-
-// WithDurableStorage is WithNamedVolume with a name made from the directory
-// the test runs in, which go test sets to the package's own. So each package
-// keeps its own data, and [Container.Volume] returns the name to pass to
-// docker volume rm. Everything said for WithNamedVolume applies, and tests
-// in one package that run at the same time cannot both use it.
-func (o Options) WithDurableStorage() Options {
-	dir, err := os.Getwd()
-	if err != nil {
-		return o.refused(unreadableWorkingDirectory(err))
-	}
-	sum := sha256.Sum256([]byte(dir))
-	o.volume = durableVolumePrefix + hex.EncodeToString(sum[:durableVolumeHashBytes])
-	o.volumeOption = "WithDurableStorage"
+	o.volume = name
 	return o
 }
 
@@ -462,7 +438,7 @@ func (c config) validate() error {
 	case c.tls && !c.image.acceptsMongodArgs():
 		return &UnsupportedForImageError{Image: c.image, Option: "WithTLS", Reason: reasonNoTLSFlags}
 	case c.volume != "" && c.image.ReplicaSetPreconfigured():
-		return &UnsupportedForImageError{Image: c.image, Option: c.volumeOption, Reason: reasonVolumeUntried}
+		return &UnsupportedForImageError{Image: c.image, Option: "WithNamedVolume", Reason: reasonVolumeUntried}
 	}
 	return nil
 }

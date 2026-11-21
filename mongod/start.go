@@ -2,8 +2,7 @@ package mongod
 
 import (
 	"context"
-	"fmt"
-	"strings"
+	"errors"
 	"sync"
 	"time"
 
@@ -203,6 +202,7 @@ func (c *Container) spec(cfg config, r reach) container.Spec {
 		Ready:        c.ready(cfg),
 		AfterReady:   c.afterReady(cfg),
 		BeforeRemove: c.shutdownBeforeRemove(cfg),
+		ExitAdvice:   cfg.exitAdvice(),
 		Advice:       cfg.notReadyAdvice,
 	}
 }
@@ -257,14 +257,24 @@ func (c *Container) ready(cfg config) func(context.Context, string, int, func(co
 	}
 }
 
-// afterReady initiates the replica set, if there is one. If the start
-// timeout ends first, it returns errNoPrimary, not the initiation's error,
+// afterReady checks that the root user can log in to a kept volume, and
+// initiates the replica set, if there is one. If the start timeout ends
+// during initiation, it returns errNoPrimary, not the initiation's error,
 // which would wrongly suggest the image cannot initiate a set.
 func (c *Container) afterReady(cfg config) func(context.Context) error {
-	if cfg.replicaSet == "" {
+	checkLogin := cfg.volume != "" && cfg.username != ""
+	if !checkLogin && cfg.replicaSet == "" {
 		return nil
 	}
 	return func(ctx context.Context) error {
+		if checkLogin {
+			if err := c.checkVolumeLogin(ctx, cfg.volume); err != nil {
+				return err
+			}
+		}
+		if cfg.replicaSet == "" {
+			return nil
+		}
 		err := c.initiateReplicaSet(ctx)
 		if err != nil && ctx.Err() != nil {
 			return errNoPrimary
@@ -273,17 +283,42 @@ func (c *Container) afterReady(cfg config) func(context.Context) error {
 	}
 }
 
+// checkVolumeLogin logs in as the root user. The readiness check only sees
+// that mongod demands a login, and a volume keeps the root user of its
+// first start, so other credentials would otherwise fail at the caller's
+// first command. An image with no shell cannot be checked.
+func (c *Container) checkVolumeLogin(ctx context.Context, volume string) error {
+	result, err := c.runShell(ctx, "db.runCommand({connectionStatus: 1}).ok")
+	switch {
+	case errors.Is(err, ErrNoShell):
+		return nil
+	case err != nil:
+		return c.startError(OpCheckLogin, err)
+	case result.ExitCode != 0:
+		return c.startError(OpCheckLogin, &VolumeCredentialsChangedError{Volume: volume, Err: result.failure()})
+	}
+	return nil
+}
+
+// exitAdvice is what to try when mongod exits during a start on a volume:
+// mongod will not open a data directory another mongod holds.
+func (c config) exitAdvice() string {
+	if c.volume == "" {
+		return ""
+	}
+	return "If another container is using volume " + c.volume + ", give containers that run at the same time their own volume names"
+}
+
 // shutdownTimeout bounds the clean shutdown before a container on a kept
 // volume is removed, so a mongod that cannot answer holds up the removal
 // only briefly.
 const shutdownTimeout = 10 * time.Second
 
 // shutdownBeforeRemove shuts mongod down cleanly before a container on a
-// kept volume is removed. Removing it kills mongod, which loses the writes
-// of about the last tenth of a second: acknowledged, but not yet in its
-// journal. mongod --shutdown signals the process named in the data
-// directory's lock file, so it needs no credentials. If it fails, the
-// failure is logged and the removal goes ahead.
+// kept volume is removed. Removing it kills mongod, and a standalone mongod
+// loses the writes of about the last tenth of a second: acknowledged, but
+// not yet in its journal. mongod --shutdown signals the process named in
+// the data directory's lock file, so it needs no shell or credentials.
 func (c *Container) shutdownBeforeRemove(cfg config) func(context.Context) {
 	if cfg.volume == "" {
 		return nil
@@ -291,13 +326,47 @@ func (c *Container) shutdownBeforeRemove(cfg config) func(context.Context) {
 	return func(ctx context.Context) {
 		ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 		defer cancel()
-		result, err := c.docker.Exec(ctx, c.ID(), "mongod", "--shutdown", "--dbpath", dataDir)
-		if err == nil && result.ExitCode != 0 {
-			err = fmt.Errorf("mongod --shutdown exited with code %d: %s", result.ExitCode, strings.TrimSpace(result.Stdout+" "+result.Stderr))
+		result, execErr := c.docker.Exec(ctx, c.ID(), "mongod", "--shutdown", "--dbpath", dataDir)
+		if c.exited(ctx) {
+			return
 		}
-		if err != nil {
-			c.logger.Warn("mongod could not be shut down cleanly before the container was removed, so the volume may lack the last writes.",
-				"container", c.Name(), "volume", cfg.volume, "error", err)
+		c.logger.Warn("mongod could not be shut down cleanly before the container was removed, so the volume may lack the last writes.",
+			"container", c.Name(), "volume", cfg.volume, "exitCode", result.ExitCode, "error", execErr)
+	}
+}
+
+// exitGrace is how long the daemon is given, once the shutdown command has
+// returned, to report that the container has exited.
+const exitGrace = time.Second
+
+// exited reports whether the container's process has ended, asking until
+// exitGrace has passed. When mongod is the container's first process,
+// Docker kills the exec that shut it down, so the exec's own result says
+// nothing about the shutdown, and the exec can return before the daemon
+// marks the container exited.
+func (c *Container) exited(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, exitGrace)
+	defer cancel()
+	for {
+		if processEnded(c.docker.ContainerInspect(ctx, c.ID())) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// processEnded reports whether an inspect shows the container's process has
+// ended, or the container is gone.
+func processEnded(info dockerclient.ContainerInspect, err error) bool {
+	switch {
+	case dockerclient.IsNotFound(err):
+		return true
+	case err != nil:
+		return false
+	}
+	return info.State.Status == "exited" || info.State.Status == "dead"
 }

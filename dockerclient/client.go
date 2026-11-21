@@ -2,6 +2,7 @@ package dockerclient
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -119,11 +120,31 @@ type HostConfig struct {
 	// "none", "container:<id>", or the name of a network. Empty means the
 	// default bridge.
 	NetworkMode string `json:"NetworkMode,omitempty"`
-	// Binds mounts named volumes, each written "name:/path/in/container",
-	// with ":ro" after it for read-only. Docker creates a volume that does
-	// not exist yet, and removing the container does not remove it. A host
-	// directory is refused, because it would not exist on a remote daemon.
-	Binds []string `json:"Binds,omitempty"`
+	// Volumes mounts named volumes in the container. Docker creates a
+	// volume that does not exist yet, and keeps it when the container is
+	// removed.
+	Volumes []VolumeMount `json:"Mounts,omitempty"`
+}
+
+// VolumeMount mounts one named volume. Only named volumes can be mounted,
+// not host directories, because a remote daemon would not have them.
+type VolumeMount struct {
+	// Name is the volume's name: at least two characters from
+	// [a-zA-Z0-9][a-zA-Z0-9_.-].
+	Name string `json:"Source"`
+	// Path is the absolute path inside the container.
+	Path     string `json:"Target"`
+	ReadOnly bool   `json:"ReadOnly,omitzero"`
+}
+
+// MarshalJSON writes the mount the way the Engine API takes it, as a mount
+// of type "volume".
+func (v VolumeMount) MarshalJSON() ([]byte, error) {
+	type fields VolumeMount
+	return json.Marshal(struct {
+		Type string `json:"Type"`
+		fields
+	}{Type: "volume", fields: fields(v)})
 }
 
 // PortBinding is one published host address for a container port.
@@ -154,18 +175,6 @@ type ContainerInspect struct {
 	State           ContainerState  `json:"State"`
 	Config          InspectedConfig `json:"Config"`
 	NetworkSettings NetworkSettings `json:"NetworkSettings"`
-	// Mounts lists the volumes mounted in the container.
-	Mounts []Mount `json:"Mounts"`
-}
-
-// Mount is one volume mounted in a container.
-type Mount struct {
-	// Type is "volume" for a named or anonymous volume.
-	Type string `json:"Type"`
-	// Name is the volume's name. An anonymous volume's is a long hex id.
-	Name string `json:"Name"`
-	// Destination is where the volume is mounted inside the container.
-	Destination string `json:"Destination"`
 }
 
 // ContainerState is the runtime state of a container.

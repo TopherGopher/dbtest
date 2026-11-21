@@ -58,6 +58,15 @@ var (
 	ErrReap = reaper.ErrReap
 	// ErrUnsupportedForImage: the chosen image cannot honour an option.
 	ErrUnsupportedForImage = errors.New("the image does not support an option that was set")
+	// ErrVolumeNeedsCredentials: WithNamedVolume was set where a start
+	// would generate a password, which the volume could not keep. The error
+	// is a *VolumeNeedsCredentialsError, and also matches
+	// dockerclient.ErrInvalidArgument.
+	ErrVolumeNeedsCredentials = errors.New("a kept volume needs credentials that stay the same between starts")
+	// ErrVolumeCredentialsChanged: the root user cannot log in with the
+	// credentials given, because the volume keeps those of its first start.
+	// The error is a *VolumeCredentialsChangedError.
+	ErrVolumeCredentialsChanged = errors.New("the volume keeps other credentials than the ones given")
 )
 
 // ReapError is what ReapRunningContainers returns when a container could not
@@ -87,13 +96,7 @@ var (
 		fix: `Pass one such as WithReplicaSet("rs0"), or leave the option out for a standalone mongod`}
 	// ErrEmptyVolumeName: WithNamedVolume was given an empty name.
 	ErrEmptyVolumeName error = &optionError{option: "WithNamedVolume", problem: "the name is empty",
-		fix: `Pass one such as WithNamedVolume("cart-tests"), or use WithDurableStorage to have one chosen`}
-	// ErrVolumeNeedsCredentials: a volume option was set where a start
-	// would generate credentials. The volume keeps the root user from its
-	// first start, so a password generated for a later start would not work.
-	ErrVolumeNeedsCredentials error = &optionError{option: "WithNamedVolume or WithDurableStorage",
-		problem: "other machines or containers can reach this mongod, so Start would generate a password, and the volume would keep only the first",
-		fix:     "Pass WithAuth with credentials that stay the same between runs, or WithoutAuth on a network you trust"}
+		fix: `Pass one such as WithNamedVolume("cart-tests"), or leave the option out to have the data removed with the container`}
 	// ErrEmptyHostIP: WithHostIP was given an empty address.
 	ErrEmptyHostIP error = &optionError{option: "WithHostIP", problem: "the address is empty",
 		fix: `Pass one such as WithHostIP("172.17.0.1"), or leave the option out to have it worked out`}
@@ -150,17 +153,52 @@ const (
 	reasonCommandIsEntrypoint = "it has no entrypoint, so the flags would replace the program it runs; remove the option"
 	reasonNoTLSFlags          = "it starts mongod itself and takes no flags, so TLS cannot be turned on; use another image or remove the option"
 	reasonVolumeUntried       = "it names its replica set after the container, which changes with every start, " +
-		"so it has not been shown to start again on a kept volume; use another image or remove the option"
+		"so it may not start again on a kept volume; use another image or remove the option"
 )
+
+// VolumeNeedsCredentialsError reports WithNamedVolume where a start would
+// generate a password. It matches ErrVolumeNeedsCredentials and
+// dockerclient.ErrInvalidArgument.
+type VolumeNeedsCredentialsError struct {
+	Volume string
+	// Reach says who else could connect, which is why a password would be
+	// generated.
+	Reach string
+}
+
+func (e *VolumeNeedsCredentialsError) Error() string {
+	return fmt.Sprintf("mongod: WithNamedVolume(%q): this start would generate a password, because %s. "+
+		"Every start would generate a new one, but the volume keeps the first. "+
+		"Pass WithAuth with credentials that stay the same between runs, or WithoutAuth on a network you trust", e.Volume, e.Reach)
+}
+
+func (e *VolumeNeedsCredentialsError) Is(target error) bool {
+	return target == ErrVolumeNeedsCredentials || target == dockerclient.ErrInvalidArgument
+}
+
+// VolumeCredentialsChangedError reports that the root user could not log in
+// to a kept volume with the credentials given. It matches
+// ErrVolumeCredentialsChanged and whatever the shell reported.
+type VolumeCredentialsChangedError struct {
+	Volume string
+	Err    error
+}
+
+func (e *VolumeCredentialsChangedError) Error() string {
+	return fmt.Sprintf("the root user cannot log in with the credentials given, because volume %s keeps the root user "+
+		"and password of its first start. Pass the WithAuth of that start, or remove the volume with docker volume rm %s "+
+		"to start afresh: %v", e.Volume, e.Volume, e.Err)
+}
+
+func (e *VolumeCredentialsChangedError) Unwrap() error { return e.Err }
+
+func (e *VolumeCredentialsChangedError) Is(target error) bool {
+	return target == ErrVolumeCredentialsChanged
+}
 
 func invalidVolumeName(name string) error {
 	return &optionError{option: "WithNamedVolume", problem: strconv.Quote(name) + " is not a Docker volume name",
 		fix: "Use at least two letters, digits, '_', '.' or '-', starting with a letter or digit. A host directory cannot be used"}
-}
-
-func unreadableWorkingDirectory(err error) error {
-	return &optionError{option: "WithDurableStorage", problem: "the working directory, which names the volume, cannot be read (" + err.Error() + ")",
-		fix: "Name the volume with WithNamedVolume instead"}
 }
 
 func invalidPort(port int) error {
@@ -205,11 +243,12 @@ const (
 	OpStart          = container.OpStart
 	OpInspect        = container.OpInspect
 	OpInitiate       = "initiate the replica set"
+	OpCheckLogin     = "log in to a kept volume as the root user"
 )
 
 // StartError says which step of a start failed. Op is one of OpPullImage,
-// OpCreate, OpCopyKeyFile, OpTLSCertificate, OpStart, OpInspect and
-// OpInitiate. Name is the container, empty for a pull by PullImage. Image is
+// OpCreate, OpCopyKeyFile, OpTLSCertificate, OpStart, OpInspect,
+// OpCheckLogin and OpInitiate. Name is the container, empty for a pull by PullImage. Image is
 // the image reference and Err the cause. If the start timeout cut a step
 // short, its StartError is the LastErr of a [NotReadyError].
 type StartError = container.StartError

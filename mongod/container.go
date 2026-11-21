@@ -71,11 +71,10 @@ func (c *Container) MongoImage() MongoImage { return c.image }
 // too. See [MongoImage.ReplicaSetPreconfigured].
 func (c *Container) ReplicaSet() string { return c.replicaSet }
 
-// Volume returns the name of the volume that keeps the data, given to
-// WithNamedVolume or made by WithDurableStorage, or "" when Stop removes the
-// data with the container.
+// Volume returns the name given to WithNamedVolume, whose volume Stop keeps,
+// or "" when the data goes with the container.
 //
-//	mongotest-data-3f1a9c4b7e2d
+//	cart-tests
 func (c *Container) Volume() string { return c.volume }
 
 // Username returns mongod's root user, or "" if it does not authenticate.
@@ -162,10 +161,12 @@ func escapeUserinfo(s string) string {
 	return b.String()
 }
 
-// Stop removes the container and its anonymous volumes. It is safe to call
-// twice and on a nil Container, and a container that is already gone counts
-// as stopped. If the daemon refuses, or ctx ends while Stop is waiting, Stop
-// returns the error and can be called again.
+// Stop removes the container and its anonymous volumes. A volume from
+// WithNamedVolume is kept, and mongod is shut down cleanly first so that the
+// volume keeps the last writes. Stop is safe to call twice and on a nil
+// Container, and a container that is already gone counts as stopped. If the
+// daemon refuses, or ctx ends while Stop is waiting, Stop returns the error
+// and can be called again.
 //
 // A context that has already ended still removes the container, so
 // t.Cleanup(func() { c.Stop(t.Context()) }) works.

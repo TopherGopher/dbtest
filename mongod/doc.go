@@ -144,6 +144,6 @@
 //
 //	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 //
-// A volume from [Options.WithNamedVolume] or [Options.WithDurableStorage]
-// holds data the caller asked to keep, so none of these removes it.
+// A volume from [Options.WithNamedVolume] holds data the caller asked to
+// keep, so none of these removes it.
 package mongod
