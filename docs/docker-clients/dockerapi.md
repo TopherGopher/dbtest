@@ -24,8 +24,9 @@ if err != nil {
 1. `DOCKER_HOST`, if set.
 2. `DOCKER_CONTEXT`, or the `currentContext` recorded in the Docker config
    directory (`DOCKER_CONFIG` or `~/.docker`), resolved through the context's
-   `meta.json`. If the context was created with TLS files, they are used for
-   TLS, and the daemon's certificate is always verified.
+   `meta.json`. If the context has TLS files, they are used for TLS instead
+   of `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`, and the daemon's
+   certificate is always verified.
 3. With nothing configured, a probe of the well-known sockets, taking the
    first that answers:
 

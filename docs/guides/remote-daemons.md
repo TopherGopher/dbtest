@@ -20,11 +20,6 @@ network.
 | **Socket proxy** | `tecnativa/docker-socket-proxy` in front of the socket | Wherever the daemon behind the proxy puts it. The proxy may also refuse calls dbtest makes. |
 | **Remote daemon** | `DOCKER_HOST=tcp://build-host:2376` | On `build-host` |
 
-A socket proxy such as `tecnativa/docker-socket-proxy` must allow
-`CONTAINERS`, `IMAGES`, `EXEC` and `POST`. A request it refuses matches
-`dockerclient.ErrUnauthorized` with `StatusError.FromProxy` set, and the
-message names the setting that allows it.
-
 The socket bind-mount is the most common in CI. It is often called
 docker-in-docker, though nothing is nested.
 
@@ -54,7 +49,12 @@ user and a random password, which `URI()` includes; see
 ## Using it
 
 With `mongotest.Run` or `mongod.Start` these setups need no configuration, apart from a socket
-proxy that refuses a call. If the address is wrong, set it:
+proxy that refuses a call. Start the proxy with `CONTAINERS=1`, `IMAGES=1`,
+`EXEC=1` and `POST=1`. A request it refuses matches
+`dockerclient.ErrUnauthorized` with `StatusError.FromProxy` true, and the
+message names the settings that allow it.
+
+If the address is wrong, set it:
 
 ```sh
 DBTEST_HOST_IP=172.17.0.1 go test ./...
@@ -65,5 +65,4 @@ or in code, `mongotest.DefaultOptions().WithHostIP("172.17.0.1")`.
 ## Still open
 
 The rest of [#52](https://github.com/TopherGopher/dbtest/issues/52) is
-open: a CI matrix for the four setups, and clearer errors behind a socket
-proxy ([#72](https://github.com/TopherGopher/dbtest/issues/72)).
+open: a CI matrix for the four setups.

@@ -38,28 +38,45 @@ If you check for `ErrDaemonResponse` to catch these, check for
 
 ### A docker context's TLS files are used
 
-- **A daemon chosen through a docker context created with TLS files is now
-  reached over TLS with them,** through either client, as the `docker` CLI
-  does. You no longer need to set `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`
-  for it. When the context has TLS files, those two variables are ignored.
-  The daemon's certificate is always verified, even when the context sets
-  `SkipTLSVerify`.
+- **When the daemon is found through a docker context that has TLS files,
+  either client now reaches it over TLS with them,** as the `docker` CLI
+  does. A context has TLS files when it was made with, for example,
+  `docker context create remote --docker "host=tcp://build-host:2376,ca=ca.pem,cert=cert.pem,key=key.pem"`.
+  You no longer need `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` for it, and
+  they are ignored when the context has TLS files.
+- **The daemon's certificate is always verified, even when the context was
+  made with `skip-tls-verify=true`,** which the `docker` CLI honours.
+  Skipping it would let anyone on the network pose as the daemon. A context
+  made with `skip-tls-verify=true` and no TLS files is refused with
+  `ErrInvalidArgument` before anything is sent, rather than sent plain HTTP.
+
+If you set `DOCKER_CERT_PATH` to files other than the context's, the
+context's files are now used: fix the context, or set `DOCKER_HOST` so that
+no context is used. If your context relies on `skip-tls-verify`, the
+client now fails, with `ErrConnectionFailed` or, when the context has no TLS
+files, `ErrInvalidArgument`: add the daemon's CA to the context as `ca=`.
 
 ### Errors say more precisely what went wrong with the daemon
 
-- **Plain HTTP sent to a daemon that only accepts TLS now matches
-  `ErrConnectionFailed`,** through either client, and the message says how
-  to turn TLS on. Before, it matched no sentinel, or `ErrDaemonResponse`,
-  and the message suggested a malformed request or an API version mismatch.
+- **Plain HTTP sent to a daemon that accepts only TLS now matches
+  `ErrConnectionFailed` through either client,** and the message says how
+  to turn TLS on. This happens with, for example, `DOCKER_HOST=tcp://host:2376`
+  and no `DOCKER_TLS_VERIFY`. Before, it matched no sentinel, or
+  `ErrDaemonResponse` when the port answered with TLS rather than HTTP, and
+  the message suggested a malformed request or an API version mismatch.
 - **A connection that breaks partway through a request, with a broken pipe
   or a reset, now matches `ErrDaemonResponse`, not `ErrConnectionFailed`.**
   The daemon was reached, so the message no longer says to start it. It
   says to retry and check the daemon's logs.
 - **A 403 from a proxy in front of the daemon, such as
-  `tecnativa/docker-socket-proxy`, sets `StatusError.FromProxy`.** The
-  message names the refused request and the proxy settings that allow it,
-  instead of quoting the proxy's HTML page and suggesting `docker login`.
-  It still matches `ErrUnauthorized`.
+  `tecnativa/docker-socket-proxy`, sets the new `StatusError.FromProxy`
+  field.** The message names the refused request and the proxy settings
+  that allow it, instead of quoting the proxy's HTML page and suggesting
+  `docker login`. It still matches `ErrUnauthorized`.
+
+If you branch on `ErrConnectionFailed` to tell the user to start Docker, a
+connection broken partway through a request now arrives as
+`ErrDaemonResponse` instead.
 
 ## v0.3.0
 

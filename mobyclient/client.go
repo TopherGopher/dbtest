@@ -98,39 +98,40 @@ func New(opts ...Option) (*Client, error) {
 	if cfg.mobyClient != nil {
 		return &Client{cli: cfg.mobyClient, host: cfg.mobyClient.DaemonHost(), logger: cfg.logger}, nil
 	}
-	host, tlsDir, mopts, err := hostOptions(cfg.host)
+	host, contextDir, mopts, err := hostOptions(cfg.host)
 	if err != nil {
 		return nil, err
 	}
 	mopts = append(mopts, client.WithResponseHook(loggingHook(cfg.logger)))
 	cli, err := client.New(mopts...)
 	if err != nil {
-		return nil, constructError(host, tlsDir, err)
+		return nil, constructError(host, contextDir, err)
 	}
 	return &Client{cli: cli, host: cli.DaemonHost(), logger: cfg.logger}, nil
 }
 
-// hostOptions returns the daemon's address, the directory of the TLS files
-// used for it, and the moby options that reach it. The address is the one
-// given, or else the one dockerclient.ResolveHost finds.
-func hostOptions(given string) (host, tlsDir string, opts []client.Opt, err error) {
+// hostOptions returns the daemon's address, the directory of the docker
+// context's TLS files if they are used, and the moby options that reach it.
+// The address is the one given, or else the one dockerclient.ResolveHost
+// finds.
+func hostOptions(given string) (host, contextDir string, opts []client.Opt, err error) {
 	host = given
 	if host == "" {
 		if host, err = dockerclient.ResolveHost(); err != nil {
 			return "", "", nil, err
 		}
-		if tlsDir, err = dockerclient.ContextTLSDir(); err != nil {
+		if contextDir, err = dockerclient.ContextTLSDir(); err != nil {
 			return "", "", nil, err
 		}
 	}
 	opts = []client.Opt{client.WithHost(host), client.WithAPIVersionFromEnv()}
-	if !isTCP(host) {
+	switch {
+	case !isTCP(host):
 		return host, "", opts, nil
+	case contextDir != "":
+		return host, contextDir, append(opts, contextTLS(contextDir)), nil
 	}
-	if tlsDir != "" {
-		return host, tlsDir, append(opts, contextTLS(tlsDir)), nil
-	}
-	return host, certDir(), append(opts, tlsFromEnv(host)...), nil
+	return host, "", append(opts, tlsFromEnv(host)...), nil
 }
 
 // contextTLS returns the TLS option for the files of a docker context. As
@@ -176,7 +177,12 @@ func tlsFromEnv(host string) []client.Opt {
 // isTCP reports whether host is reached over TCP, where TLS applies, rather
 // than through a local socket or named pipe.
 func isTCP(host string) bool {
-	return strings.HasPrefix(host, "tcp://") || strings.HasPrefix(host, "https://")
+	for _, scheme := range []string{"tcp://", "http://", "https://"} {
+		if strings.HasPrefix(host, scheme) {
+			return true
+		}
+	}
+	return false
 }
 
 // certDir is where the TLS files are read from: DOCKER_CERT_PATH, else the
@@ -211,8 +217,8 @@ func loggingHook(logger dockerclient.Logger) client.ResponseHook {
 // constructError reports which setting client.New refused, as an
 // InvalidArgumentError. moby's error does not say which it was, so each
 // setting is tried on its own; this runs only once building has failed.
-// tlsDir is where the TLS files were read from.
-func constructError(host, tlsDir string, err error) error {
+// contextDir is set when the TLS files came from a docker context.
+func constructError(host, contextDir string, err error) error {
 	switch {
 	case refuses(client.WithHost(host)):
 		return dockerclient.InvalidArgument("docker host", host, err.Error(),
@@ -221,11 +227,11 @@ func constructError(host, tlsDir string, err error) error {
 		return dockerclient.InvalidArgument("DOCKER_API_VERSION", os.Getenv("DOCKER_API_VERSION"), err.Error(),
 			"set an API version such as 1.44, or unset it to negotiate one with the daemon")
 	}
-	if tlsDir != certDir() {
-		return dockerclient.InvalidArgument("docker context TLS files", tlsDir, err.Error(),
+	if contextDir != "" {
+		return dockerclient.InvalidArgument("docker context TLS files", contextDir, err.Error(),
 			"recreate the context with `docker context create`, giving it the daemon's ca.pem and, if it asks for one, a client cert.pem and key.pem")
 	}
-	return dockerclient.InvalidArgument("DOCKER_CERT_PATH", tlsDir, err.Error(),
+	return dockerclient.InvalidArgument("DOCKER_CERT_PATH", certDir(), err.Error(),
 		"point DOCKER_CERT_PATH at the directory holding ca.pem, and cert.pem and key.pem if the daemon wants a client certificate, "+
 			"or unset DOCKER_TLS_VERIFY to connect without TLS")
 }

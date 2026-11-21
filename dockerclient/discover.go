@@ -24,6 +24,9 @@ type contextMeta struct {
 // contextEndpoint is one endpoint inside a docker context.
 type contextEndpoint struct {
 	Host string `json:"Host"`
+	// SkipTLSVerify tells the docker CLI to use TLS without checking the
+	// daemon's certificate.
+	SkipTLSVerify bool `json:"SkipTLSVerify"`
 }
 
 // lookup carries the environment and the probes discovery needs. Tests
@@ -135,12 +138,15 @@ func chosenContext(getenv func(string) string, configDir string) (string, error)
 	return name, nil
 }
 
-// ContextTLSDir returns the directory holding the TLS files (ca.pem, cert.pem
-// and key.pem) of the docker context ResolveHost takes the daemon's address
-// from. It returns "" when ResolveHost uses no context, or the context has
-// no TLS files. As with the docker CLI, a context's TLS files are used in
-// place of DOCKER_TLS_VERIFY and DOCKER_CERT_PATH. It returns an
-// InvalidArgumentError when the configuration cannot be read.
+// ContextTLSDir returns the directory of the docker context that ResolveHost
+// uses, which holds its TLS files: ca.pem, and cert.pem and key.pem if the
+// daemon wants a client certificate. It returns "" when ResolveHost uses no
+// context, or the context has no TLS files. Use these files in place of
+// DOCKER_TLS_VERIFY and DOCKER_CERT_PATH, as the docker CLI does. The
+// context's SkipTLSVerify setting is not reported, because dbtest's clients
+// always verify. It returns an InvalidArgumentError when the configuration
+// cannot be read, or when the context sets SkipTLSVerify and has no TLS
+// files, which the docker CLI would reach over TLS without verifying it.
 func ContextTLSDir() (string, error) {
 	return contextTLSDir(os.Getenv, configDir(os.Getenv))
 }
@@ -152,17 +158,31 @@ func contextTLSDir(getenv func(string) string, configDir string) (string, error)
 		return "", err
 	}
 	dir := filepath.Join(configDir, "contexts", "tls", contextID(name), "docker")
-	_, err = os.Stat(dir)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return "", nil
-	case err != nil:
-		// Going on without TLS would send a remote daemon's requests in the
-		// clear, so a directory that cannot be read is an error.
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return "", refuseSkipVerify(configDir, name)
+	}
+	// Stat on ca.pem, not on the directory, because only it needs the
+	// directory to be searchable. Going on without the files would send a
+	// remote daemon's requests in the clear, or trust the wrong roots, so a
+	// directory that cannot be read is an error.
+	if _, err := os.Stat(filepath.Join(dir, "ca.pem")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", InvalidArgument("docker context", name, "its TLS files in "+dir+" could not be read ("+err.Error()+")",
 			"fix the directory's permissions, or recreate the context with `docker context create`")
 	}
 	return dir, nil
+}
+
+// refuseSkipVerify returns an error when a context with no TLS files skips
+// TLS verification. The docker CLI reaches such a context over TLS without
+// checking the daemon's certificate. dbtest never skips the check, and must
+// not send the requests in the clear instead.
+func refuseSkipVerify(configDir, name string) error {
+	ep, err := contextDockerEndpoint(configDir, name)
+	if err != nil || !ep.SkipTLSVerify {
+		return err
+	}
+	return InvalidArgument("docker context", name, "it skips TLS verification, which dbtest never does",
+		"give the context the daemon's CA with `docker context update "+name+" --docker ca=...`, or set DOCKER_HOST")
 }
 
 // contextID is the name of a context's directories in the contexts store:
@@ -224,22 +244,29 @@ func currentContext(configDir string) (string, error) {
 	return cfg.CurrentContext, nil
 }
 
-// hostFromContext resolves a named docker context to its docker endpoint by
-// reading <configDir>/contexts/meta/<sha256(name)>/meta.json.
+// hostFromContext resolves a named docker context to its docker endpoint's
+// address.
 func hostFromContext(configDir, name string) (string, error) {
+	ep, err := contextDockerEndpoint(configDir, name)
+	return ep.Host, err
+}
+
+// contextDockerEndpoint reads a named docker context's docker endpoint from
+// <configDir>/contexts/meta/<sha256(name)>/meta.json.
+func contextDockerEndpoint(configDir, name string) (contextEndpoint, error) {
 	path := filepath.Join(configDir, "contexts", "meta", contextID(name), "meta.json")
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", InvalidArgument("docker context", name, "its metadata file "+path+" could not be read ("+err.Error()+")",
+		return contextEndpoint{}, InvalidArgument("docker context", name, "its metadata file "+path+" could not be read ("+err.Error()+")",
 			"run `docker context ls` to see the contexts that exist, `docker context use <name>` to switch, or set DOCKER_HOST directly")
 	}
 	var meta contextMeta
 	if err := json.Unmarshal(b, &meta); err != nil {
-		return "", InvalidArgument("docker context", name, "its metadata file "+path+" is not valid JSON ("+err.Error()+")", "recreate the context with `docker context create`, or set DOCKER_HOST directly")
+		return contextEndpoint{}, InvalidArgument("docker context", name, "its metadata file "+path+" is not valid JSON ("+err.Error()+")", "recreate the context with `docker context create`, or set DOCKER_HOST directly")
 	}
 	ep, ok := meta.Endpoints["docker"]
 	if !ok || ep.Host == "" {
-		return "", InvalidArgument("docker context", name, "it has no docker endpoint in "+path, "recreate the context with `docker context create --docker host=...`, or set DOCKER_HOST directly")
+		return contextEndpoint{}, InvalidArgument("docker context", name, "it has no docker endpoint in "+path, "recreate the context with `docker context create --docker host=...`, or set DOCKER_HOST directly")
 	}
-	return ep.Host, nil
+	return ep, nil
 }

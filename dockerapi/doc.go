@@ -51,6 +51,31 @@
 // whose message says how to enable either. A pipe named in DOCKER_HOST or a
 // docker context is rejected as unsupported.
 //
+//	c, err := dockerapi.FromEnv()
+//	if err != nil {
+//		return err // the message says which variable or setting to fix
+//	}
+//
+// New accepts options for a fixed host, a custom http.Client, TLS, the API
+// version and logging:
+//
+//	c, err := dockerapi.New(
+//		dockerapi.WithHost("tcp://build-host:2376"),
+//		dockerapi.WithTLSConfig(tlsCfg),
+//		dockerapi.WithLogger(slog.Default()),
+//	)
+//
+// TLS for tcp hosts follows the docker CLI conventions: DOCKER_TLS_VERIFY
+// enables it and DOCKER_CERT_PATH (default: the config directory) holds
+// ca.pem and, optionally, cert.pem and key.pem. When the daemon is found
+// through a docker context that has TLS files, it is reached over TLS with
+// those files instead, and the two variables are ignored. With WithHost no
+// context is used, so only the two variables apply. The daemon's
+// certificate is always verified, even when the context sets SkipTLSVerify,
+// because skipping it would let anyone on the network pose as the daemon.
+// A context that sets SkipTLSVerify and has no TLS files is refused rather
+// than sent plain HTTP.
+//
 // # Podman
 //
 // Everything in this package works against Podman's Docker-compatible
@@ -74,27 +99,6 @@
 // response, falling back to the component list in GET /version. Platform.Name
 // is not used for this: Podman puts a platform triple there, and a moby
 // build from source leaves it empty.
-//
-//	c, err := dockerapi.FromEnv()
-//	if err != nil {
-//		return err // the message says which variable or setting to fix
-//	}
-//
-// New accepts options for a fixed host, a custom http.Client, TLS, the API
-// version and logging:
-//
-//	c, err := dockerapi.New(
-//		dockerapi.WithHost("tcp://build-host:2376"),
-//		dockerapi.WithTLSConfig(tlsCfg),
-//		dockerapi.WithLogger(slog.Default()),
-//	)
-//
-// TLS for tcp hosts follows the docker CLI conventions: DOCKER_TLS_VERIFY
-// enables it and DOCKER_CERT_PATH (default: the config directory) holds
-// ca.pem and, optionally, cert.pem and key.pem. A docker context created
-// with TLS files is reached over TLS with those files instead, and the two
-// variables are ignored. The daemon's certificate is always verified, even
-// when the context sets SkipTLSVerify.
 //
 // # API versions
 //
@@ -158,19 +162,22 @@
 //     any request was sent. The message names the argument, the problem and
 //     the fix.
 //
-//   - ErrConnectionFailed (ConnectionError): the daemon could not be reached.
-//     The message says whether the socket is missing, permission was denied
-//     or the connection was refused, and what to do about it.
+//   - ErrConnectionFailed (ConnectionError): the daemon could not be
+//     reached, or no TLS connection could be made: a certificate was
+//     rejected, or plain HTTP was sent to a daemon that accepts only TLS.
+//     The message says which, and what to do about it.
 //
 //   - ErrAPIVersion (APIVersionError): the version windows do not overlap, or
 //     a feature such as ExecConfig.WorkingDir needs a newer daemon.
 //
 //   - ErrNotFound, ErrConflict, ErrUnauthorized (StatusError): the daemon
 //     answered 404, 409, or 401/403. StatusError carries the daemon's own
-//     message plus a hint for the status code.
+//     message plus a hint for the status code. When a proxy in front of the
+//     daemon refused the request, its FromProxy field is true and the hint
+//     names the proxy settings that allow it.
 //
-//   - ErrDaemonResponse (ResponseError): the daemon answered with a status
-//     or body this client could not interpret.
+//   - ErrDaemonResponse (ResponseError): the daemon's answer could not be
+//     used, or a request that reached it broke off partway.
 //
 //   - ErrStream (StreamError), ErrPull (PullError): an exec stream or a pull
 //     progress stream reported a problem.

@@ -582,3 +582,68 @@ func TestAContextsTLSFilesAreNotUsedForAGivenHost(t *testing.T) {
 		})
 	}
 }
+
+// A context's TLS file that cannot be used is a configuration problem that
+// names the context's files, not DOCKER_CERT_PATH.
+func TestABrokenContextTLSFileIsNamed(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			writeContext(t, configDir, "remote", "tcp://build-host:2376")
+			writeContextTLS(t, configDir, "remote", map[string][]byte{"ca.pem": []byte("not a certificate")})
+			t.Setenv("DOCKER_CONTEXT", "remote")
+
+			_, err := build()
+
+			var invalid *dockerclient.InvalidArgumentError
+			require.ErrorAs(t, err, &invalid, "a broken ca.pem is an invalid argument")
+			assert.Equal(t, "docker context TLS files", invalid.Argument, "the error names the context's TLS files")
+		})
+	}
+}
+
+// An http:// address in a context is still TCP, so the context's TLS files
+// apply to it, as they do to tcp://.
+func TestAContextsTLSFilesApplyToAnHTTPAddress(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host, caPEM := trustedServer(t, "")
+			writeContext(t, configDir, "remote", strings.Replace(host, "tcp://", "http://", 1))
+			writeContextTLS(t, configDir, "remote", map[string][]byte{"ca.pem": caPEM})
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_API_VERSION", "1.44") // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon is reached over TLS with the context's ca.pem")
+		})
+	}
+}
+
+// The docker CLI reaches a context that skips TLS verification over TLS,
+// even with no TLS files. dbtest never skips verification, and must not
+// send the requests in the clear instead, so it refuses the context before
+// anything is sent.
+func TestAContextThatSkipsTLSVerificationWithoutFilesIsRefused(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			d := dockermock.NewDaemon(dockermock.OverTCP())
+			t.Cleanup(d.Close)
+			writeContextMeta(t, configDir, "remote",
+				`{"Name":"remote","Endpoints":{"docker":{"Host":"`+d.Host()+`","SkipTLSVerify":true}}}`)
+			t.Setenv("DOCKER_CONTEXT", "remote")
+
+			c, err := build()
+			if err == nil {
+				_, err = c.ImageInspect(t.Context(), "mongo:8")
+			}
+
+			assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "the context asks for something dbtest will not do")
+			assert.Empty(t, d.Requests(), "nothing is sent in the clear")
+		})
+	}
+}

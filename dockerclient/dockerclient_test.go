@@ -258,6 +258,15 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 		require.NoError(t, err, "nothing needs reading")
 		assert.Empty(t, dir, "the context is not used, so neither are its files")
 	})
+	t.Run("a context that skips TLS verification with no TLS files", func(t *testing.T) {
+		configDir, _ := setup(t, false)
+		sum := sha256.Sum256([]byte("remote"))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "contexts", "meta", hex.EncodeToString(sum[:]), "meta.json"),
+			[]byte(`{"Name":"remote","Endpoints":{"docker":{"Host":"tcp://build-host:2376","SkipTLSVerify":true}}}`), 0o644), "writing the context")
+		t.Setenv("DOCKER_CONTEXT", "remote")
+		_, err := dockerclient.ContextTLSDir()
+		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "dbtest never skips verification, and will not send plain HTTP instead")
+	})
 	t.Run("a broken config.json", func(t *testing.T) {
 		configDir, _ := setup(t, true)
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing config.json")

@@ -24,7 +24,7 @@ var (
 	// an operation already in progress on the same object.
 	ErrConflict = errors.New("conflict")
 	// ErrUnauthorized is matched by 401 and 403, for example a pull from a
-	// registry that needs credentials.
+	// registry that needs credentials, or a request a socket proxy refused.
 	ErrUnauthorized = errors.New("unauthorized")
 	// ErrConnectionFailed is matched when the daemon could not be reached or
 	// would not complete a TLS handshake, for example a missing socket,
@@ -37,9 +37,9 @@ var (
 	// ErrAPIVersion is matched when the daemon's API window and the client's
 	// do not overlap, or a feature needs a newer API than was negotiated.
 	ErrAPIVersion = errors.New("unsupported docker API version")
-	// ErrDaemonResponse is matched when the daemon answered with something
-	// the client could not interpret: an unexpected status, or a body that
-	// does not decode.
+	// ErrDaemonResponse is matched when the daemon's answer could not be
+	// used, such as an unexpected status or a body that does not decode, or
+	// when a request that reached the daemon broke off partway.
 	ErrDaemonResponse = errors.New("unexpected response from the docker daemon")
 	// ErrStream is matched when an exec output stream is malformed or the
 	// daemon reported an error inside it.
@@ -122,9 +122,12 @@ type StatusError struct {
 	Message string
 	Method  string
 	Path    string
-	// FromProxy is set when the refusal came from a proxy in front of the
-	// daemon, such as a socket proxy that does not allow the endpoint, and
-	// not from the daemon itself.
+	// FromProxy is true when a proxy in front of the daemon refused the
+	// request, not the daemon itself, for example a socket proxy that does
+	// not allow the endpoint. Message then holds the proxy's body, or a
+	// placeholder when it sent none. It is only set for a 403 that does not
+	// carry the daemon's JSON error, so a proxy that answers in that format
+	// goes undetected.
 	FromProxy bool
 }
 
@@ -260,15 +263,16 @@ func isSettingName(s string) bool {
 // callers make most often, usually to pull an image and retry.
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
 
-// ResponseError is returned when a reply could not be used: an unexpected
-// status, or a body that does not decode. It matches ErrDaemonResponse.
+// ResponseError is returned when a reply could not be used, such as an
+// unexpected status or a body that does not decode, or when a request that
+// reached the daemon broke off partway. It matches ErrDaemonResponse.
 type ResponseError struct {
 	Method string
 	Path   string
 	// Problem says what was wrong with the response.
 	Problem string
-	// Fix says what to do. When empty, the message suggests checking the
-	// API version.
+	// Fix says what to do. When empty, Error suggests checking the API
+	// version instead.
 	Fix string
 	Err error
 }
@@ -279,7 +283,9 @@ func DecodeError(method, path string, err error) *ResponseError {
 }
 
 // RequestFailed reports a request that reached the daemon at host but could
-// not be completed, such as an upload whose connection the daemon closed.
+// not be completed, such as an upload whose connection the daemon closed. It
+// matches ErrDaemonResponse, not ErrConnectionFailed, because the daemon was
+// reached.
 func RequestFailed(method, path, host string, err error) *ResponseError {
 	return &ResponseError{Method: method, Path: path, Problem: "the request to " + host + " could not be completed", Err: err,
 		Fix: "Retry, and if it fails again check the daemon's logs (journalctl -u docker, or Docker Desktop's Troubleshoot view)"}
@@ -357,7 +363,7 @@ func WrapConnectionError(host string, err error) error {
 // tlsFix is what to do when the daemon expects TLS and the client did not
 // use it.
 const tlsFix = "Set DOCKER_TLS_VERIFY=1 and DOCKER_CERT_PATH to the directory with ca.pem, cert.pem and key.pem, " +
-	"set DOCKER_HOST to an https:// address, or use a docker context created with the daemon's TLS files"
+	"set DOCKER_HOST to an https:// address, or use a docker context that has the daemon's TLS files"
 
 // goTLSAnswer is the body Go's HTTP server, which the Docker daemon and
 // Podman are built on, sends with status 400 to plain HTTP on its TLS port.
@@ -421,7 +427,7 @@ func wrapTransportError(host string, err error) error {
 	msg := err.Error()
 	if strings.Contains(msg, "bad certificate") || strings.Contains(msg, "handshake failure") {
 		return ConnectionFailed(host, "the TLS handshake failed",
-			"The daemon probably requires a client certificate: put cert.pem and key.pem beside ca.pem, in DOCKER_CERT_PATH or in a docker context created with them", err)
+			"The daemon probably requires a client certificate: put cert.pem and key.pem beside ca.pem, in DOCKER_CERT_PATH or in the docker context's TLS files", err)
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
