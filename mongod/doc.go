@@ -53,20 +53,26 @@
 // that fails because a registry is briefly down is tried again for about a
 // minute.
 //
-// When Docker Hub cannot provide an image, because its rate limit refuses it
-// or it stays down, the pull tries a mirror that serves the same image:
+// When Docker Hub's rate limit refuses a pull, or Docker Hub is still down
+// after those retries, the pull tries a mirror that serves the same image:
 // Amazon ECR Public for a Docker official image such as mongo, and
 // quay.io/mongodb for an image under mongodb/, such as
-// mongodb/mongodb-community-server. Other images have no mirror. A source
-// whose rate limit refuses the pull is skipped for the next five minutes.
-// The container runs the image under the name it came from, which
-// [Container.Image] returns. Name an image by digest to be sure a mirror
-// serves exactly that content. The mirrors cannot be turned off.
+// mongodb/mongodb-community-server. Other images have no mirror, and an image
+// named on another registry is pulled from there alone. A pull stops at
+// Docker Hub, without trying the mirror, when the image is missing or private
+// there. The mirrors cannot be turned off.
 //
-// If every source fails, the error names each failure, and matches
-// [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited] when a rate
-// limit was among them. A pull stops at Docker Hub, without trying a mirror,
-// when the image is missing or private there.
+// An image pulled from a mirror keeps the mirror's name, such as
+// public.ecr.aws/docker/library/mongo:8.0. The container runs under that
+// name, and [Container.Image] returns it. To be sure a mirror serves exactly
+// the content you expect, name the image by digest.
+//
+// After a rate limit refuses a pull from Docker Hub or a mirror, that
+// registry is skipped for five minutes; a pull with nowhere else to go fails
+// at once until then. If Docker Hub and the mirror both fail, the error says
+// why each one failed. It matches
+// [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited] if either was
+// a rate limit.
 //
 // Call PullImage in TestMain, so the download happens before any test
 // starts. A pull may take up to ten minutes, which

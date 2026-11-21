@@ -104,7 +104,7 @@ A start refuses two mistakes before it creates anything:
   `ErrUnsupportedForImage`.
 
 An image the package does not know is treated like the official one. To pull
-through a mirror, name the image there:
+from your own registry or mirror, name the image there:
 
 ```go
 mongod.DefaultOptions().WithImage("mirror.corp.example/mongo")
@@ -115,26 +115,28 @@ A start pulls an image the daemon does not have. Calls to `Start` and
 that fails because a registry is briefly down is tried again for about a
 minute.
 
-When Docker Hub cannot provide an image, because its rate limit refuses it or
-it stays down, the pull tries a mirror that serves the same image:
+When Docker Hub's rate limit refuses a pull, or Docker Hub is still down after
+those retries, the pull tries a mirror that serves the same image:
 
 | Image | Mirror |
 | --- | --- |
-| A Docker official image, such as `mongo` | Amazon ECR Public |
+| A Docker official image, such as `mongo` | Amazon ECR Public (`public.ecr.aws/docker`) |
 | An image under `mongodb/`, such as `mongodb/mongodb-community-server` | `quay.io/mongodb` |
 
-Other images have no mirror. An image you name on another registry, such as
-`mirror.corp.example`, is pulled from there alone. A source whose rate limit
-refuses the pull is skipped for the next five minutes. The container runs the
-image under the name it came from, such as
-`public.ecr.aws/docker/library/mongo:8.0`, and `Container.Image` returns that
-name. To be sure a mirror serves exactly the content you expect, name the
-image by digest. The mirrors cannot be turned off.
+Other images have no mirror, and an image you name on another registry, such
+as your own, is pulled from there alone. A pull stops at Docker Hub, without
+trying the mirror, when the image is missing or private there. The mirrors
+cannot be turned off.
 
-If every source fails, the error names each failure, and matches
-`dockerclient.ErrRateLimited` when a rate limit was among them. A pull stops
-at Docker Hub, without trying a mirror, when the image is missing or private
-there.
+An image pulled from a mirror keeps the mirror's name, such as
+`public.ecr.aws/docker/library/mongo:8.0`. The container runs under that name,
+and `Container.Image` returns it. To be sure a mirror serves exactly the
+content you expect, name the image by digest.
+
+After a rate limit refuses a pull from Docker Hub or a mirror, that registry is
+skipped for five minutes; a pull with nowhere else to go fails at once until
+then. If Docker Hub and the mirror both fail, the error says why each one
+failed. It matches `dockerclient.ErrRateLimited` if either was a rate limit.
 
 `PullImage` pulls ahead of time, for the image a start with
 the same options would run, and does nothing if the daemon already has it.

@@ -5,20 +5,19 @@ what to do if it affects you.
 
 ## Unreleased
 
-### A pull goes to the mirror when Docker Hub stays down
+### A pull tries a mirror when Docker Hub stays down
 
-- **A registry that stays down sends the pull on to the image's mirror**
-  after its retries, as a rate limit does at once. Before, only a rate limit
-  sent it there. The mirrors are the same: Amazon ECR Public for a Docker
-  official image, and `quay.io/mongodb` for an image under `mongodb/`.
-- **ECR Public's "Data limit exceeded" now matches
+Nothing needs to change in your code or settings.
+
+- **A pull now tries the image's mirror when Docker Hub is still down after
+  about a minute of retries.** Before, only Docker Hub's rate limit sent it
+  there. The mirrors have not changed: Amazon ECR Public for a Docker official
+  image, and `quay.io/mongodb` for an image under `mongodb/`.
+- **A pull that ECR Public refuses with "Data limit exceeded" now matches
   `dockerclient.ErrRateLimited`,** like other registries' rate limits.
-- **When every source fails, the error names each source and its failure.**
-  It matches `dockerclient.ErrRateLimited` only when a rate limit was among
-  them. Before, it named Docker Hub and one mirror.
-- **Only a rate limit is remembered for five minutes, and only for the source
-  that refused.** Before, a mirror that failed in any way was not asked again
-  for five minutes.
+- **A registry is skipped for five minutes only after its rate limit refuses
+  a pull.** Before, a mirror that failed for any reason was skipped for five
+  minutes, so a mirror that was briefly down could not be used again.
 
 ## v0.3.0
 

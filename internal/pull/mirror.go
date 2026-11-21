@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
 )
@@ -94,8 +95,9 @@ func versionSuffix(ref dockerclient.ImageRef) string {
 }
 
 // SourcesError is a pull that failed at every source it tried: the image
-// itself and its mirrors, in that order. It matches each failure, so it
-// matches dockerclient.ErrRateLimited only when a rate limit was among them.
+// itself and its mirrors, in that order. errors.Is checks each failure, so
+// it matches dockerclient.ErrRateLimited if any source was refused by a rate
+// limit.
 type SourcesError struct {
 	Image    string          // the reference asked for
 	Failures []SourceFailure // one for each source tried, in order
@@ -123,9 +125,8 @@ func (e *SourcesError) Unwrap() []error {
 	return errs
 }
 
-// failedAt returns the error for a pull that failed at the sources in
-// failures: the one failure as it is when only one source was tried, and a
-// *SourcesError when more were.
+// failedAt returns nil for no failures, the failure itself for one, and a
+// *SourcesError for more.
 func failedAt(image string, failures []SourceFailure) error {
 	switch len(failures) {
 	case 0:
@@ -136,10 +137,14 @@ func failedAt(image string, failures []SourceFailure) error {
 	return &SourcesError{Image: image, Failures: failures}
 }
 
-// daemonMessage returns what the daemon said about a failed pull, without
-// the advice a client adds to it, which is about the image asked for rather
-// than one source of it.
+// daemonMessage returns the daemon's own message for a failed pull. It
+// leaves out the advice the client adds, because that advice is about the
+// image asked for, not the source that failed.
 func daemonMessage(err error) string {
+	var spent *spentLimitError
+	if errors.As(err, &spent) {
+		return daemonMessage(spent.err) + ", so it is not asked again until " + spent.until.Format(time.TimeOnly)
+	}
 	var pull *dockerclient.PullError
 	if errors.As(err, &pull) {
 		return pull.Message
