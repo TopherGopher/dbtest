@@ -188,6 +188,20 @@ func TestIntegrationAMissingProgramIsAnExitCodeAndNotAnError(t *testing.T) {
 	assert.Contains(t, []int{126, 127}, result.ExitCode, "and its exit code is one Start reads as a missing program")
 }
 
+func TestIntegrationAContainerNameInUseIsAConflict(t *testing.T) {
+	docker, ctx := liveDocker(t)
+	name := "mongod-name-in-use-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	opts := mongod.DefaultOptions().WithDocker(docker).WithName(name)
+	first, err := mongod.StartWithOptions(ctx, opts)
+	require.NoError(t, err, "the first container starts")
+	t.Cleanup(func() { _ = first.Stop(context.Background()) })
+
+	second, err := mongod.StartWithOptions(ctx, opts)
+	t.Cleanup(func() { _ = second.Stop(context.Background()) })
+
+	assert.ErrorIs(t, err, dockerclient.ErrConflict, "a name already in use is a conflict")
+}
+
 func TestIntegrationStartFailsWhenTheImageDoesNotExist(t *testing.T) {
 	docker, ctx := liveDocker(t)
 

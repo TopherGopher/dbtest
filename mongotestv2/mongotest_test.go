@@ -3,7 +3,6 @@ package mongotestv2_test
 import (
 	"context"
 	"os/exec"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -49,10 +48,11 @@ func TestIntegrationRunGivesAConnectedClient(t *testing.T) {
 
 func TestIntegrationRunRemovesTheContainerWhenTheTestEnds(t *testing.T) {
 	var inst *mongotestv2.Instance
-	t.Run("a test that uses a server", func(t *testing.T) {
+	ran := t.Run("a test that uses a server", func(t *testing.T) {
 		inst = mongotestv2.Run(t)
 		require.True(t, containerExists(t, inst.Container.ID()), "the container runs during the test")
 	})
+	require.True(t, ran, "the test that uses a server passes, so it has an instance")
 
 	assert.False(t, containerExists(t, inst.Container.ID()), "and is removed once the test has ended")
 	assert.ErrorIs(t, inst.Ping(context.Background(), nil), mongo.ErrClientDisconnected, "and the client is disconnected")
@@ -120,6 +120,7 @@ func TestIntegrationStopCanBeCalledAgainAndAfterADisconnect(t *testing.T) {
 	t.Cleanup(cancel)
 	inst, err := mongotestv2.Start(ctx)
 	require.NoError(t, err, "a container starts")
+	t.Cleanup(func() { _ = inst.Stop(context.Background()) })
 	require.NoError(t, inst.Disconnect(ctx), "the caller disconnects the promoted client first")
 
 	require.NoError(t, inst.Stop(ctx), "stopping still succeeds")
@@ -138,15 +139,16 @@ func TestAStartWithNoDaemonIsAConnectionFailure(t *testing.T) {
 	assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "callers can detect an unreachable daemon with errors.Is")
 }
 
-func TestIntegrationAContainerNameInUseIsAConflict(t *testing.T) {
-	name := "mongotest-name-in-use-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	opts := mongotestv2.DefaultOptions().WithName(name)
-	mongotestv2.RunWithOptions(t, opts)
+func TestRunFailsAndDoesNotSkipWhenTheStartFails(t *testing.T) {
+	nowhere, err := dockerapi.New(dockerapi.WithHost("unix:///nonexistent/docker.sock"))
+	require.NoError(t, err, "a client for a daemon that is not there can be made")
+	test := &recorder{TB: t}
 
-	second, err := mongotestv2.StartWithOptions(context.Background(), opts)
-	t.Cleanup(func() { _ = second.Stop(context.Background()) })
+	inGoroutine(func() { mongotestv2.RunWithOptions(test, mongotestv2.DefaultOptions().WithDocker(nowhere)) })
+	test.end()
 
-	assert.ErrorIs(t, err, dockerclient.ErrConflict, "a name already in use is a conflict")
+	assert.True(t, test.Failed(), "a start that fails fails the test")
+	assert.False(t, test.Skipped(), "and never skips it, so a broken setup cannot pass unnoticed")
 }
 
 func TestStoppingANilInstanceDoesNothing(t *testing.T) {

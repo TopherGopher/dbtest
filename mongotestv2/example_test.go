@@ -25,8 +25,18 @@ func ExampleRun() {
 func ExampleRunWithOptions() {
 	var t *testing.T // the test's own t
 	inst := mongotestv2.RunWithOptions(t, mongotestv2.DefaultOptions().WithReplicaSet("rs0"))
-	session, _ := inst.StartSession()
+	orders := inst.Database("shop").Collection("orders")
+	session, err := inst.StartSession()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer session.EndSession(t.Context())
+	_, err = session.WithTransaction(t.Context(), func(ctx context.Context) (any, error) {
+		return orders.InsertOne(ctx, bson.M{"item": "book"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 // One server can serve every test in a package. This is the body of the
