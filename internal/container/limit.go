@@ -37,7 +37,7 @@ func SetMaxConcurrentStarts(n int) int {
 
 // errWaitingForTurn is the LastErr of a start whose context ended before it
 // could begin.
-var errWaitingForTurn = errors.New("the start was still waiting its turn, because the limit on containers starting at once was reached")
+var errWaitingForTurn = errors.New("it was still waiting for a turn, because as many containers as the limit allows were starting")
 
 // takeSlot waits until fewer starts are running than the limit allows, or
 // until ctx ends. It returns the slots the start counts against, and a

@@ -125,7 +125,7 @@ running the deferred `Stop`, so the container is left running.
 `go test ./...` runs packages concurrently, and each package's test binary
 starts its own containers, under a limit of its own. If the machine runs
 short of memory, lower `-p` or `-parallel` rather than sharing containers
-between packages. Parallel tests
-in one package that need a missing image share one pull. Separate packages
-are separate processes, so each pulls a missing image on its own; see
+between packages. Parallel tests in one package that need a missing image
+share one pull. Separate packages are separate processes, so each pulls a
+missing image on its own; see
 [Which image](../reference/mongod.md#which-image).

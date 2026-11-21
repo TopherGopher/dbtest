@@ -3,6 +3,7 @@ package container_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -118,8 +119,8 @@ func TestAStartKeepsItsTurnUntilAfterReadyReturns(t *testing.T) {
 func TestWaitingForASlotDoesNotUseUpTheStartTimeout(t *testing.T) {
 	limitStarts(t, 1)
 	release, first := holdSlot(t)
-	time.AfterFunc(300*time.Millisecond, release)
-	s := spec(100 * time.Millisecond)
+	time.AfterFunc(1500*time.Millisecond, release)
+	s := spec(500 * time.Millisecond)
 	s.Ready = func(ctx context.Context, _ string, _ int) error { return ctx.Err() }
 
 	_, err := newContainer(readyDaemon()).Start(shortContext(t), s)
@@ -136,7 +137,19 @@ func TestAContextThatEndsWhileWaitingForASlotEndsTheStart(t *testing.T) {
 	defer cancel()
 	m := readyDaemon()
 
-	_, err := container.New("pg-waiting", m, dockerclient.NopLogger()).Start(ctx, spec(time.Minute))
+	// The start runs apart, so that one which ignored ctx fails the test
+	// instead of hanging it.
+	done := make(chan error, 1)
+	go func() {
+		_, err := container.New("pg-waiting", m, dockerclient.NopLogger()).Start(ctx, spec(time.Minute))
+		done <- err
+	}()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the start kept waiting after its context ended")
+	}
 
 	require.ErrorIs(t, err, container.ErrNotReady, "the start did not get as far as being ready")
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "the caller's context is what ended it")
@@ -205,13 +218,10 @@ func TestTheAdviceIsToldWhenOtherStartsFilledTheLimit(t *testing.T) {
 
 func TestALimitBelowOneRestoresTheDefault(t *testing.T) {
 	limitStarts(t, 1)
-	container.SetMaxConcurrentStarts(0)
-	release, first := holdSlot(t)
-	defer func() { release(); <-first }()
-
-	_, err := newContainer(readyDaemon()).Start(shortContext(t), spec(time.Second))
-
-	assert.NoError(t, err, "the default lets more than one start run at once")
+	for _, below := range []int{0, -1} {
+		container.SetMaxConcurrentStarts(below)
+		assert.Equal(t, 8*runtime.NumCPU(), container.SetMaxConcurrentStarts(below), "%d restores 8 starts per CPU", below)
+	}
 }
 
 func TestSettingTheLimitReturnsThePreviousOne(t *testing.T) {

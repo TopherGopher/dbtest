@@ -265,8 +265,8 @@ const allowLonger = "Allow longer with WithStartTimeout or " + EnvStartTimeout
 // others filled the limit. Starts at once slow each other, and a slow mongod
 // looks just like a wrong address, so the address is not mentioned. The
 // setter is named with its package because mongotest users call it too.
-const crowdedAdvice = "The limit on containers starting at once was reached, so the others may have slowed this one. " +
-	"Start fewer at once with mongod.SetMaxConcurrentStarts, or allow longer with WithStartTimeout or " + EnvStartTimeout
+const crowdedAdvice = "The other starts may have slowed this one. " +
+	"Lower the limit on starts at once with mongod.SetMaxConcurrentStarts, or allow longer with WithStartTimeout or " + EnvStartTimeout
 
 // addressInDoubt reports whether the last attempt failed in a way a wrong
 // address would explain: nothing answered there, or something that is not

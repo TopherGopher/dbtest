@@ -147,9 +147,9 @@ func (e *NotReadyError) alongside() string {
 	case 0:
 		return ""
 	case 1:
-		return ", the only container starting"
+		return ", with no other container starting"
 	}
-	return fmt.Sprintf(", while %d containers were starting at once", e.starting)
+	return fmt.Sprintf(", with %d containers starting at once", e.starting)
 }
 
 // lastFailure returns ": " and the last failure, or "" if there was none.

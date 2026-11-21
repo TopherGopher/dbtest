@@ -77,6 +77,8 @@ func TestTheAdviceForAStartThatRanOutOfTimeSuitsTheFailure(t *testing.T) {
 	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}, false), "no advice to wait for an open mongod")
 	assert.Equal(t, mongod.CrowdedAdvice, mongod.NotReadyAdvice(mongod.ErrNoReply, true),
 		"others filled the limit: the load is the likelier cause, not the address")
+	assert.Equal(t, mongod.CrowdedAdvice, mongod.NotReadyAdvice(mongod.ErrHelloRefused, true),
+		"others filled the limit: starting fewer may help whatever the last failure was")
 	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}, true),
 		"an open mongod is no less wrong when the machine is busy")
 }
