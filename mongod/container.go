@@ -47,17 +47,15 @@ func (c *Container) ID() string { return c.ctr.ID() }
 //	mongotest-1a2b3c4d
 func (c *Container) Name() string { return c.ctr.Name() }
 
-// Image returns the reference of the image the container runs. When Docker
-// Hub's rate limit refused the image, this is the mirror's reference for
-// the same image.
+// Image returns the reference of the image the container runs. When the
+// image came from a mirror, this is the mirror's reference for it.
 //
 //	docker.io/library/mongo:8.0
 //	public.ecr.aws/docker/library/mongo:8.0
 func (c *Container) Image() string { return c.ref }
 
 // MongoImage returns the image that was asked for, in its three parts. It
-// differs from Image only when Docker Hub's rate limit sent the pull to a
-// mirror.
+// differs from Image only when the image came from a mirror.
 //
 //	Registry:   "docker.io"
 //	Repository: "library/mongo"

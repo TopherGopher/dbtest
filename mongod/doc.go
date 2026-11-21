@@ -54,16 +54,14 @@
 // minute.
 //
 // When Docker Hub cannot provide an image, because its rate limit refuses it
-// or it stays down, the pull tries the image's mirrors in turn. A Docker
-// official image such as mongo tries Amazon ECR Public and then
-// mirror.gcr.io; an image under mongodb/, such as
-// mongodb/mongodb-community-server, tries quay.io/mongodb and then
-// mirror.gcr.io; any other Docker Hub image tries mirror.gcr.io. A mirror
-// whose rate limit refuses the pull is skipped for the next five minutes. The
-// container runs the image under the name it came from, which
+// or it stays down, the pull tries a mirror that serves the same image:
+// Amazon ECR Public for a Docker official image such as mongo, and
+// quay.io/mongodb for an image under mongodb/, such as
+// mongodb/mongodb-community-server. Other images have no mirror. A source
+// whose rate limit refuses the pull is skipped for the next five minutes.
+// The container runs the image under the name it came from, which
 // [Container.Image] returns. Name an image by digest to be sure a mirror
-// serves exactly that content. There is no option to turn this off; an image
-// on any other registry is pulled from there alone.
+// serves exactly that content. The mirrors cannot be turned off.
 //
 // If every source fails, the error names each failure, and matches
 // [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited] when a rate

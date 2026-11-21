@@ -18,11 +18,6 @@ type Mirror func(ref string) (string, bool)
 // Amazon ECR Public, where Docker and AWS publish the same images.
 var OfficialImages = HubMirror("library", "public.ecr.aws/docker")
 
-// DockerHubCache finds any Docker Hub image on mirror.gcr.io, Google's cache
-// of Docker Hub. An image it has not cached comes from Docker Hub, so Docker
-// Hub's rate limit can refuse it there too.
-var DockerHubCache = hubCache("mirror.gcr.io")
-
 // dockerHubNames are the registry names that mean Docker Hub.
 var dockerHubNames = []string{"docker.io", "index.docker.io", "registry-1.docker.io"}
 
@@ -34,18 +29,6 @@ func HubMirror(namespace, prefix string) Mirror {
 	return func(ref string) (string, bool) {
 		path, ok := dockerHubPath(ref)
 		if !ok || !strings.HasPrefix(path, namespace+"/") {
-			return "", false
-		}
-		return prefix + "/" + path, true
-	}
-}
-
-// hubCache returns a Mirror for every Docker Hub image, which the cache
-// serves under prefix with the same path, tag and digest.
-func hubCache(prefix string) Mirror {
-	return func(ref string) (string, bool) {
-		path, ok := dockerHubPath(ref)
-		if !ok {
 			return "", false
 		}
 		return prefix + "/" + path, true

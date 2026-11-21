@@ -5,16 +5,12 @@ what to do if it affects you.
 
 ## Unreleased
 
-### A pull tries every mirror in turn
+### A pull goes to the mirror when Docker Hub stays down
 
-- **When Docker Hub cannot provide an image, each of its mirrors is tried in
-  order,** not only one. A Docker official image tries Amazon ECR Public and
-  then `mirror.gcr.io`; an image under `mongodb/` tries `quay.io/mongodb` and
-  then `mirror.gcr.io`; any other Docker Hub image now tries `mirror.gcr.io`.
-  Before, an image went to one mirror, and only when Docker Hub's rate limit
-  refused it.
-- **A registry that stays down sends the pull on to the next source** after
-  its retries, as a rate limit does at once.
+- **A registry that stays down sends the pull on to the image's mirror**
+  after its retries, as a rate limit does at once. Before, only a rate limit
+  sent it there. The mirrors are the same: Amazon ECR Public for a Docker
+  official image, and `quay.io/mongodb` for an image under `mongodb/`.
 - **ECR Public's "Data limit exceeded" now matches
   `dockerclient.ErrRateLimited`,** like other registries' rate limits.
 - **When every source fails, the error names each source and its failure.**

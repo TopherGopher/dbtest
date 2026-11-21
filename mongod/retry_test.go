@@ -34,10 +34,10 @@ var (
 		Message: `unknown: failed to resolve reference "docker.io/library/mongo:8.0": unexpected status from HEAD request: 503 Service Unavailable`}
 )
 
-// noMirrorImage is on a registry that no mirror serves, so its rate limit is
-// waited out and remembered rather than sent to a mirror. Every Docker Hub
-// image has mirror.gcr.io as a mirror.
-const noMirrorImage = "registry.example.com/team/mongo:8.0"
+// noMirrorImage is on Docker Hub, but outside the namespaces a mirror
+// serves, so its rate limit is waited out and remembered rather than sent
+// to a mirror.
+const noMirrorImage = "bitnami/mongodb:8.0"
 
 // failingThen makes m's pulls fail with err the given number of times, and
 // then succeed.

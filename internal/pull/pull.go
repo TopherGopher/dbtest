@@ -250,13 +250,13 @@ func withCause(ended, last error) error {
 // failure that may pass is tried again at that source first.
 func (p *sharedPull) fetch(ctx context.Context, docker dockerclient.Client, host string) (string, error) {
 	for i, source := range p.sources {
+		if i > 0 && onDaemon(ctx, docker, source) {
+			return source, nil
+		}
 		key := pullKey{host: host, image: source}
 		if spent := spentFor(key); spent != nil {
 			p.fail(source, spent)
 			continue
-		}
-		if i > 0 && onDaemon(ctx, docker, source) {
-			return source, nil
 		}
 		another := i < len(p.sources)-1
 		p.begin(source)

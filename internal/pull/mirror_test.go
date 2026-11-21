@@ -28,27 +28,11 @@ func TestWhereAMirrorServesAnImage(t *testing.T) {
 	}
 }
 
-func TestMirrorGCRCachesEveryDockerHubImage(t *testing.T) {
-	cases := []struct{ ref, want string }{
-		{"mongo:8.0", "mirror.gcr.io/library/mongo:8.0"},
-		{"docker.io/library/mongo:8.0", "mirror.gcr.io/library/mongo:8.0"},
-		{"mongodb/mongodb-atlas-local:8.0", "mirror.gcr.io/mongodb/mongodb-atlas-local:8.0"},
-		{"bitnami/mongodb:8.0", "mirror.gcr.io/bitnami/mongodb:8.0"},
-	}
-	for _, tc := range cases {
-		got, ok := DockerHubCache(tc.ref)
-		assert.True(t, ok, "%s is on Docker Hub", tc.ref)
-		assert.Equal(t, tc.want, got, "the same path, tag and digest")
-	}
-	_, ok := DockerHubCache("quay.io/mongodb/mongodb-community-server:8.0-ubi9")
-	assert.False(t, ok, "only Docker Hub's images are cached")
-}
-
 func TestSourcesAreInTheOrderTheMirrorsAreGiven(t *testing.T) {
-	got := sources("mongo:8.0", []Mirror{OfficialImages, HubMirror("mongodb", "quay.io"), DockerHubCache})
+	got := sources("mongo:8.0", []Mirror{OfficialImages, HubMirror("mongodb", "quay.io"), HubMirror("library", "mirror.example"), OfficialImages})
 
-	assert.Equal(t, []string{"mongo:8.0", "public.ecr.aws/docker/library/mongo:8.0", "mirror.gcr.io/library/mongo:8.0"}, got,
-		"the image itself, then each mirror that has it")
+	assert.Equal(t, []string{"mongo:8.0", "public.ecr.aws/docker/library/mongo:8.0", "mirror.example/library/mongo:8.0"}, got,
+		"the image itself, then each mirror that has it, once")
 }
 
 func TestAnImageOffDockerHubOrOutsideTheNamespaceHasNoMirror(t *testing.T) {
@@ -89,11 +73,6 @@ func FuzzHubMirror(f *testing.F) {
 		}
 		if mirrored, ok := mongoDB(ref); ok {
 			assert.True(t, strings.HasPrefix(mirrored, "quay.io/mongodb/"), "a MongoDB image is found only on quay.io")
-		}
-		if cached, ok := DockerHubCache(ref); ok {
-			assert.True(t, strings.HasPrefix(cached, "mirror.gcr.io/"), "a cached image is found on mirror.gcr.io")
-			_, again := DockerHubCache(cached)
-			assert.False(t, again, "and the cache's name is not cached again")
 		}
 	})
 }

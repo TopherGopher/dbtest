@@ -13,10 +13,12 @@ import (
 	"github.com/tophergopher/dbtest/dockermock"
 )
 
-const gcrImage = "mirror.gcr.io/library/mongo:8.0"
+// secondImage is hubImage on a second mirror, which only these tests have,
+// so that a pull can be followed past its first mirror.
+const secondImage = "mirror.example/library/mongo:8.0"
 
-// officialSources are the mirrors mongod passes for an official image.
-var officialSources = []Mirror{OfficialImages, DockerHubCache}
+// officialSources gives an official image two mirrors: ECR, then the second.
+var officialSources = []Mirror{OfficialImages, HubMirror("library", "mirror.example")}
 
 var (
 	registryDown = &dockerclient.StatusError{StatusCode: 500, Method: "POST", Path: "/images/create",
@@ -63,8 +65,8 @@ func TestSourcesAreTriedInOrderUntilOneServesTheImage(t *testing.T) {
 	ref, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
 
 	require.NoError(t, err, "the last source serves the image")
-	assert.Equal(t, gcrImage, ref, "the image is on the daemon under the source it came from")
-	assert.Equal(t, []string{hubImage, mirrorImage, gcrImage}, pulledRefs(m), "Docker Hub, then ECR, then mirror.gcr.io")
+	assert.Equal(t, secondImage, ref, "the image is on the daemon under the source it came from")
+	assert.Equal(t, []string{hubImage, mirrorImage, secondImage}, pulledRefs(m), "Docker Hub, then ECR, then the second mirror")
 }
 
 func TestATemporaryFailureMovesOnOnlyAfterItsRetries(t *testing.T) {
@@ -107,22 +109,22 @@ func TestThePullStopsWhereNoOtherSourceCouldHelp(t *testing.T) {
 }
 
 func TestWhenEverySourceFailsEachFailureIsReported(t *testing.T) {
-	m := bySource(t, map[string]error{"docker.io/": rateLimited, "public.ecr.aws/": notOnMirror, "mirror.gcr.io/": registryDown})
+	m := bySource(t, map[string]error{"docker.io/": rateLimited, "public.ecr.aws/": notOnMirror, "mirror.example/": registryDown})
 
 	_, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
 
 	var failed *SourcesError
 	require.ErrorAs(t, err, &failed, "one error for every source")
 	require.Len(t, failed.Failures, 3, "a failure for each source")
-	assert.Equal(t, []string{hubImage, mirrorImage, gcrImage},
+	assert.Equal(t, []string{hubImage, mirrorImage, secondImage},
 		[]string{failed.Failures[0].Ref, failed.Failures[1].Ref, failed.Failures[2].Ref}, "in the order they were tried")
 	assert.ErrorIs(t, err, dockerclient.ErrRateLimited, "Docker Hub's rate limit")
 	assert.ErrorIs(t, err, notOnMirror, "ECR's missing image")
-	assert.ErrorIs(t, err, registryDown, "and mirror.gcr.io's failure")
+	assert.ErrorIs(t, err, registryDown, "and the second mirror's failure")
 }
 
 func TestAFailureWithNoRateLimitDoesNotMatchIt(t *testing.T) {
-	m := bySource(t, map[string]error{"docker.io/": registryDown, "public.ecr.aws/": notOnMirror, "mirror.gcr.io/": notOnMirror})
+	m := bySource(t, map[string]error{"docker.io/": registryDown, "public.ecr.aws/": notOnMirror, "mirror.example/": notOnMirror})
 
 	_, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
 
@@ -145,10 +147,10 @@ func TestARateLimitIsRememberedForTheSourceThatRefused(t *testing.T) {
 
 	failures["public.ecr.aws/"] = rateLimited
 	_, err = Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
-	require.NoError(t, err, "mirror.gcr.io serves it")
+	require.NoError(t, err, "the second mirror serves it")
 	_, err = Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
 	require.NoError(t, err, "and serves it again")
-	assert.Equal(t, []string{hubImage, mirrorImage, mirrorImage, mirrorImage, gcrImage, gcrImage}, pulledRefs(m),
+	assert.Equal(t, []string{hubImage, mirrorImage, mirrorImage, mirrorImage, secondImage, secondImage}, pulledRefs(m),
 		"once ECR refuses too, it is skipped as well")
 }
 
@@ -156,7 +158,7 @@ func TestAMirrorWithoutTheImageIsAskedAgainNextTime(t *testing.T) {
 	SetRateLimitMemory(t, time.Hour)
 	m := bySource(t, map[string]error{"docker.io/": rateLimited, "public.ecr.aws/": notOnMirror})
 	_, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
-	require.NoError(t, err, "mirror.gcr.io serves the image")
+	require.NoError(t, err, "the second mirror serves the image")
 
 	_, err = Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
 
@@ -167,7 +169,7 @@ func TestAMirrorWithoutTheImageIsAskedAgainNextTime(t *testing.T) {
 func TestAnEarlierCopyOnTheDaemonIsUsedBeforePulling(t *testing.T) {
 	m := bySource(t, map[string]error{"docker.io/": rateLimited, "public.ecr.aws/": notOnMirror})
 	m.ImageInspectFunc = func(_ context.Context, ref string) (dockerclient.ImageInspect, error) {
-		if ref == gcrImage {
+		if ref == secondImage {
 			return dockerclient.ImageInspect{}, nil
 		}
 		return dockerclient.ImageInspect{}, dockerclient.ErrNotFound
@@ -176,8 +178,8 @@ func TestAnEarlierCopyOnTheDaemonIsUsedBeforePulling(t *testing.T) {
 	ref, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
 
 	require.NoError(t, err, "the image is already on the daemon")
-	assert.Equal(t, gcrImage, ref, "under mirror.gcr.io's name")
-	assert.Equal(t, []string{hubImage, mirrorImage}, pulledRefs(m), "so mirror.gcr.io is not pulled")
+	assert.Equal(t, secondImage, ref, "under the second mirror's name")
+	assert.Equal(t, []string{hubImage, mirrorImage}, pulledRefs(m), "so the second mirror is not pulled")
 }
 
 // countRef returns how many of refs are ref.
@@ -205,5 +207,24 @@ func TestThePullStopsWhenItsTimeRunsOut(t *testing.T) {
 
 	var timedOut *TimeoutError
 	require.ErrorAs(t, err, &timedOut, "the pull timeout ended it")
-	assert.Equal(t, []string{hubImage, mirrorImage}, pulledRefs(m), "mirror.gcr.io is not asked once the time is up")
+	assert.Equal(t, []string{hubImage, mirrorImage}, pulledRefs(m), "the second mirror is not asked once the time is up")
+}
+
+func TestACopyOnTheDaemonIsUsedEvenWhileItsSourceIsRateLimited(t *testing.T) {
+	SetRateLimitMemory(t, time.Hour)
+	m := bySource(t, map[string]error{"docker.io/": rateLimited, "public.ecr.aws/": rateLimited})
+	_, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
+	require.NoError(t, err, "the second mirror serves the image while both limits are remembered")
+	m.ImageInspectFunc = func(_ context.Context, ref string) (dockerclient.ImageInspect, error) {
+		if ref == mirrorImage {
+			return dockerclient.ImageInspect{}, nil // someone pulled ECR's copy since
+		}
+		return dockerclient.ImageInspect{}, dockerclient.ErrNotFound
+	}
+
+	ref, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
+
+	require.NoError(t, err, "the image is on the daemon")
+	assert.Equal(t, mirrorImage, ref, "ECR's copy is used, though ECR's rate limit is remembered")
+	assert.Equal(t, 1, countRef(pulledRefs(m), secondImage), "and nothing is pulled again")
 }

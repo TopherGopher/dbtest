@@ -116,21 +116,20 @@ that fails because a registry is briefly down is tried again for about a
 minute.
 
 When Docker Hub cannot provide an image, because its rate limit refuses it or
-it stays down, the pull tries the image's mirrors in turn:
+it stays down, the pull tries a mirror that serves the same image:
 
-| Image | Tried after Docker Hub, in order |
+| Image | Mirror |
 | --- | --- |
-| A Docker official image, such as `mongo` | Amazon ECR Public, then `mirror.gcr.io` |
-| An image under `mongodb/`, such as `mongodb/mongodb-community-server` | `quay.io/mongodb`, then `mirror.gcr.io` |
-| Any other Docker Hub image | `mirror.gcr.io` |
+| A Docker official image, such as `mongo` | Amazon ECR Public |
+| An image under `mongodb/`, such as `mongodb/mongodb-community-server` | `quay.io/mongodb` |
 
-A source whose rate limit refuses the pull is skipped for the next five
-minutes. The container runs the image under the name it came from, such as
+Other images have no mirror. An image you name on another registry, such as
+`mirror.corp.example`, is pulled from there alone. A source whose rate limit
+refuses the pull is skipped for the next five minutes. The container runs the
+image under the name it came from, such as
 `public.ecr.aws/docker/library/mongo:8.0`, and `Container.Image` returns that
 name. To be sure a mirror serves exactly the content you expect, name the
-image by digest. These fallbacks are for Docker Hub's images only, and cannot
-be turned off. An image you name on another registry, such as
-`mirror.corp.example`, is pulled from there alone.
+image by digest. The mirrors cannot be turned off.
 
 If every source fails, the error names each failure, and matches
 `dockerclient.ErrRateLimited` when a rate limit was among them. A pull stops

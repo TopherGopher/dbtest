@@ -189,8 +189,8 @@ func (c *Container) spec(cfg config) container.Spec {
 	}
 }
 
-// pullFor pulls an image the daemon does not have, from a mirror if Docker
-// Hub's rate limit refuses it. A mirror's copy keeps the mirror's name, so
+// pullFor pulls an image the daemon does not have, from a mirror if its own
+// registry cannot provide it. A mirror's copy keeps the mirror's name, so
 // it returns the mirror's reference, and records it as the image the
 // container runs, for every later step and error.
 func (c *Container) pullFor(cfg config) func(context.Context, string) (string, error) {
