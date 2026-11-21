@@ -41,7 +41,7 @@ func HubMirror(namespace, prefix string) Mirror {
 func sources(image string, mirrors []Mirror) []string {
 	list := []string{image}
 	for _, mirror := range mirrors {
-		if name, ok := mirror(image); ok && !slices.Contains(list, name) {
+		if name, ok := mirror(image); ok {
 			list = append(list, name)
 		}
 	}

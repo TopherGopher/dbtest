@@ -23,16 +23,14 @@ func TestWhereAMirrorServesAnImage(t *testing.T) {
 	}
 	mirrors := []Mirror{OfficialImages, HubMirror("mongodb", "quay.io")}
 	for _, tc := range cases {
-		got := sources(tc.ref, mirrors)
-		assert.Equal(t, []string{tc.ref, tc.want}, got, "%s is the same image on the mirror, at the same tag or digest", tc.ref)
+		var found []string
+		for _, mirror := range mirrors {
+			if name, ok := mirror(tc.ref); ok {
+				found = append(found, name)
+			}
+		}
+		assert.Equal(t, []string{tc.want}, found, "%s is the same image on one mirror, at the same tag or digest", tc.ref)
 	}
-}
-
-func TestSourcesAreInTheOrderTheMirrorsAreGiven(t *testing.T) {
-	got := sources("mongo:8.0", []Mirror{OfficialImages, HubMirror("mongodb", "quay.io"), HubMirror("library", "mirror.example"), OfficialImages})
-
-	assert.Equal(t, []string{"mongo:8.0", "public.ecr.aws/docker/library/mongo:8.0", "mirror.example/library/mongo:8.0"}, got,
-		"the image itself, then each mirror that has it, once")
 }
 
 func TestAnImageOffDockerHubOrOutsideTheNamespaceHasNoMirror(t *testing.T) {

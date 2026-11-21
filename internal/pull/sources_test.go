@@ -59,6 +59,17 @@ func pulledRefs(m *dockermock.Mock) []string {
 	return refs
 }
 
+// countRef returns how many of refs are ref.
+func countRef(refs []string, ref string) int {
+	n := 0
+	for _, r := range refs {
+		if r == ref {
+			n++
+		}
+	}
+	return n
+}
+
 func TestSourcesAreTriedInOrderUntilOneServesTheImage(t *testing.T) {
 	m := bySource(t, map[string]error{"docker.io/": rateLimited, "public.ecr.aws/": notOnMirror})
 
@@ -104,6 +115,9 @@ func TestThePullStopsWhereNoOtherSourceCouldHelp(t *testing.T) {
 
 			assert.ErrorIs(t, err, tc.want, "the failure that stopped the pull")
 			assert.Equal(t, tc.asked, pulledRefs(m), "no later source is asked")
+			if len(tc.asked) == 1 {
+				assert.NotErrorAs(t, err, new(*SourcesError), "one source tried, so its failure is returned as it is")
+			}
 		})
 	}
 }
@@ -130,7 +144,7 @@ func TestAFailureWithNoRateLimitDoesNotMatchIt(t *testing.T) {
 
 	var failed *SourcesError
 	require.ErrorAs(t, err, &failed, "every source failed")
-	assert.NotErrorIs(t, err, dockerclient.ErrRateLimited, "no rate limit, so no advice to log in")
+	assert.NotErrorIs(t, err, dockerclient.ErrRateLimited, "no rate limit was among the failures")
 }
 
 func TestARateLimitIsRememberedForTheSourceThatRefused(t *testing.T) {
@@ -182,17 +196,6 @@ func TestAnEarlierCopyOnTheDaemonIsUsedBeforePulling(t *testing.T) {
 	assert.Equal(t, []string{hubImage, mirrorImage}, pulledRefs(m), "so the second mirror is not pulled")
 }
 
-// countRef returns how many of refs are ref.
-func countRef(refs []string, ref string) int {
-	n := 0
-	for _, r := range refs {
-		if r == ref {
-			n++
-		}
-	}
-	return n
-}
-
 func TestThePullStopsWhenItsTimeRunsOut(t *testing.T) {
 	m := bySource(t, nil)
 	m.ImagePullFunc = func(ctx context.Context, ref string) error {
@@ -227,4 +230,18 @@ func TestACopyOnTheDaemonIsUsedEvenWhileItsSourceIsRateLimited(t *testing.T) {
 	require.NoError(t, err, "the image is on the daemon")
 	assert.Equal(t, mirrorImage, ref, "ECR's copy is used, though ECR's rate limit is remembered")
 	assert.Equal(t, 1, countRef(pulledRefs(m), secondImage), "and nothing is pulled again")
+}
+
+func TestWhenEverySourceIsRateLimitedTheLastIsWaitedOutThenSkipped(t *testing.T) {
+	SetRateLimitMemory(t, time.Hour)
+	m := bySource(t, map[string]error{"docker.io/": rateLimited, "public.ecr.aws/": rateLimited, "mirror.example/": rateLimited})
+	_, err := Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
+	require.ErrorIs(t, err, dockerclient.ErrRateLimited, "every source refused")
+	assert.Equal(t, pullAttempts, countRef(pulledRefs(m), secondImage), "the last source's limit is waited out, as for an image with no mirror")
+	asked := len(pulledRefs(m))
+
+	_, err = Shared(context.Background(), m, hubImage, time.Minute, officialSources...)
+
+	assert.ErrorIs(t, err, dockerclient.ErrRateLimited, "a later pull is told the limits are spent")
+	assert.Len(t, pulledRefs(m), asked, "without asking any registry")
 }

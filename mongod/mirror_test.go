@@ -158,6 +158,7 @@ func TestWhenEveryMirrorFailsTooEachFailureIsReported(t *testing.T) {
 	again := mongod.PullImage(context.Background(), opts)
 
 	assert.ErrorIs(t, again, dockerclient.ErrRateLimited, "a later pull is told the same")
+	assert.ErrorAs(t, again, &status, "including why the mirror failed")
 	assert.Equal(t, 0, countOf(pulled(m)[len(first):], "docker.io/library/mongo:8.0"), "without asking Docker Hub while its limit is remembered")
 	assert.Equal(t, 2, countOf(pulled(m), "public.ecr.aws/docker/library/mongo:8.0"), "but a mirror that lacked the image is asked again")
 }
