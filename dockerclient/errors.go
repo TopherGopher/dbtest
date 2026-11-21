@@ -2,6 +2,7 @@ package dockerclient
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -25,8 +26,10 @@ var (
 	// ErrUnauthorized is matched by 401 and 403, for example a pull from a
 	// registry that needs credentials.
 	ErrUnauthorized = errors.New("unauthorized")
-	// ErrConnectionFailed is matched when the daemon could not be reached at
-	// all: socket missing, permission denied, connection refused, timeout.
+	// ErrConnectionFailed is matched when the daemon could not be reached or
+	// would not complete a TLS handshake, for example a missing socket,
+	// permission denied, a refused or timed-out connection, a host name that
+	// does not resolve, or a certificate either side rejects.
 	ErrConnectionFailed = errors.New("cannot connect to the docker daemon")
 	// ErrInvalidArgument is matched by every client-side validation failure:
 	// a bad host string, image reference, id, port or option.
@@ -266,6 +269,11 @@ func WrapConnectionError(host string, err error) error {
 	case errors.Is(err, fs.ErrNotExist):
 		return ConnectionFailed(host, "the socket does not exist",
 			"Start the docker daemon (or Docker Desktop, Colima, Podman with its docker socket), or set DOCKER_HOST to where it listens", err)
+	}
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return ConnectionFailed(host, "the daemon's certificate is not trusted ("+certErr.Error()+")",
+			"Check that ca.pem in DOCKER_CERT_PATH (by default the Docker config directory, ~/.docker) holds the CA certificate that signed the daemon's certificate, and that the daemon's certificate names the host it was reached at and has not expired", err)
 	}
 	msg := err.Error()
 	if strings.Contains(msg, "bad certificate") || strings.Contains(msg, "handshake failure") {
