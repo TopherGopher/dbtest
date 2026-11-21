@@ -29,16 +29,27 @@ inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("r
 
 ## Outside a test
 
-`Start` and `StartWithOptions` do the same where there is no test, such as in
-`TestMain`. The caller stops the instance:
+`Start` and `StartWithOptions` do the same outside a test, and the caller
+stops the instance. In `TestMain`, one server started this way can serve
+every test in the package:
 
 ```go
-inst, err := mongotest.Start(ctx)
-if err != nil {
-    return err
+var server *mongotest.Instance
+
+func TestMain(m *testing.M) {
+    ctx := context.Background()
+    var err error
+    if server, err = mongotest.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer server.Stop(ctx)
+    m.Run()
 }
-defer inst.Stop(ctx)
 ```
+
+Let `TestMain` return. Calling `os.Exit` would skip the deferred `Stop`.
+[A container per package](parallel-tests.md#a-container-per-package) says
+more, and shows the tests that go with it.
 
 ## A server you already run
 
@@ -51,14 +62,12 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
 ```
 
 !!! warning "Shared server, shared data"
-    A server you attach to is not emptied between tests. Give each test its
-    own database and drop it in cleanup. Use a fresh context there:
-    `t.Context()` has already ended when cleanups run.
+    A server that tests share is not emptied between them. Give each test its
+    own database with `DatabaseFor`, which drops it when the test ends:
 
     ```go
-    // Database names cannot hold the "/" a subtest name has.
-    db := inst.Database("test_" + strings.ReplaceAll(t.Name(), "/", "_"))
-    t.Cleanup(func() { _ = db.Drop(context.Background()) })
+    coll := inst.DatabaseFor(t).Collection("app")
+    // ...
     ```
 
 ## What an instance gives you
@@ -67,6 +76,7 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
 | --- | --- |
 | The embedded `*mongo.Client` | Every driver method: `inst.Database("app")`, `inst.StartSession()`, … |
 | `inst.Container` | The [`*mongod.Container`](../reference/mongod.md#the-container), for scripts, commands and the TLS configuration. It is nil for an instance from `Attach`. |
+| `inst.DatabaseFor(t)` | A new database that only this test uses, dropped when the test ends. Use it when tests share a server. |
 | `inst.URI()` | The connection string. It includes any password, so keep it out of logs. |
 | `inst.Stop(ctx)` | Disconnects, then removes the container. Safe to call more than once, even after a failed `Stop`. |
 
