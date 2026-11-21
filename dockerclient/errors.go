@@ -174,7 +174,9 @@ const rateLimitHint = "The registry's pull rate limit was reached; wait for it t
 // inside the pull's stream, and the registry's own code does not survive.
 func rateLimited(msg string) bool {
 	msg = strings.ToLower(msg)
-	for _, mark := range []string{"429 too many requests", "toomanyrequests", "pull rate limit"} {
+	// "data limit exceeded" is how Amazon ECR Public refuses an anonymous
+	// pull once a source address has used its allowance.
+	for _, mark := range []string{"429 too many requests", "toomanyrequests", "pull rate limit", "data limit exceeded"} {
 		if strings.Contains(msg, mark) {
 			return true
 		}

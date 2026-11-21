@@ -23,8 +23,32 @@ func TestWhereAMirrorServesAnImage(t *testing.T) {
 	}
 	mirrors := []Mirror{OfficialImages, HubMirror("mongodb", "quay.io")}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, firstMirror(mirrors, tc.ref), "%s is the same image on the mirror, at the same tag or digest", tc.ref)
+		got := sources(tc.ref, mirrors)
+		assert.Equal(t, []string{tc.ref, tc.want}, got, "%s is the same image on the mirror, at the same tag or digest", tc.ref)
 	}
+}
+
+func TestMirrorGCRCachesEveryDockerHubImage(t *testing.T) {
+	cases := []struct{ ref, want string }{
+		{"mongo:8.0", "mirror.gcr.io/library/mongo:8.0"},
+		{"docker.io/library/mongo:8.0", "mirror.gcr.io/library/mongo:8.0"},
+		{"mongodb/mongodb-atlas-local:8.0", "mirror.gcr.io/mongodb/mongodb-atlas-local:8.0"},
+		{"bitnami/mongodb:8.0", "mirror.gcr.io/bitnami/mongodb:8.0"},
+	}
+	for _, tc := range cases {
+		got, ok := DockerHubCache(tc.ref)
+		assert.True(t, ok, "%s is on Docker Hub", tc.ref)
+		assert.Equal(t, tc.want, got, "the same path, tag and digest")
+	}
+	_, ok := DockerHubCache("quay.io/mongodb/mongodb-community-server:8.0-ubi9")
+	assert.False(t, ok, "only Docker Hub's images are cached")
+}
+
+func TestSourcesAreInTheOrderTheMirrorsAreGiven(t *testing.T) {
+	got := sources("mongo:8.0", []Mirror{OfficialImages, HubMirror("mongodb", "quay.io"), DockerHubCache})
+
+	assert.Equal(t, []string{"mongo:8.0", "public.ecr.aws/docker/library/mongo:8.0", "mirror.gcr.io/library/mongo:8.0"}, got,
+		"the image itself, then each mirror that has it")
 }
 
 func TestAnImageOffDockerHubOrOutsideTheNamespaceHasNoMirror(t *testing.T) {
@@ -65,6 +89,11 @@ func FuzzHubMirror(f *testing.F) {
 		}
 		if mirrored, ok := mongoDB(ref); ok {
 			assert.True(t, strings.HasPrefix(mirrored, "quay.io/mongodb/"), "a MongoDB image is found only on quay.io")
+		}
+		if cached, ok := DockerHubCache(ref); ok {
+			assert.True(t, strings.HasPrefix(cached, "mirror.gcr.io/"), "a cached image is found on mirror.gcr.io")
+			_, again := DockerHubCache(cached)
+			assert.False(t, again, "and the cache's name is not cached again")
 		}
 	})
 }

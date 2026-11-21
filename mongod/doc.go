@@ -53,20 +53,22 @@
 // that fails because a registry is briefly down is tried again for about a
 // minute.
 //
-// When Docker Hub's rate limit refuses a pull, a Docker official image such
-// as mongo is pulled from Amazon ECR Public instead. An image under
-// mongodb/, such as mongodb/mongodb-community-server, is pulled from
-// quay.io/mongodb. For the next five minutes, pulls of that image in this
-// process go straight to the mirror. The container runs the image under the
-// mirror's name, which [Container.Image] returns. Name an image by digest to
-// be sure a mirror serves exactly that content. There is no option to turn
-// this off; an image on any other registry is pulled from there alone.
+// When Docker Hub cannot provide an image, because its rate limit refuses it
+// or it stays down, the pull tries the image's mirrors in turn. A Docker
+// official image such as mongo tries Amazon ECR Public and then
+// mirror.gcr.io; an image under mongodb/, such as
+// mongodb/mongodb-community-server, tries quay.io/mongodb and then
+// mirror.gcr.io; any other Docker Hub image tries mirror.gcr.io. A mirror
+// whose rate limit refuses the pull is skipped for the next five minutes. The
+// container runs the image under the name it came from, which
+// [Container.Image] returns. Name an image by digest to be sure a mirror
+// serves exactly that content. There is no option to turn this off; an image
+// on any other registry is pulled from there alone.
 //
-// A Docker Hub image with no mirror is tried again for about a minute. If
-// the limit still refuses it, the error matches
-// [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited], and later
-// pulls of that image in this process fail at once for five minutes. So does
-// an image whose mirror fails too, and that error names both failures.
+// If every source fails, the error names each failure, and matches
+// [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited] when a rate
+// limit was among them. A pull stops at Docker Hub, without trying a mirror,
+// when the image is missing or private there.
 //
 // Call PullImage in TestMain, so the download happens before any test
 // starts. A pull may take up to ten minutes, which

@@ -3,6 +3,27 @@
 What changed in each release, for someone upgrading: what is different, and
 what to do if it affects you.
 
+## Unreleased
+
+### A pull tries every mirror in turn
+
+- **When Docker Hub cannot provide an image, each of its mirrors is tried in
+  order,** not only one. A Docker official image tries Amazon ECR Public and
+  then `mirror.gcr.io`; an image under `mongodb/` tries `quay.io/mongodb` and
+  then `mirror.gcr.io`; any other Docker Hub image now tries `mirror.gcr.io`.
+  Before, an image went to one mirror, and only when Docker Hub's rate limit
+  refused it.
+- **A registry that stays down sends the pull on to the next source** after
+  its retries, as a rate limit does at once.
+- **ECR Public's "Data limit exceeded" now matches
+  `dockerclient.ErrRateLimited`,** like other registries' rate limits.
+- **When every source fails, the error names each source and its failure.**
+  It matches `dockerclient.ErrRateLimited` only when a rate limit was among
+  them. Before, it named Docker Hub and one mirror.
+- **Only a rate limit is remembered for five minutes, and only for the source
+  that refused.** Before, a mirror that failed in any way was not asked again
+  for five minutes.
+
 ## v0.3.0
 
 ### The modules are renamed to `github.com/tophergopher/dbtest`

@@ -71,7 +71,7 @@ func TestARateLimitedPullComesFromTheMirror(t *testing.T) {
 	}
 }
 
-func TestARegistryFailureIsRetriedAndNeverMirrored(t *testing.T) {
+func TestARegistryFailureIsRetriedWhereItHappened(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
 	m := pullMock(t)
 	missingImage(m)
@@ -81,7 +81,7 @@ func TestARegistryFailureIsRetriedAndNeverMirrored(t *testing.T) {
 
 	require.NoError(t, err, "a registry that is briefly down is waited out")
 	assert.Equal(t, []string{"docker.io/library/mongo:8.0", "docker.io/library/mongo:8.0", "docker.io/library/mongo:8.0"}, pulled(m),
-		"only a rate limit goes to a mirror")
+		"a failure that passes is waited out at Docker Hub")
 }
 
 func TestARememberedRateLimitGoesStraightToTheMirror(t *testing.T) {
@@ -101,7 +101,7 @@ func TestARememberedRateLimitGoesStraightToTheMirror(t *testing.T) {
 }
 
 func TestAnImageWithNoMirrorIsNotMirrored(t *testing.T) {
-	for _, image := range []string{noMirrorImage, "registry.example.com/team/mongo:8.0"} {
+	for _, image := range []string{noMirrorImage} {
 		t.Run(image, func(t *testing.T) {
 			mongod.SetPullWait(t, noWait)
 			mongod.SetRateLimitMemory(t, time.Hour)
@@ -116,7 +116,7 @@ func TestAnImageWithNoMirrorIsNotMirrored(t *testing.T) {
 			refs := pulled(m)
 			require.Greater(t, len(refs), 1, "with no mirror to go to, the limit is waited out")
 			for _, ref := range refs {
-				assert.Equal(t, refs[0], ref, "only Docker Hub's official and MongoDB images have a known mirror")
+				assert.Equal(t, refs[0], ref, "only Docker Hub's images have a known mirror")
 			}
 			again := mongod.PullImage(context.Background(), opts)
 			assert.ErrorIs(t, again, dockerclient.ErrRateLimited, "a later pull is told the limit is spent")
@@ -136,7 +136,7 @@ func countOf(refs []string, ref string) int {
 	return n
 }
 
-func TestWhenTheMirrorFailsTooBothFailuresAreReported(t *testing.T) {
+func TestWhenEveryMirrorFailsTooEachFailureIsReported(t *testing.T) {
 	mongod.SetPullWait(t, noWait)
 	mongod.SetRateLimitMemory(t, time.Hour)
 	m := pullMock(t)
@@ -149,15 +149,16 @@ func TestWhenTheMirrorFailsTooBothFailuresAreReported(t *testing.T) {
 
 	require.ErrorIs(t, err, dockerclient.ErrRateLimited, "the rate limit is the cause a caller tests for")
 	var status *dockerclient.StatusError
-	require.ErrorAs(t, err, &status, "and the mirror's own failure is there to read")
-	assert.Equal(t, 404, status.StatusCode, "the mirror's failure, not Docker Hub's")
-	attempts := len(pulled(m))
+	require.ErrorAs(t, err, &status, "and a mirror's own failure is there to read")
+	assert.Equal(t, 404, status.StatusCode, "a mirror's failure, not Docker Hub's")
+	assert.Equal(t, []string{"docker.io/library/mongo:8.0", "public.ecr.aws/docker/library/mongo:8.0", "mirror.gcr.io/library/mongo:8.0"},
+		pulled(m), "Docker Hub, then each mirror")
 
 	again := mongod.PullImage(context.Background(), opts)
 
 	assert.ErrorIs(t, again, dockerclient.ErrRateLimited, "a later pull is told the same")
-	assert.ErrorAs(t, again, &status, "including why the mirror failed")
-	assert.Len(t, pulled(m), attempts, "without asking either registry again while the failure is remembered")
+	assert.Equal(t, 0, countOf(pulled(m)[3:], "docker.io/library/mongo:8.0"), "without asking Docker Hub while its limit is remembered")
+	assert.Equal(t, 2, countOf(pulled(m), "public.ecr.aws/docker/library/mongo:8.0"), "but a mirror that lacked the image is asked again")
 }
 
 func TestAContainerIsCreatedFromTheMirrorsImage(t *testing.T) {
@@ -335,4 +336,26 @@ func TestTheKeyFileIsMadeFromTheMirrorsImage(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions().WithReplicaSet("rs0").WithAuth("admin", "secret"))
 
 	assert.NoError(t, err, "the key file is made for the image the container was created from")
+}
+
+func TestTheLogNamesTheMirrorAnImageCameFrom(t *testing.T) {
+	mongod.SetPullWait(t, noWait)
+	m := pullMock(t)
+	missingImage(m)
+	notOnECR := &dockerclient.StatusError{StatusCode: 404, Method: "POST", Path: "/images/create", Message: "manifest unknown"}
+	m.ImagePullFunc = func(_ context.Context, ref string) error {
+		switch {
+		case strings.HasPrefix(ref, "docker.io/"):
+			return rateLimitedInTheStream
+		case strings.HasPrefix(ref, "public.ecr.aws/"):
+			return notOnECR
+		}
+		return nil
+	}
+	logger := &levelLogger{}
+
+	err := mongod.PullImage(context.Background(), mongod.DefaultOptions().WithDocker(m).WithLogger(logger))
+
+	require.NoError(t, err, "mirror.gcr.io serves the image")
+	assert.NotEmpty(t, logger.about("info", "mirror", "mirror.gcr.io/library/mongo:8.0"), "the log says which mirror")
 }
