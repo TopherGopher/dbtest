@@ -43,17 +43,19 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
   the root is tested against newer versions than its users get; CI tests each
   module from its own `go.mod`. If `go work sync` has rewritten `go.mod` and
   `go.sum`, restore them with `git checkout -- go.mod go.sum`.
-- **Every `go.mod` pins the Go release used to build and test** in a
-  `toolchain` line: the
-  root, `mongotest/go.mod`, `mongotestv2/go.mod`, `mongotest/exporter/go.mod`
-  and `mobyclient/go.mod`. If your Go is older, the `go` command downloads
-  that release, unless you have set `GOTOOLCHAIN=local`. Change the line in
-  all five files together. CI installs exactly the root's release, and fails
+- **Every `go.mod` pins, in its `toolchain` line, the Go release used to
+  build and test.** If your Go is older, the `go` command downloads that
+  release, unless you have set `GOTOOLCHAIN=local`. Change the line in all
+  five files together. CI installs exactly the root's release, and fails
   if another module names a different one.
 - **Each module other than the root has a `replace`** pointing at the
   repository root, so it builds against the root's working tree, and can
-  require a root version that has no tag yet. Go applies `replace` only in the
-  module being built, so released versions keep the line harmlessly.
+  require a root version that has no tag yet. Go ignores `replace` in a
+  module that is a dependency, so the line does no harm in a release.
+- **`mongotest` and `mongotestv2` share copied files.** `mongotest.go`,
+  `database.go` and `errors.go`, and their tests, are copied between the two
+  modules, and differ only where the package's name or the driver appears. A
+  change to one belongs in the other, in the same pull request.
 
 ## Releasing
 
@@ -61,11 +63,11 @@ Each module is released by its own tag, all with the same version: the root
 as `vX.Y.Z`, and the others with their directory as a prefix, such as
 `mongotest/vX.Y.Z`. A release is one pull request and one GitHub release.
 
-Choose a version above the highest existing `vX.Y.Z` tag. The tags made
-before the module was renamed from `github.com/tophergopher/mongotest`, up to
-v0.2.9, count as versions of `github.com/tophergopher/dbtest` too, and a lower
-version is never the one `go get ...@latest` picks. A pushed tag cannot be
-taken back, because the Go module proxy keeps what it has fetched.
+Choose a version above the highest `vX.Y.Z` tag, counting the tags up to
+v0.2.9 from before the module was renamed from
+`github.com/tophergopher/mongotest`. `go get ...@latest` never picks a lower
+version. A pushed tag cannot be taken back, because the Go module proxy keeps
+what it has fetched.
 
 1. In a pull request, point the other four modules at the new version, and
    rename the CHANGELOG's "Unreleased" heading to the version:
@@ -78,15 +80,16 @@ taken back, because the Go module proxy keeps what it has fetched.
 
     The `replace` lines keep this building before `vX.Y.Z` is tagged.
 
-2. Publish a GitHub release with a new tag `vX.Y.Z` and, as its target, that
-   pull request's merge commit. Publish it as a full release: the workflow
-   skips pre-releases. The release creates the root module's tag. The Release workflow (`.github/workflows/release.yml`)
-   then checks that the commit is on `main`, that `vX.Y.Z` is the highest
-   version tag, and that all four modules require it. It tags the four
+2. Publish a full GitHub release, not a pre-release, with a new tag `vX.Y.Z`
+   on that pull request's merge commit. The release creates the root module's
+   tag. The Release workflow (`.github/workflows/release.yml`) skips
+   pre-releases. For a full release, it then checks that the commit is on
+   `main`, that `vX.Y.Z` is the highest version tag, and that all four
+   modules require it. It tags the four
    modules on the same commit, pushes the tags together, and asks the Go
    module proxy for all five versions.
 
-If the run fails, its log says which check failed and what to do:
+If the run fails, its log says which step failed and what to do:
 
 - **A check failed:** nothing was pushed, but the root tag is public and
   cannot be reused. Follow the log's advice, which is usually to release the
@@ -97,9 +100,10 @@ If the run fails, its log says which check failed and what to do:
   `curl https://proxy.golang.org/github.com/tophergopher/dbtest/mongotest/@v/vX.Y.Z.info`.
 
 If the workflow cannot run, for a release whose commit predates it or with
-Actions unavailable, tag the merge commit by hand instead. Before the push,
-check the output: the commit is on `main`, all four modules require `vX.Y.Z`,
-and all five tags name the commit. If a GitHub release already created
+Actions unavailable, tag the merge commit by hand instead. Run the commands
+below. Before the push, check that their output shows that the commit is on
+`main`, that all four modules require `vX.Y.Z`, and that all five tags name
+the commit. If a GitHub release already created
 `vX.Y.Z`, leave it out of the loop and the push.
 
 ```sh

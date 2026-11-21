@@ -1,8 +1,10 @@
-// mongotest/mongotest.go and mongotestv2/mongotest.go differ only in the
-// driver version they use. A change to one belongs in the other too.
+// mongotest/mongotest.go and mongotestv2/mongotest.go are copies. They
+// differ only in the package's name, the package doc, and the driver's import
+// path and API. A change to one belongs in the other too.
 
 // Package mongotest gives a test a MongoDB server in a Docker container and a
-// connected client for it, using the official driver v1:
+// connected client for it. The client is from MongoDB's Go driver v1,
+// go.mongodb.org/mongo-driver.
 //
 //	func TestOrders(t *testing.T) {
 //		db := mongotest.Run(t).Database("shop")
@@ -16,7 +18,8 @@
 // To share one server across a package, call Start in TestMain, and
 // Instance.DatabaseFor in each test for a database of its own.
 //
-// For driver v2, use the mongotestv2 package, which has the same API.
+// For driver v2, go.mongodb.org/mongo-driver/v2, use
+// [github.com/tophergopher/dbtest/mongotestv2], which has the same API.
 package mongotest
 
 import (
@@ -72,10 +75,11 @@ func StartWithOptions(ctx context.Context, opts Options) (*Instance, error) {
 }
 
 // clientOptions returns how to connect to a container. URI carries the
-// address this process can reach, any credentials, and directConnection,
-// which keeps a replica set member's driver off the localhost address the
-// member advertises. The TLS configuration goes after the URI, because
-// applying a URI that says tls=true replaces it.
+// address this process can reach, any credentials, and directConnection.
+// directConnection stops the driver from switching to the address a replica
+// set member advertises, localhost:27017, which this process may not reach.
+// The TLS configuration is set after the URI, because applying a URI with
+// tls=true would replace a configuration set before it.
 func clientOptions(c *mongod.Container) *options.ClientOptions {
 	opts := options.Client().ApplyURI(c.URI())
 	if config := c.TLSConfig(); config != nil {

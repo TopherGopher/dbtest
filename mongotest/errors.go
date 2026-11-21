@@ -1,5 +1,5 @@
-// mongotest/errors.go and mongotestv2/errors.go differ only in the
-// driver version they use. A change to one belongs in the other too.
+// mongotest/errors.go and mongotestv2/errors.go are copies. They differ only
+// in the package's name. A change to one belongs in the other too.
 
 package mongotest
 

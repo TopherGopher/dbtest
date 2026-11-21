@@ -3,7 +3,10 @@
 // your database.
 //
 //   - [github.com/tophergopher/dbtest/mongotest] starts MongoDB and gives a
-//     test a connected client of MongoDB's Go driver: inst := mongotest.Run(t).
+//     test a connected client of MongoDB's Go driver v1,
+//     go.mongodb.org/mongo-driver: inst := mongotest.Run(t).
+//   - [github.com/tophergopher/dbtest/mongotestv2] does the same with a client
+//     of driver v2, go.mongodb.org/mongo-driver/v2: inst := mongotestv2.Run(t).
 //   - [github.com/tophergopher/dbtest/mongod] starts MongoDB with no driver
 //     imported, and gives its connection string.
 //   - [github.com/tophergopher/dbtest/dockerclient] is the Docker client
