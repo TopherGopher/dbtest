@@ -190,3 +190,20 @@ func countRef(refs []string, ref string) int {
 	}
 	return n
 }
+
+func TestThePullStopsWhenItsTimeRunsOut(t *testing.T) {
+	m := bySource(t, nil)
+	m.ImagePullFunc = func(ctx context.Context, ref string) error {
+		if strings.HasPrefix(ref, "docker.io/") {
+			return rateLimited
+		}
+		<-ctx.Done() // ECR never answers
+		return ctx.Err()
+	}
+
+	_, err := Shared(context.Background(), m, hubImage, 50*time.Millisecond, officialSources...)
+
+	var timedOut *TimeoutError
+	require.ErrorAs(t, err, &timedOut, "the pull timeout ended it")
+	assert.Equal(t, []string{hubImage, mirrorImage}, pulledRefs(m), "mirror.gcr.io is not asked once the time is up")
+}
