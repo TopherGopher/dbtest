@@ -86,9 +86,11 @@ func commandMessage(id uint32, elements string) []byte {
 // port for a moment after the container starts, then accepts them and hangs
 // up while no mongod is listening behind it.
 //
-// When the container has credentials, the same connection then sends
-// getCmdLineOpts without them, to learn whether mongod enforces them.
-func (p readyProbe) ask(ctx context.Context) error {
+// When whileOpen is not nil, it runs once mongod has answered, and then the
+// same connection sends a second hello; see helloAgain. When the container
+// has credentials, the same connection then sends getCmdLineOpts without
+// them, to learn whether mongod enforces them.
+func (p readyProbe) ask(ctx context.Context, whileOpen func(context.Context) error) error {
 	conn, err := p.dial(ctx)
 	if err != nil {
 		return err
@@ -99,13 +101,33 @@ func (p readyProbe) ask(ctx context.Context) error {
 	defer stop()
 	_ = conn.SetDeadline(time.Now().Add(helloTimeout))
 
-	if _, err := conn.Write(helloMessage()); err != nil {
-		return fmt.Errorf("%w: %w", errNoReply, err)
+	err = hello(conn)
+	if err == nil && whileOpen != nil {
+		err = helloAgain(ctx, conn, whileOpen)
 	}
-	if err := readHelloReply(conn); err != nil || !p.requireAuth {
+	if err != nil || !p.requireAuth {
 		return err
 	}
 	return p.checkAuth(conn)
+}
+
+// hello sends a hello on conn and reads the reply.
+func hello(conn net.Conn) error {
+	if _, err := conn.Write(helloMessage()); err != nil {
+		return fmt.Errorf("%w: %w", errNoReply, err)
+	}
+	return readHelloReply(conn)
+}
+
+// helloAgain runs whileOpen, then sends a second hello on the same
+// connection. If the mongod that answered the first was about to be
+// replaced, the connection has dropped and the second gets no reply.
+func helloAgain(ctx context.Context, conn net.Conn, whileOpen func(context.Context) error) error {
+	if err := whileOpen(ctx); err != nil {
+		return err
+	}
+	_ = conn.SetDeadline(time.Now().Add(helloTimeout))
+	return hello(conn)
 }
 
 // checkAuth sends getCmdLineOpts on a connection that has not

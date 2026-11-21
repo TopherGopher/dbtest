@@ -90,7 +90,7 @@ func TestAContainerOnASharedNetworkIsReachedAtItsAddressThere(t *testing.T) {
 	s := spec(time.Second)
 	s.Network, s.NetworkPort, s.Host = "ci-net", 6000, ""
 	var asked container.Endpoint
-	s.Ready = func(_ context.Context, host string, port int) error {
+	s.Ready = func(_ context.Context, host string, port int, _ func(context.Context) error) error {
 		asked = container.Endpoint{Host: host, Port: port}
 		return nil
 	}
@@ -184,7 +184,7 @@ func TestTheAdviceIsGivenTheLastFailureAndEndsTheError(t *testing.T) {
 	stillStarting := errors.New("the server is still starting")
 	var givenLastErr error
 	s := spec(150 * time.Millisecond)
-	s.Ready = func(context.Context, string, int) error { return stillStarting }
+	s.Ready = func(context.Context, string, int, func(context.Context) error) error { return stillStarting }
 	s.Advice = func(lastErr error, _ bool) string {
 		givenLastErr = lastErr
 		return "Try the image package's own option."

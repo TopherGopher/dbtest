@@ -239,14 +239,14 @@ func (c *Container) beforeStart(cfg config) func(context.Context, string, string
 
 // ready asks mongod, where the caller will connect, whether it is serving
 // and whether it enforces the credentials the container was created with.
-func (c *Container) ready(cfg config) func(context.Context, string, int) error {
-	return func(ctx context.Context, host string, port int) error {
+func (c *Container) ready(cfg config) func(context.Context, string, int, func(context.Context) error) error {
+	return func(ctx context.Context, host string, port int, whileOpen func(context.Context) error) error {
 		probe := readyProbe{
 			name: c.Name(), id: c.ID(), host: host, port: port,
 			requireAuth: cfg.username != "",
 			tlsConfig:   c.probeTLSConfig(),
 		}
-		return probe.ask(ctx)
+		return probe.ask(ctx, whileOpen)
 	}
 }
 

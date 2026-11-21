@@ -91,7 +91,9 @@
 // URI, so the first command a caller sends works. An image that creates a
 // user or a replica set first runs a temporary mongod, then replaces it;
 // the start waits for the final one, and for the image's own health check
-// if it declares one. With [Options.WithReplicaSet] it also initiates the
+// if it declares one. That check can pass while the temporary mongod still
+// answers, so after it passes the start waits a second and asks mongod again
+// on the same connection. With [Options.WithReplicaSet] it also initiates the
 // set and waits until it accepts writes.
 //
 // # Many containers at once

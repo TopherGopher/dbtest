@@ -5,6 +5,17 @@ what to do if it affects you.
 
 ## Unreleased
 
+### A start of Atlas Local waits for its final mongod
+
+- **`mongod.Start` no longer returns while Atlas Local is still replacing
+  its mongod.** The image's health check can pass for a moment while a
+  mongod it is about to stop still answers. A connection opened then
+  dropped soon after, with an error that did not point to the start.
+- **A start of an image that declares a health check takes about a second
+  longer.** Once the check passes, the start waits a second and asks mongod
+  again on the same connection. The official `mongo` image declares no
+  health check, so its starts are unchanged.
+
 ### Starts beyond a limit wait their turn
 
 - **At most 8 containers per CPU now start at once in a process, and further

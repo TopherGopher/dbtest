@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -264,6 +265,42 @@ func TestStartWaitsForTheHealthCheckAnImageDeclares(t *testing.T) {
 
 	require.NoError(t, err, "the check passes inside the timeout")
 	assert.True(t, *healthy, "returned only once the image reported healthy")
+}
+
+// Atlas Local's health check can pass for a moment while a mongod it is
+// about to replace still answers. That mongod soon goes, and its connections
+// with it, so Start waits for one whose connection stays open.
+func TestStartWaitsPastAMongodThatGoesAsTheHealthCheckPasses(t *testing.T) {
+	passed := make(chan struct{})
+	var connections atomic.Int32
+	m, port := servingMock(t, func(conn net.Conn) {
+		if connections.Add(1) > 1 {
+			openMongod(conn) // the final mongod
+			return
+		}
+		defer conn.Close() // the mongod about to be replaced goes
+		answerOne(conn, func(string) string { return okField })
+		select {
+		case <-passed:
+		case <-time.After(10 * time.Second):
+		}
+	})
+	var inspections atomic.Int32
+	var once sync.Once
+	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+		info := running(port)
+		info.State.Health.Status = "starting"
+		if inspections.Add(1) > 1 { // the first inspect only reads the published port
+			info.State.Health.Status = "healthy"
+			once.Do(func() { close(passed) })
+		}
+		return info, nil
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions())
+
+	require.NoError(t, err, "the final mongod answers inside the timeout")
+	assert.GreaterOrEqual(t, connections.Load(), int32(2), "Start did not return on the connection that dropped")
 }
 
 func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {

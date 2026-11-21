@@ -45,7 +45,10 @@ type Spec struct {
 	// Ready checks once whether the container is usable at host and port.
 	// Its error means not ready yet: the start asks again until the start
 	// timeout, and the last error becomes the LastErr of the NotReadyError.
-	Ready func(ctx context.Context, host string, port int) error
+	// When whileOpen is not nil, Ready calls it once its own check passes,
+	// with the connection it checked on still open, and then checks again
+	// on that connection.
+	Ready func(ctx context.Context, host string, port int, whileOpen func(context.Context) error) error
 	// AfterReady runs once the container is ready, within the same start
 	// timeout, for example to initiate a replica set. Its error is returned
 	// as BeforeStart's is.
@@ -331,15 +334,12 @@ func (s *start) wait(caller, bounded context.Context, hasHealthCheck bool) error
 	}
 }
 
-// check makes one attempt: the image package's readiness check, then the
+// check makes one attempt: the image package's readiness check and the
 // image's own health check if it declares one. A failure is checked against
 // the container's state, since a container that has gone will never be
 // ready.
 func (s *start) check(ctx context.Context, hasHealthCheck bool) error {
-	err := s.ready(ctx)
-	if err == nil && hasHealthCheck {
-		err = s.healthy(ctx)
-	}
+	err := s.ready(ctx, hasHealthCheck)
 	if err == nil {
 		return nil
 	}
@@ -349,12 +349,42 @@ func (s *start) check(ctx context.Context, hasHealthCheck bool) error {
 	return err
 }
 
-// ready runs the image package's readiness check, if it has one.
-func (s *start) ready(ctx context.Context) error {
-	if s.spec.Ready == nil {
+// ready runs the image package's readiness check, if it has one, and the
+// image's health check, if it declares one. The health check runs while the
+// readiness check holds its connection open.
+func (s *start) ready(ctx context.Context, hasHealthCheck bool) error {
+	switch {
+	case s.spec.Ready == nil && hasHealthCheck:
+		return s.healthy(ctx)
+	case s.spec.Ready == nil:
+		return nil
+	case hasHealthCheck:
+		return s.spec.Ready(ctx, s.host, s.port, s.settled)
+	}
+	return s.spec.Ready(ctx, s.host, s.port, nil)
+}
+
+// settleDelay is how long the readiness check's connection is held open
+// after the health check passes. Atlas Local's health check can pass for a
+// moment while a mongod it is about to replace still answers. That mongod
+// stops within half a second, dropping its connections, so a connection
+// still open after settleDelay reached the one that stays.
+const settleDelay = time.Second
+
+// settled checks the image's health check, then waits settleDelay, while
+// the readiness check holds its connection open.
+func (s *start) settled(ctx context.Context) error {
+	if err := s.healthy(ctx); err != nil {
+		return err
+	}
+	timer := time.NewTimer(settleDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
 		return nil
 	}
-	return s.spec.Ready(ctx, s.host, s.port)
 }
 
 // Why the health check did not pass, inside the NotReadyError a caller sees.
