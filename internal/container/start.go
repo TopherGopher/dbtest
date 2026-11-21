@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -23,9 +22,10 @@ type Spec struct {
 	Host       string
 	HostSource string
 	// Network, when set, is a network the caller shares with the container.
-	// The container is then dialled at its address there, on Port itself,
+	// The container is then dialled at its address there, on NetworkPort,
 	// and Host is ignored.
-	Network string
+	Network     string
+	NetworkPort int
 	// GeneratedName says the name was generated for this start, so if
 	// creating the container is cut short, a container of that name may be
 	// removed.
@@ -256,11 +256,10 @@ func (s *start) locate(info dockerclient.ContainerInspect) error {
 // The daemon assigns it at start, so it is read from this inspect.
 func (s *start) locateOnNetwork(info dockerclient.ContainerInspect) error {
 	address := info.NetworkSettings.Networks[s.spec.Network].IPAddress
-	port, err := strconv.Atoi(strings.TrimSuffix(s.spec.Port, "/tcp"))
-	if address == "" || err != nil {
-		return &UnpublishedPortError{Port: s.spec.Port, Network: s.spec.Network, Name: s.c.name, ID: s.c.id}
+	if address == "" {
+		return &noNetworkAddressError{network: s.spec.Network, name: s.c.name, id: s.c.id}
 	}
-	s.host, s.port = address, port
+	s.host, s.port = address, s.spec.NetworkPort
 	return nil
 }
 

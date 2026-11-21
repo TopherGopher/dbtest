@@ -2,7 +2,6 @@ package mongod
 
 import (
 	"context"
-	"os"
 
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/internal/hostaddr"
@@ -17,27 +16,28 @@ type reach struct {
 	host string
 	// source says what decided it, for the error a slow start returns.
 	source string
-	// network is the shared network, or the zero value to publish a port.
-	network hostaddr.SharedNetwork
+	// network is the shared network, or "" to publish a port.
+	network string
+	// publishHost is, on a shared network, the address a published port
+	// would be dialled at, or "" if it could not be worked out. The advice
+	// for a start that times out suggests it.
+	publishHost string
 }
 
 // shared reports whether mongod is reached on a shared network.
-func (r reach) shared() bool { return r.network.Name != "" }
+func (r reach) shared() bool { return r.network != "" }
 
 // exposed reports whether more than this process can connect: a port
-// published on every interface, or the default bridge every container
-// started without --network joins.
+// published on every interface, or any shared network. A user-defined
+// network may be a macvlan or overlay that other machines reach.
 func (r reach) exposed() bool {
-	if r.shared() {
-		return !r.network.UserDefined
-	}
-	return hostaddr.BindIP(r.host) == hostaddr.AllInterfaces
+	return r.shared() || hostaddr.BindIP(r.host) == hostaddr.AllInterfaces
 }
 
 // where says, for a log line, who can connect.
 func (r reach) where() string {
 	if r.shared() {
-		return "it is on Docker's default bridge network, which every container started without --network joins"
+		return "it is on the Docker network " + r.network + ", where other containers can reach it"
 	}
 	return "its port is open on every network interface of the Docker host, because it is reached from another machine or container"
 }
@@ -46,10 +46,21 @@ func (r reach) where() string {
 // shared with this process's container if there is one, or else through a
 // published port.
 func (c config) reach(ctx context.Context, docker dockerclient.Client) (reach, error) {
-	if network, ok := c.sharedNetwork(ctx, docker); ok {
-		return reach{network: network, source: "the container's address on " + network.Name + ", a network this process's container is on"}, nil
+	resolve := c.resolveHost
+	if resolve == nil {
+		resolve = hostaddr.Resolve
 	}
-	address, err := hostaddr.Resolve(docker.Host(), c.hostIP)
+	// An address that cannot be worked out is needed only to publish a port,
+	// so a container on an internal network, with no default route, can
+	// still share it.
+	address, err := resolve(docker.Host(), c.hostIP)
+	if network, ok := c.sharedNetwork(ctx, docker, address); ok {
+		return reach{
+			network:     network,
+			source:      "the network " + network + ", which this process's container is on",
+			publishHost: address.Host, // "" if err is set
+		}, nil
+	}
 	if err != nil {
 		return reach{}, err
 	}
@@ -57,11 +68,13 @@ func (c config) reach(ctx context.Context, docker dockerclient.Client) (reach, e
 }
 
 // sharedNetwork returns the network to create the container on, unless the
-// caller chose something that needs a published port or there is none.
-// Either way the start carries on, so the reason is only logged.
-func (c config) sharedNetwork(ctx context.Context, docker dockerclient.Client) (hostaddr.SharedNetwork, bool) {
-	if !c.mayShareNetwork() {
-		return hostaddr.SharedNetwork{}, false
+// caller chose something that needs a published port or there is none. In
+// both cases the start publishes a port instead, and only logs why.
+func (c config) sharedNetwork(ctx context.Context, docker dockerclient.Client, address hostaddr.Address) (string, bool) {
+	if option := c.publishingOption(address); option != "" {
+		c.logger.Debug("Publishing mongod's port, because of an option.",
+			"container", c.name, "option", option)
+		return "", false
 	}
 	find := c.findNetwork
 	if find == nil {
@@ -72,23 +85,33 @@ func (c config) sharedNetwork(ctx context.Context, docker dockerclient.Client) (
 	defer cancel()
 	network, err := find(ctx, docker)
 	if err != nil {
-		c.logger.Debug("Publishing mongod's port, because it cannot be reached on a network shared with this process.",
+		c.logger.Debug("Publishing mongod's port, because no network shared with this process's container was found.",
 			"container", c.name, "reason", err)
-		return hostaddr.SharedNetwork{}, false
+		return "", false
 	}
 	return network, true
 }
 
-// mayShareNetwork reports whether the caller left the address to the start.
+// publishingOption names the option that needs a published port, or is "".
 // WithHostIP, DBTEST_HOST_IP and WithPort each choose an address or a host
 // port. WithTLS needs the address before the container has one, because the
 // certificate names it.
-func (c config) mayShareNetwork() bool {
+func (c config) publishingOption(address hostaddr.Address) string {
 	switch {
-	case c.hostIP != "", os.Getenv(EnvHostIP) != "":
-		return false
-	case c.port != 0, c.tls:
-		return false
+	case address.Chosen:
+		return address.Source
+	case c.port != 0:
+		return "WithPort"
+	case c.tls:
+		return "WithTLS"
 	}
-	return true
+	return ""
+}
+
+// portOnNetwork is the port mongod is dialled at on a shared network.
+func (c config) portOnNetwork() int {
+	if c.networkPort != 0 {
+		return c.networkPort
+	}
+	return 27017
 }

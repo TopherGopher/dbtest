@@ -25,7 +25,7 @@ func (c config) containerConfig(r reach) dockerclient.ContainerConfig {
 // port on the interface that the address to dial needs.
 func (c config) hostConfig(r reach) *dockerclient.HostConfig {
 	if r.shared() {
-		return &dockerclient.HostConfig{NetworkMode: r.network.Name}
+		return &dockerclient.HostConfig{NetworkMode: r.network}
 	}
 	publishOn := "" // empty asks the daemon to choose the port
 	if c.port != 0 {
@@ -98,14 +98,18 @@ func (c config) announceExposure(r reach) {
 	if !r.exposed() {
 		return
 	}
+	attrs := []any{"container", c.name}
+	if r.shared() {
+		attrs = append(attrs, "network", r.network)
+	}
 	if c.noAuth {
 		c.logger.Warn("This mongod has no password, and "+r.where()+". "+
 			"Anyone who can reach it can read and change its data. Leave out WithoutAuth unless you trust the network.",
-			"container", c.name)
+			attrs...)
 		return
 	}
-	c.logger.Info("This mongod asks for a username and password, which Container.URI() includes, because "+r.where()+".",
-		"container", c.name, "username", c.username)
+	c.logger.Info("This mongod asks for a username and password because "+r.where()+". Container.URI() includes them.",
+		append(attrs, "username", c.username)...)
 }
 
 // needsGeneratedCredentials reports whether the caller chose neither

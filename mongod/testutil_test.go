@@ -3,6 +3,7 @@ package mongod_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -195,14 +196,27 @@ func commandName(document []byte) string {
 // mongod answered it with ok. It is written apart from the package's own
 // hello so that a mistake in one is not repeated in the other.
 func askHello(address string) error {
-	const headerLen, opMsg, requestID = 16, 2013, 7
-	const document = "\x10hello\x00\x01\x00\x00\x00" + "\x02$db\x00\x06\x00\x00\x00admin\x00" + "\x00"
-	const okElement = "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
-
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 	if err != nil {
 		return err
 	}
+	return helloOn(conn)
+}
+
+// askHelloTLS is askHello over TLS.
+func askHelloTLS(address string, config *tls.Config) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 2 * time.Second}, "tcp", address, config)
+	if err != nil {
+		return err
+	}
+	return helloOn(conn)
+}
+
+// helloOn sends askHello's command on conn, reads the reply and closes it.
+func helloOn(conn net.Conn) error {
+	const headerLen, opMsg, requestID = 16, 2013, 7
+	const document = "\x10hello\x00\x01\x00\x00\x00" + "\x02$db\x00\x06\x00\x00\x00admin\x00" + "\x00"
+	const okElement = "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 

@@ -88,7 +88,7 @@ func onNetwork(network, address string) dockerclient.ContainerInspect {
 func TestAContainerOnASharedNetworkIsReachedAtItsAddressThere(t *testing.T) {
 	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return onNetwork("ci-net", "172.18.0.5"), nil })
 	s := spec(time.Second)
-	s.Network, s.Host = "ci-net", ""
+	s.Network, s.NetworkPort, s.Host = "ci-net", 6000, ""
 	var asked container.Endpoint
 	s.Ready = func(_ context.Context, host string, port int) error {
 		asked = container.Endpoint{Host: host, Port: port}
@@ -98,19 +98,30 @@ func TestAContainerOnASharedNetworkIsReachedAtItsAddressThere(t *testing.T) {
 	reached, err := newContainer(m).Start(t.Context(), s)
 
 	require.NoError(t, err, "a container on the shared network needs no published port")
-	want := container.Endpoint{Host: "172.18.0.5", Port: 5432}
-	assert.Equal(t, want, reached, "the container is reached at its address on the network, on the container port")
+	want := container.Endpoint{Host: "172.18.0.5", Port: 6000}
+	assert.Equal(t, want, reached, "the container is reached at its address on the network, on the port it listens on there")
 	assert.Equal(t, want, asked, "readiness is asked where the caller will connect")
 }
 
 func TestAContainerWithNoAddressOnTheNetworkCannotBeReached(t *testing.T) {
-	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return onNetwork("other-net", "172.19.0.5"), nil })
-	s := spec(time.Second)
-	s.Network = "ci-net"
+	cases := map[string]dockerclient.ContainerInspect{
+		"on another network":          onNetwork("other-net", "172.19.0.5"),
+		"on it, with no IPv4 address": onNetwork("ci-net", ""),
+	}
+	for name, info := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := daemon(func(int) (dockerclient.ContainerInspect, error) { return info, nil })
+			s := spec(time.Second)
+			s.Network, s.NetworkPort = "ci-net", 6000
 
-	_, err := newContainer(m).Start(t.Context(), s)
+			_, err := newContainer(m).Start(t.Context(), s)
 
-	assert.ErrorIs(t, err, container.ErrNoPublishedPort, "with no address on the network there is nothing to connect to")
+			require.Error(t, err, "with no address on the network there is nothing to connect to")
+			assert.ErrorIs(t, err, dockerclient.ErrDaemonResponse, "the daemon did not put the container where it was asked to")
+			assert.NotErrorIs(t, err, container.ErrNoPublishedPort, "no port was meant to be published, so that is not the problem")
+			assert.Len(t, m.CallsTo("ContainerRemove"), 1, "and the container is removed")
+		})
+	}
 }
 
 func TestAStartWaitsForADeclaredHealthCheck(t *testing.T) {

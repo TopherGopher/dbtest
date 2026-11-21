@@ -6,13 +6,14 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Sentinels for a start that failed. Image packages re-export them under
 // their own names, so their text is public API.
 var (
-	// ErrNoPublishedPort: the container port has no host port to connect to,
-	// or, on a network shared with the caller, the container has no address.
+	// ErrNoPublishedPort: the container port has no host port to connect to.
 	ErrNoPublishedPort = errors.New("container port is not published on the host")
 	// ErrNotReady: the container was not ready before the start timeout
 	// passed or the context ended. An error that matches it also matches
@@ -48,28 +49,41 @@ func (e *StartError) Error() string {
 
 func (e *StartError) Unwrap() error { return e.Err }
 
-// UnpublishedPortError names a container port with no host port, or a
-// network the container has no address on. It matches ErrNoPublishedPort.
+// UnpublishedPortError names a container port with no host port. It matches
+// ErrNoPublishedPort.
 type UnpublishedPortError struct {
 	Port string // the container port, such as "27017/tcp"
-	// Network is the shared network the container was to be reached on, or
-	// "" when its port was to be published.
-	Network string
-	Name    string
-	ID      string
+	Name string
+	ID   string
 }
 
 func (e *UnpublishedPortError) Error() string {
-	if e.Network != "" {
-		return fmt.Sprintf("container %s (%s) has no address on network %s, which this process shares with it. "+
-			"Set WithHostIP to publish its port instead", e.Name, ShortID(e.ID), e.Network)
-	}
 	return fmt.Sprintf("container %s (%s) has no host port for %s: the daemon did not publish it. "+
 		"Check that the daemon allows publishing ports, as a rootless or locked-down daemon may not",
 		e.Name, ShortID(e.ID), e.Port)
 }
 
 func (e *UnpublishedPortError) Is(target error) bool { return target == ErrNoPublishedPort }
+
+// noNetworkAddressError reports a started container with no address on the
+// network it was asked to join. A real daemon always gives it one, so the
+// likely cause is a Docker client that does not pass the network on or
+// report it back. It matches dockerclient.ErrDaemonResponse.
+type noNetworkAddressError struct {
+	network, name, id string
+}
+
+func (e *noNetworkAddressError) Error() string {
+	return fmt.Sprintf("container %s (%s) has no IPv4 address on network %s, which it was asked to join. "+
+		"If you pass your own Docker client with WithDocker, check that it sends HostConfig.NetworkMode on create "+
+		"and reports NetworkSettings.Networks on inspect. Or publish the port instead: "+
+		"set WithHostIP or DBTEST_HOST_IP to the Docker host's address",
+		e.name, ShortID(e.id), e.network)
+}
+
+func (e *noNetworkAddressError) Is(target error) bool {
+	return target == dockerclient.ErrDaemonResponse
+}
 
 // NotReadyError reports that the container was not ready in time. It
 // matches ErrNotReady, the context error that ended the start, and the last

@@ -183,11 +183,11 @@ type NetworkSettings struct {
 	// it is published on, and is nil for ports that are not published.
 	Ports map[string][]PortBinding `json:"Ports"`
 	// Networks maps the name of each network the container is on to its
-	// place there. A container that has not started has no address yet.
+	// address there. A container that has not started has no address yet.
 	Networks map[string]NetworkEndpoint `json:"Networks"`
 }
 
-// NetworkEndpoint is a container's place on one network.
+// NetworkEndpoint is a container's address on one network.
 type NetworkEndpoint struct {
 	// IPAddress is the container's IPv4 address on the network, or "" when
 	// it has none, as on the host network.

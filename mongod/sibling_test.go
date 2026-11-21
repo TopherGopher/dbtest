@@ -27,15 +27,21 @@ type siblingReport struct {
 	NetworkMode string `json:"networkMode"`
 	Published   bool   `json:"published"`
 	Hello       string `json:"hello"`
+	Removed     bool   `json:"removed"`
 }
 
 // A test in a container on a user-defined network, with the Docker socket
 // mounted, is how CI usually runs. Its start must reach mongod on that
-// network with nothing published and no password.
+// network with nothing published.
 func TestIntegrationAStartInAContainerUsesItsNetwork(t *testing.T) {
 	docker, ctx := liveDocker(t)
 	socket, isUnix := strings.CutPrefix(docker.Host(), "unix://")
 	require.True(t, isUnix, "this test mounts the daemon's socket into a container, so the daemon must be on a unix socket, not %s", docker.Host())
+	if strings.HasSuffix(socket, "/.docker/run/docker.sock") {
+		// Docker Desktop's socket on the Mac forwards to its VM, where a
+		// container mounts the VM's own socket.
+		socket = "/var/run/docker.sock"
+	}
 	requireImage(t, ctx, docker, siblingImage)
 	helper := buildLinuxProgram(t, "../internal/siblinghelper")
 	network := fmt.Sprintf("dbtest-sibling-%d", time.Now().UnixNano())
@@ -53,7 +59,8 @@ func TestIntegrationAStartInAContainerUsesItsNetwork(t *testing.T) {
 	assert.Equal(t, network, report.NetworkMode, "mongod joins the test container's network")
 	assert.False(t, report.Published, "nothing is published on the Docker host")
 	assert.Equal(t, 27017, report.Port, "mongod is reached on its own port")
-	assert.Empty(t, report.Username, "only containers on that network can connect, so no password is generated")
+	assert.Equal(t, mongod.DefaultUsername, report.Username, "other containers on that network can connect, so a password is generated")
+	assert.True(t, report.Removed, "Stop leaves nothing behind")
 }
 
 // buildLinuxProgram compiles pkg as a static Linux binary, so it runs in any

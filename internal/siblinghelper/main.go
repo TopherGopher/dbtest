@@ -4,7 +4,8 @@
 //
 // It starts MongoDB with mongod.Start, sends a hello to Container.Host and
 // Container.Port, asks the daemon how the container was set up, stops it,
-// and prints what it found as one JSON object for the test to read.
+// checks it is gone, and prints what it found as one JSON object for the
+// test to read.
 package main
 
 import (
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerapi"
+	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/mongod"
 )
 
@@ -32,6 +34,8 @@ type Report struct {
 	NetworkMode string `json:"networkMode"`
 	Published   bool   `json:"published"`
 	Hello       string `json:"hello"`
+	// Removed says Stop left no container behind.
+	Removed bool `json:"removed"`
 }
 
 func main() {
@@ -53,8 +57,22 @@ func run(ctx context.Context) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	defer func() { _ = c.Stop(context.Background()) }()
+	report, err := inspect(ctx, c)
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if stopErr := c.Stop(stopCtx); err == nil {
+		err = stopErr
+	}
+	if err != nil {
+		return Report{}, err
+	}
+	report.Removed, err = gone(ctx, c.ID())
+	return report, err
+}
 
+// inspect sends a hello to the container and asks the daemon how it was set
+// up.
+func inspect(ctx context.Context, c *mongod.Container) (Report, error) {
 	report := Report{Host: c.Host(), Port: c.Port(), Username: c.Username(), Hello: "ok"}
 	if err := hello(net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))); err != nil {
 		report.Hello = err.Error()
@@ -72,6 +90,19 @@ func run(ctx context.Context) (Report, error) {
 		report.NetworkMode = name
 	}
 	return report, nil
+}
+
+// gone reports whether the daemon no longer has the container.
+func gone(ctx context.Context, id string) (bool, error) {
+	docker, err := dockerapi.FromEnv()
+	if err != nil {
+		return false, err
+	}
+	_, err = docker.ContainerInspect(ctx, id)
+	if errors.Is(err, dockerclient.ErrNotFound) {
+		return true, nil
+	}
+	return false, err
 }
 
 // hello sends a MongoDB hello and checks that the reply is a MongoDB

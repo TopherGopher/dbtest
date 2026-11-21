@@ -103,8 +103,12 @@ func conformanceNetwork(t *testing.T, c dockerclient.Client) {
 	if net.ParseIP(endpoint.IPAddress) == nil {
 		t.Errorf("a running container must report its address on %s, got %q", TestNetwork, endpoint.IPAddress)
 	}
-	if len(info.NetworkSettings.Ports) != 0 {
-		t.Errorf("a container that publishes nothing must report no published ports, got %+v", info.NetworkSettings.Ports)
+	// A daemon lists an exposed port that is not published with no
+	// bindings, so only a binding counts.
+	for port, bindings := range info.NetworkSettings.Ports {
+		if len(bindings) != 0 {
+			t.Errorf("a container that publishes nothing must report no host port, got %s on %+v", port, bindings)
+		}
 	}
 }
 

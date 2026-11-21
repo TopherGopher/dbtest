@@ -88,6 +88,9 @@ func (s ContainerState) clone() ContainerState {
 
 type fakeContainer struct {
 	state ContainerState
+	// networkMode is copied at create, so that a caller who changes its
+	// request afterwards does not move the container.
+	networkMode string
 }
 
 type fakeExec struct {
@@ -226,7 +229,11 @@ func (f *Fake) ContainerCreate(ctx context.Context, name string, cfg dockerclien
 			}
 		}
 	}
-	f.containers[id] = &fakeContainer{state: ContainerState{
+	mode := ""
+	if cfg.HostConfig != nil {
+		mode = cfg.HostConfig.NetworkMode
+	}
+	f.containers[id] = &fakeContainer{networkMode: mode, state: ContainerState{
 		ID: id, Name: "/" + name, Config: cfg, Ports: ports, Files: map[string][]byte{},
 	}}
 	return id, nil, nil
@@ -297,10 +304,7 @@ func (f *Fake) ContainerInspect(ctx context.Context, id string) (dockerclient.Co
 // daemon does. Only a running container has an address, which is made from
 // its id so that each container's differs.
 func (c *fakeContainer) networks() map[string]dockerclient.NetworkEndpoint {
-	mode := ""
-	if c.state.Config.HostConfig != nil {
-		mode = c.state.Config.HostConfig.NetworkMode
-	}
+	mode := c.networkMode
 	subnet := "172.18.0."
 	switch {
 	case mode == "" || mode == "bridge":

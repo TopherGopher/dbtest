@@ -77,9 +77,12 @@ type Options struct {
 	labels       map[string]string
 	logger       dockerclient.Logger
 	docker       dockerclient.Client
-	// findNetwork replaces hostaddr.FindSharedNetwork, for a test that
-	// describes a start made inside a container.
-	findNetwork func(context.Context, dockerclient.Client) (hostaddr.SharedNetwork, error)
+	// findNetwork replaces hostaddr.FindSharedNetwork, resolveHost
+	// hostaddr.Resolve, and networkPort the port dialled on a shared
+	// network, for a test that describes a start made inside a container.
+	findNetwork func(context.Context, dockerclient.Client) (string, error)
+	resolveHost func(dockerHost, override string) (hostaddr.Address, error)
+	networkPort int
 	// err is the first value a With method could not accept. A With method
 	// has nowhere to return an error, so StartWithOptions reports it.
 	err error
@@ -141,20 +144,22 @@ func (o Options) WithName(name string) Options {
 }
 
 // WithHostIP states the address or hostname containers are reachable at, for
-// a network the detection gets wrong. Without it the first of these is used:
+// a network the detection gets wrong. Setting it always publishes the port.
+// Without it the first of these that applies is used:
 //
-//  1. the DBTEST_HOST_IP environment variable;
-//  2. the container's address on a network this process's container is on,
-//     when both are on the same daemon. Nothing is published then. WithPort
-//     and WithTLS skip this rule;
-//  3. the daemon's own host, when the daemon is remote (tcp, http, https, ssh);
-//  4. loopback, when this process shares the daemon host's network;
-//  5. the default gateway, when this process is in a container with a network
-//     of its own, because the port is published on the host outside it.
+//   - the DBTEST_HOST_IP environment variable;
+//   - mongod's address on the network of this process's container, when
+//     that container is on the same daemon and neither WithPort nor WithTLS
+//     is set, with nothing published;
+//   - the daemon's own host, when the daemon is remote (tcp, http, https, ssh);
+//   - loopback, when this process shares the daemon host's network;
+//   - the default gateway, when this process is in a container not on the
+//     host network, because the port is published on the host outside it.
 //
-// Rule 2 may fail where containers on a network cannot talk to each other,
-// as on a bridge with inter-container traffic turned off. Set WithHostIP
-// there to publish the port instead.
+// The shared network fails where containers on it cannot reach each other,
+// as on a bridge with icc=false, Docker's setting that stops containers on a
+// network talking to each other. The start then times out with
+// [ErrNotReady], and its error names the address to pass here instead.
 func (o Options) WithHostIP(host string) Options {
 	if host == "" {
 		return o.refused(ErrEmptyHostIP)
@@ -180,7 +185,8 @@ func (o Options) WithReplicaSet(name string) Options {
 // [Container.URI] then includes the credentials.
 //
 // Creating the user makes a start a few seconds slower, so by default
-// credentials are only generated for a container other machines can reach.
+// credentials are only generated when other machines or containers can
+// reach mongod.
 // Anyone who can use the Docker daemon can read them, so do not reuse a
 // password that matters.
 func (o Options) WithAuth(username, password string) Options {
@@ -189,7 +195,7 @@ func (o Options) WithAuth(username, password string) Options {
 }
 
 // WithoutAuth runs mongod without authentication even where other machines
-// can reach it. Use it only on a network you trust.
+// or containers can reach it. Use it only on a network you trust.
 func (o Options) WithoutAuth() Options {
 	o.username, o.password, o.noAuth = "", "", true
 	return o
@@ -197,9 +203,10 @@ func (o Options) WithoutAuth() Options {
 
 // WithTLS makes mongod accept only TLS connections, with a certificate made
 // for this container. Connect with [Container.URI] and give the driver
-// [Container.TLSConfig], which trusts that certificate. An image that takes
-// no mongod flags, such as Atlas Local, refuses it with
-// [ErrUnsupportedForImage].
+// [Container.TLSConfig], which trusts that certificate. The port is always
+// published, because the certificate must name the address clients dial,
+// and the container has no network address until it starts. An image that takes no mongod flags, such as Atlas
+// Local, refuses it with [ErrUnsupportedForImage].
 func (o Options) WithTLS() Options {
 	o.tls = true
 	return o
@@ -283,6 +290,8 @@ type config struct {
 	// hostSource says what decided the address to dial, for the error a
 	// start that runs out of time returns. A start sets it.
 	hostSource string
+	// network and publishHost are the reach's, for that error's advice.
+	network, publishHost string
 }
 
 // newConfig fills in what the options left open, from the environment and

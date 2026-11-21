@@ -20,62 +20,92 @@ import (
 // checks only that mongod answers and that nothing is left behind.
 const EnvReachSetup = "DBTEST_REACH_SETUP"
 
+// EnvReachGateway is, in the sibling setup, the gateway of the test
+// container's network, which a start with WithTLS must dial. The script
+// that makes the setup works it out from the daemon.
+const EnvReachGateway = "DBTEST_REACH_GATEWAY"
+
 // TestIntegrationReach starts mongod with no options wherever the tests
 // run, talks to it, and checks that stopping it leaves nothing behind.
 func TestIntegrationReach(t *testing.T) {
+	setup := os.Getenv(EnvReachSetup)
+	require.Contains(t, []string{"", "sibling", "host-network", "dind", "tcp"}, setup,
+		"%s names a setup this test knows: sibling, host-network, dind or tcp", EnvReachSetup)
 	// Where containers are reached is the point here, so the address is
 	// left to the start, or to whatever the runner set.
 	t.Setenv(mongod.EnvHostIP, callerHostIP)
 	docker, ctx := liveDocker(t)
-	setup := os.Getenv(EnvReachSetup)
+	key, value := runLabel(t)
+	opts := mongod.DefaultOptions().WithLabel(key, value)
 
-	c := startAndTalk(t, ctx, mongod.DefaultOptions())
-	published := publishedPort(t, ctx, docker, c)
+	c := startAndTalk(t, ctx, opts)
+	info, err := docker.ContainerInspect(ctx, c.ID())
+	require.NoError(t, err, "the running container can be inspected")
+	published := info.HostPort("27017/tcp") != ""
 	switch setup {
-	case "":
 	case "sibling":
 		assert.False(t, published, "a test in a container on the same daemon reaches mongod on its network")
-		assert.Equal(t, 27017, c.Port(), "at mongod's own port")
-		assert.Empty(t, c.Username(), "a user-defined network needs no password")
+		assert.Contains(t, networkAddresses(info), c.Host(), "at mongod's address on that network")
+		assert.Equal(t, 27017, c.Port(), "on mongod's own port")
+		assert.Equal(t, mongod.DefaultUsername, c.Username(), "other containers on the network can connect, so it has a password")
 	case "host-network":
-		assert.Equal(t, "127.0.0.1", c.Host(), "a test on the host's network reaches a port published on loopback")
+		assert.True(t, published, "a test on the host's network reaches a published port")
+		assert.Equal(t, "127.0.0.1", c.Host(), "on loopback")
 	case "dind", "tcp":
-		assert.Equal(t, daemonHostname(t, docker), c.Host(), "a test reaches a port published on the daemon's own host")
-	default:
-		t.Fatalf("%s=%q is not a setup this test knows: use sibling, host-network, dind or tcp", EnvReachSetup, setup)
+		assert.True(t, published, "a test reaches a published port")
+		assert.Equal(t, daemonHostname(t, docker), c.Host(), "on the daemon's own host")
 	}
 	stopAndCheckGone(t, ctx, docker, c)
 
 	if setup == "sibling" {
-		// WithTLS keeps the published path, so a sibling reaches it at the
-		// default gateway, the one rule no other setup uses.
-		tlsContainer := startAndTalk(t, ctx, mongod.DefaultOptions().WithTLS())
-		assert.True(t, publishedPort(t, ctx, docker, tlsContainer), "with TLS the port is published")
-		assert.False(t, net.ParseIP(tlsContainer.Host()).IsLoopback(), "and reached through the gateway, not loopback")
-		stopAndCheckGone(t, ctx, docker, tlsContainer)
+		checkSiblingWithTLS(t, ctx, docker, opts)
+	}
+	if ids, checked := containersLabelled(t, key, value); checked {
+		assert.Empty(t, ids, "no container this test started is left")
 	}
 }
 
+// networkAddresses returns a container's addresses on its networks.
+func networkAddresses(info dockerclient.ContainerInspect) []string {
+	var addresses []string
+	for _, endpoint := range info.NetworkSettings.Networks {
+		addresses = append(addresses, endpoint.IPAddress)
+	}
+	return addresses
+}
+
+// checkSiblingWithTLS starts mongod with TLS from a sibling container.
+// WithTLS keeps the published path, so the start reaches it at the default
+// gateway, the one rule no other setup uses.
+func checkSiblingWithTLS(t *testing.T, ctx context.Context, docker dockerclient.Client, opts mongod.Options) {
+	t.Helper()
+	c := startAndTalk(t, ctx, opts.WithTLS())
+	info, err := docker.ContainerInspect(ctx, c.ID())
+	require.NoError(t, err, "the running container can be inspected")
+	published := info.HostPort("27017/tcp")
+	require.NotEmpty(t, published, "with TLS the port is published")
+	assert.Equal(t, published, strconv.Itoa(c.Port()), "and mongod is reached on the published port")
+	if gateway := os.Getenv(EnvReachGateway); gateway != "" {
+		assert.Equal(t, gateway, c.Host(), "at the default gateway")
+	} else {
+		assert.False(t, net.ParseIP(c.Host()).IsLoopback(), "at the default gateway, which is not loopback")
+	}
+	stopAndCheckGone(t, ctx, docker, c)
+}
+
 // startAndTalk starts mongod and proves it answers where Container says.
-// With TLS the start itself has had mongod answer there, over TLS.
 func startAndTalk(t *testing.T, ctx context.Context, opts mongod.Options) *mongod.Container {
 	t.Helper()
 	c, err := mongod.StartWithOptions(ctx, opts)
 	require.NoError(t, err, "the start works in this setup with no address given")
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
-	if c.TLSConfig() == nil {
-		require.NoError(t, askHello(net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))), "mongod answers at Host and Port")
+	address := net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))
+	if c.TLSConfig() != nil {
+		require.NoError(t, askHelloTLS(address, c.TLSConfig()), "mongod answers over TLS at Host and Port")
+		return c
 	}
+	require.NoError(t, askHello(address), "mongod answers at Host and Port")
 	return c
-}
-
-// publishedPort reports whether mongod's port is published on the daemon's
-// host.
-func publishedPort(t *testing.T, ctx context.Context, docker dockerclient.Client, c *mongod.Container) bool {
-	t.Helper()
-	info, err := docker.ContainerInspect(ctx, c.ID())
-	require.NoError(t, err, "the running container can be inspected")
-	return info.HostPort("27017/tcp") != ""
 }
 
 // stopAndCheckGone stops the container and checks the daemon no longer has

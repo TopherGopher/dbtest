@@ -36,7 +36,7 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	}
 	// Who else can connect decides whether the container needs credentials.
 	cfg = cfg.withCredentialsIfExposed(r)
-	cfg.hostSource = r.source
+	cfg.hostSource, cfg.network, cfg.publishHost = r.source, r.network, r.publishHost
 	cfg.announceExposure(r)
 
 	certs, err := cfg.certificatesFor(r.host)
@@ -175,7 +175,7 @@ func (c *Container) startError(op string, err error) error {
 // spec fills in the generic start for mongod.
 func (c *Container) spec(cfg config, r reach) container.Spec {
 	return container.Spec{
-		Request: cfg.containerConfig(r), Port: mongoPort, Network: r.network.Name,
+		Request: cfg.containerConfig(r), Port: mongoPort, Network: r.network, NetworkPort: cfg.portOnNetwork(),
 		Host: c.host, HostSource: cfg.hostSource, GeneratedName: cfg.generatedName,
 		StartTimeout: cfg.startTimeout,
 		Pull:         c.pullFor(cfg),

@@ -3,10 +3,12 @@ package hostaddr
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,30 +33,68 @@ func TestTheContainerIDIsReadFromTheHostnameMount(t *testing.T) {
 		want      string
 		found     bool
 	}{
-		"docker":             {mountinfo: mountinfoOf(selfID), want: selfID, found: true},
-		"a data root moved":  {mountinfo: "114 94 254:0 /srv/docker/containers/" + selfID + "/hostname /etc/hostname rw - ext4 /dev/vda rw\n", want: selfID, found: true},
-		"not in a container": {mountinfo: "28 27 0:51 / / rw,relatime - ext4 /dev/vda rw\n"},
-		"podman":             {mountinfo: "114 94 0:40 /overlay-containers/" + selfID + "/userdata/hostname /etc/hostname rw - tmpfs tmpfs rw\n"},
-		"mounted elsewhere":  {mountinfo: "114 94 254:0 /var/lib/docker/containers/" + selfID + "/hostname /mnt/hostname rw - ext4 /dev/vda rw\n"},
+		"docker":            {mountinfo: mountinfoOf(selfID), want: selfID, found: true},
+		"a data root moved": {mountinfo: "114 94 254:0 /srv/docker/containers/" + selfID + "/hostname /etc/hostname rw - ext4 /dev/vda rw\n", want: selfID, found: true},
+		// When /var/lib/docker is its own mount, the path starts there.
+		"a data root mounted alone": {mountinfo: "114 94 254:0 /containers/" + selfID + "/hostname /etc/hostname rw - ext4 /dev/vdb rw\n", want: selfID, found: true},
+		"not in a container":        {mountinfo: "28 27 0:51 / / rw,relatime - ext4 /dev/vda rw\n"},
+		"podman":                    {mountinfo: "114 94 0:40 /overlay-containers/" + selfID + "/userdata/hostname /etc/hostname rw - tmpfs tmpfs rw\n"},
+		"mounted elsewhere":         {mountinfo: "114 94 254:0 /var/lib/docker/containers/" + selfID + "/hostname /mnt/hostname rw - ext4 /dev/vda rw\n"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			id, found := containerIDFromMountinfo(strings.NewReader(tc.mountinfo))
+			id, err := containerIDFromMountinfo(strings.NewReader(tc.mountinfo))
 
-			assert.Equal(t, tc.found, found, "only Docker's hostname mount names this process's container")
+			assert.Equal(t, tc.found, err == nil, "only Docker's hostname mount names this process's container")
 			assert.Equal(t, tc.want, id, "the id is the directory the hostname file is in")
+			if !tc.found {
+				assert.ErrorIs(t, err, ErrNoSharedNetwork, "no id means no shared network")
+			}
 		})
 	}
 }
 
+func TestAMountinfoThatCannotBeReadIsNotTakenAsNoContainer(t *testing.T) {
+	readFailed := errors.New("read failed")
+	broken := io.MultiReader(strings.NewReader("28 27 0:51 / / rw - overlay overlay rw\n"), iotest.ErrReader(readFailed))
+
+	_, err := containerIDFromMountinfo(broken)
+
+	assert.ErrorIs(t, err, ErrNoSharedNetwork, "an unreadable mountinfo still means no shared network")
+	assert.ErrorIs(t, err, readFailed, "and the debug line says why it could not be read")
+}
+
+// hostnameLine is the mountinfo line Docker writes for a container's
+// hostname file.
+func hostnameLine(id string) string {
+	return "114 94 254:0 /var/lib/docker/containers/" + id + "/hostname /etc/hostname rw - ext4 /dev/vda rw\n"
+}
+
+// namedBy reports whether mountinfo has a hostname line for id.
+func namedBy(mountinfo, id string) bool {
+	return strings.Contains(mountinfo, "/containers/"+id+"/hostname /etc/hostname")
+}
+
 func FuzzContainerIDFromMountinfo(f *testing.F) {
-	f.Add(mountinfoOf(selfID))
-	f.Add("114 94 254:0 /containers//hostname /etc/hostname\n")
-	f.Add("")
-	f.Fuzz(func(t *testing.T, mountinfo string) {
-		id, found := containerIDFromMountinfo(strings.NewReader(mountinfo))
-		if found && !isContainerID(id) {
-			t.Fatalf("found %q, which is not a container id", id)
+	f.Add("28 27 0:51 / / rw - overlay overlay rw", selfID)
+	f.Add("114 94 254:0 /containers//hostname /etc/hostname", "abc")
+	f.Add("", "")
+	f.Fuzz(func(t *testing.T, before, id string) {
+		if got, err := containerIDFromMountinfo(strings.NewReader(before)); err == nil && !namedBy(before, got) {
+			t.Fatalf("found %q, which no hostname line names", got)
+		}
+		// A line longer than the scanner takes is reported as unreadable.
+		if !isContainerID(id) || len(before) > 60_000 {
+			return
+		}
+		mountinfo := before + "\n" + hostnameLine(id)
+		got, err := containerIDFromMountinfo(strings.NewReader(mountinfo))
+		if err != nil {
+			t.Fatalf("the hostname line for %q was not found: %v", id, err)
+		}
+		// An earlier hostname line wins.
+		if got != id && !namedBy(before, got) {
+			t.Fatalf("found %q, want %q", got, id)
 		}
 	})
 }
@@ -97,11 +137,10 @@ func finderFor(mountinfo string, addresses ...string) networkFinder {
 
 func TestAContainerOnANetworkSharesIt(t *testing.T) {
 	cases := map[string]struct {
-		mode        string
-		want        string
-		userDefined bool
+		mode string
+		want string
 	}{
-		"a user-defined network": {mode: "ci-net", want: "ci-net", userDefined: true},
+		"a user-defined network": {mode: "ci-net", want: "ci-net"},
 		"the default bridge":     {mode: "bridge", want: "bridge"},
 		"no mode, so the bridge": {mode: "", want: "bridge"},
 	}
@@ -112,21 +151,27 @@ func TestAContainerOnANetworkSharesIt(t *testing.T) {
 			network, err := finderFor(mountinfoOf(id), address).find(context.Background(), fake)
 
 			require.NoError(t, err, "a container whose address is this process's shares its network")
-			assert.Equal(t, tc.want, network.Name, "a new container joins the network this process is on")
-			assert.Equal(t, tc.userDefined, network.UserDefined, "only the default bridge lets every container connect")
+			assert.Equal(t, tc.want, network, "a new container joins the network this process is on")
 		})
 	}
 }
 
 func TestTheFirstUserDefinedNetworkIsChosen(t *testing.T) {
-	networks := map[string]dockerclient.NetworkEndpoint{
-		"bridge": {IPAddress: "172.17.0.2"}, "zeta": {IPAddress: "172.19.0.2"}, "alpha": {IPAddress: "172.18.0.2"},
+	// Every user-defined name sorts after "bridge", and there are enough
+	// that a choice left to map order would rarely pick ci-net.
+	names := []string{"bridge", "zeta", "kappa", "omega", "delta", "ci-net", "sigma", "theta"}
+	networks := map[string]dockerclient.NetworkEndpoint{}
+	var local []net.IP
+	for i, name := range names {
+		address := fmt.Sprintf("172.%d.0.2", 17+i)
+		networks[name] = dockerclient.NetworkEndpoint{IPAddress: address}
+		local = append(local, net.ParseIP(address))
 	}
 
-	network, err := chooseNetwork(networks, []net.IP{net.ParseIP("172.17.0.2"), net.ParseIP("172.18.0.2"), net.ParseIP("172.19.0.2")})
+	network, err := chooseNetwork(networks, local)
 
-	require.NoError(t, err, "a container on three networks shares them all")
-	assert.Equal(t, SharedNetwork{Name: "alpha", UserDefined: true}, network, "the user-defined network that sorts first wins over the bridge")
+	require.NoError(t, err, "a container on several networks shares them all")
+	assert.Equal(t, "ci-net", network, "the user-defined network that sorts first wins over the bridge")
 }
 
 func TestNoNetworkIsSharedWhenTheContainerCannotBeConfirmed(t *testing.T) {
