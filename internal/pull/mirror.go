@@ -38,7 +38,7 @@ func HubMirror(namespace, prefix string) Mirror {
 
 // sources returns where an image can be pulled from, in the order to try:
 // the image itself, then each mirror's name for it.
-func sources(image string, mirrors []Mirror) []string {
+func sources(image string, mirrors ...Mirror) []string {
 	list := []string{image}
 	for _, mirror := range mirrors {
 		if name, ok := mirror(image); ok {

@@ -72,7 +72,7 @@ var rateLimitMemory = 5 * time.Minute
 // a *SourcesError.
 func Shared(ctx context.Context, docker dockerclient.Client, image string, timeout time.Duration, mirrors ...Mirror) (string, error) {
 	key := pullKey{host: docker.Host(), image: image}
-	p := join(ctx, docker, key, timeout, sources(image, mirrors))
+	p := join(ctx, docker, key, timeout, sources(image, mirrors...)...)
 	defer leave(key, p)
 	return p.wait(ctx, timeout)
 }
@@ -92,12 +92,12 @@ func (e *TimeoutError) Unwrap() []error { return []error{context.DeadlineExceede
 
 // join returns the pull in progress for key, starting one if there is none,
 // and counts the caller as waiting on it.
-func join(ctx context.Context, docker dockerclient.Client, key pullKey, timeout time.Duration, from []string) *sharedPull {
+func join(ctx context.Context, docker dockerclient.Client, key pullKey, timeout time.Duration, from ...string) *sharedPull {
 	pulls.Lock()
 	defer pulls.Unlock()
 	p := pulls.inProgress[key]
 	if p == nil {
-		p = startPull(ctx, docker, key, timeout, from)
+		p = startPull(ctx, docker, key, timeout, from...)
 		pulls.inProgress[key] = p
 	}
 	p.waiters++
@@ -106,7 +106,7 @@ func join(ctx context.Context, docker dockerclient.Client, key pullKey, timeout 
 
 // startPull starts a pull bounded by the caller's pull timeout but not by its
 // context, so the caller can leave without failing others waiting on it.
-func startPull(ctx context.Context, docker dockerclient.Client, key pullKey, timeout time.Duration, from []string) *sharedPull {
+func startPull(ctx context.Context, docker dockerclient.Client, key pullKey, timeout time.Duration, from ...string) *sharedPull {
 	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	p := &sharedPull{cancel: cancel, done: make(chan struct{}), timeout: timeout, pause: pullWait, image: key.image, sources: from}
 	go func() {
