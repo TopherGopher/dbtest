@@ -3,13 +3,13 @@
 What changed in each release, for someone upgrading: what is different, and
 what to do if it affects you.
 
-## Unreleased
+## v0.3.0
 
 ### The modules are renamed to `github.com/tophergopher/dbtest`
 
-The name now fits the other databases that are planned. Everything in this
-"Unreleased" section is new since v0.2.9. Change your imports, then run
-`go mod tidy` to drop the old module:
+The name now fits the other databases that are planned. Everything in v0.3.0
+is new since v0.2.9. Change your imports, then run `go mod tidy` to drop the
+old module:
 
 | Before | After |
 | --- | --- |

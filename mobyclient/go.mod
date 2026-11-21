@@ -9,7 +9,7 @@ require (
 	github.com/moby/moby/api v1.57.0
 	github.com/moby/moby/client v0.6.3
 	github.com/stretchr/testify v1.12.1
-	github.com/tophergopher/dbtest v0.0.0
+	github.com/tophergopher/dbtest v0.3.0
 )
 
 require (
