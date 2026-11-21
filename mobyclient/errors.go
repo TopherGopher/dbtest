@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -64,6 +65,16 @@ func mapError(host, method, path string, err error) error {
 		// StatusError, as dockerapi does, so that message can be read.
 		return statusError(http.StatusInternalServerError, method, path, err)
 	}
+	if causeDropped(err) {
+		// Only the moby client's message tells a denied socket from a refused
+		// or timed-out connection. A denied socket gets fs.ErrPermission back,
+		// so it is reported as dockerapi reports it.
+		if strings.Contains(err.Error(), "permission denied") {
+			return dockerclient.WrapConnectionError(host, fmt.Errorf("%w (%w)", err, fs.ErrPermission))
+		}
+		return dockerclient.ConnectionFailed(host, "the connection was refused or timed out",
+			"Is the docker daemon running? Start it, or set DOCKER_HOST to a daemon that is", err)
+	}
 	// Not a classified daemon response: it may be that the daemon could not
 	// be reached at all. WrapConnectionError inspects the error chain
 	// itself (fs.ErrNotExist, a timed-out net.Error, a DNS failure, ...) so
@@ -74,14 +85,10 @@ func mapError(host, method, path string, err error) error {
 	// ConnectionError. It cannot be a == comparison: two interface values
 	// of the same uncomparable dynamic type panic at run time, and an
 	// error type is free to be a struct carrying a slice.
-	wrapped := dockerclient.WrapConnectionError(host, restorePermission(err))
+	wrapped := dockerclient.WrapConnectionError(host, err)
 	var connErr *dockerclient.ConnectionError
 	if errors.As(wrapped, &connErr) {
 		return wrapped
-	}
-	if causeDropped(err) {
-		return dockerclient.ConnectionFailed(host, "the connection was refused or timed out",
-			"Is the docker daemon running? Start it, or set DOCKER_HOST to a daemon that is", err)
 	}
 	if m := execUpgradeFailed.FindStringSubmatch(err.Error()); m != nil {
 		code, _ := strconv.Atoi(m[1])
@@ -92,27 +99,14 @@ func mapError(host, method, path string, err error) error {
 		Problem: "the docker daemon returned an error mobyclient could not classify"}
 }
 
-// restorePermission puts fs.ErrPermission back under the moby client's error
-// for a socket the user may not open, so that WrapConnectionError reports it
-// as it does for dockerapi. The moby client drops that cause, and only its
-// message still says what happened.
-func restorePermission(err error) error {
-	if causeDropped(err) && strings.Contains(err.Error(), "permission denied") {
-		return fmt.Errorf("%w (%w)", err, fs.ErrPermission)
-	}
-	return err
-}
-
-// causeDropped reports whether err is a moby connection failure that carries
-// no cause. For a refused or timed-out connection, or a Unix socket it cannot
-// dial or may not open, the moby client returns a new message that wraps
-// nothing, so WrapConnectionError has nothing to inspect. Its own error wraps
-// that message, so a kept cause would sit one level further down. The moby
-// client's other connection failures keep their cause, and some of them, such
-// as a broken upload, happen after the daemon was reached. err must be the
-// error the moby client returned, not wrapped further.
+// causeDropped reports whether err is a moby connection failure with no
+// network error behind it. The moby client replaces a refused or timed-out
+// connection, and a socket it cannot dial or may not open, with a message
+// that wraps nothing. Its other connection failures keep the transport's
+// error, and some of them, such as a broken upload, happen after the daemon
+// was reached.
 func causeDropped(err error) bool {
-	return client.IsErrConnectionFailed(err) && errors.Unwrap(errors.Unwrap(err)) == nil
+	return client.IsErrConnectionFailed(err) && !errors.As(err, new(net.Error))
 }
 
 // statusError builds a dockerclient.StatusError for a classified daemon

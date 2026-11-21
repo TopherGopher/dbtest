@@ -145,13 +145,20 @@ func TestADeniedOrTimedOutDialIsAConnectionFailure(t *testing.T) {
 
 // The moby client calls any failure to complete a request a connection
 // failure. One that happens after the daemon was reached, such as a broken
-// upload, must not be reported as an unreachable daemon.
+// upload, must not be reported as an unreachable daemon, even when its
+// message mentions a permission.
 func TestAFailedRequestIsNotAConnectionFailure(t *testing.T) {
-	broken := errors.New("archive/tar: write too long")
+	for name, broken := range map[string]error{
+		"a broken upload":                 errors.New("archive/tar: write too long"),
+		"a failure that names permission": errors.New("reading the build context: permission denied"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := failingMobyClient(t, broken).ImageInspect(t.Context(), "mongo:8")
 
-	_, err := failingMobyClient(t, broken).ImageInspect(t.Context(), "mongo:8")
-
-	assert.NotErrorIs(t, err, dockerclient.ErrConnectionFailed, "the failure was not in reaching the daemon")
-	assert.ErrorIs(t, err, dockerclient.ErrDaemonResponse, "the caller still gets a sentinel to branch on")
-	assert.ErrorIs(t, err, broken, "the cause stays in the chain")
+			assert.NotErrorIs(t, err, dockerclient.ErrConnectionFailed, "the failure was not in reaching the daemon")
+			assert.NotErrorIs(t, err, fs.ErrPermission, "only a denied socket is a permission problem")
+			assert.ErrorIs(t, err, dockerclient.ErrDaemonResponse, "the caller still gets a sentinel to branch on")
+			assert.ErrorIs(t, err, broken, "the cause stays in the chain")
+		})
+	}
 }
