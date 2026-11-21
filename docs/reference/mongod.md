@@ -185,15 +185,21 @@ its own limit, ten minutes by default; see `WithPullTimeout`.
 ## Many containers at once
 
 Containers can be started in parallel, and each is its own server with its
-own data. At most 8 starts per CPU run at once in a process; the others wait
-their turn. The wait counts against the start's context, not its start
-timeout. `mongod.SetStartLimit(n)` changes the limit.
+own data. At most 8 containers per CPU start at once in a process; further
+starts wait their turn. A start holds its place until it returns, so the
+limit caps how many containers are starting, not how many are running.
+`mongod.SetMaxConcurrentStarts(n)` sets the limit to n starts in all. Call
+it before the first start, such as in `TestMain`.
 
-The limit holds within one process. `go test ./...` runs the test binaries
-of several packages at once, so on a small machine lower `-p` as well.
+Waiting uses up the context's deadline but not the start timeout, so a test
+whose context has a short deadline can fail while it waits.
 
-A start that runs out of time while every slot is taken says so in its
-error, because the other starts may be what slowed it.
+Each test binary has its own limit, and `go test ./...` runs several
+binaries at once. On a small machine, also lower `-p`.
+
+A start that runs out of time says in its error how many containers were
+starting at once. When the limit was reached, the error says so, because
+the other starts may have slowed it.
 
 ## Who can connect
 

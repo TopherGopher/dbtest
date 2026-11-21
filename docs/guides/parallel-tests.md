@@ -12,7 +12,8 @@ start one can run in parallel. The choice is how many containers to start.
 ## A container per test, in parallel
 
 The simplest shape. Each test is fully isolated and `t.Parallel` is safe.
-Starts beyond what the machine can handle wait their turn; see
+A test binary starts at most 8 containers per CPU at once, and further starts
+wait their turn; see
 [Many containers at once](../reference/mongod.md#many-containers-at-once).
 
 ```go
@@ -122,8 +123,9 @@ running the deferred `Stop`, so the container is left running.
 ## Running packages in parallel
 
 `go test ./...` runs packages concurrently, and each package's test binary
-starts its own containers. If the machine runs short of memory, lower `-p` or
-`-parallel` rather than sharing containers between packages. Parallel tests
+starts its own containers, under a limit of its own. If the machine runs
+short of memory, lower `-p` or `-parallel` rather than sharing containers
+between packages. Parallel tests
 in one package that need a missing image share one pull. Separate packages
 are separate processes, so each pulls a missing image on its own; see
 [Which image](../reference/mongod.md#which-image).

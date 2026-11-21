@@ -52,8 +52,8 @@ type Spec struct {
 	AfterReady func(ctx context.Context) error
 	// Advice returns the sentence a NotReadyError ends with when the start
 	// timeout passed, or "" for none. It is given the last failure the start
-	// saw, and whether every start slot was taken, in which case the other
-	// starts may be what slowed this one.
+	// saw, and whether other starts and this one filled the limit on starts
+	// at once, in which case the others may be what slowed it.
 	Advice func(lastErr error, crowded bool) string
 }
 
@@ -67,14 +67,16 @@ type Endpoint struct {
 // have it, starts it, finds where it is reached and waits until it is ready.
 // A start that fails removes the container.
 //
-// Beyond the start limit, a start first waits for another to finish. That
-// wait counts against ctx; the start timeout begins once it is over.
+// Beyond the limit on starts at once, a start first waits for another to
+// return. That wait counts against ctx; the start timeout begins once it is
+// over.
 func (c *Container) Start(ctx context.Context, spec Spec) (Endpoint, error) {
 	s := &start{c: c, spec: spec, ref: spec.Request.Image, host: spec.Host}
 	slots, release, err := takeSlot(ctx)
 	s.slots = slots
 	if err != nil {
-		return Endpoint{}, s.notReady(ctx, err, errWaitingForSlot)
+		s.c.forget()
+		return Endpoint{}, s.notReady(ctx, err, errWaitingForTurn)
 	}
 	defer release()
 	deadline, err := s.create(ctx)
@@ -93,7 +95,7 @@ type start struct {
 	c    *Container
 	spec Spec
 	ref  string
-	// slots are the start slots this start counts against.
+	// slots are the turns this start counts against; see takeSlot.
 	slots chan struct{}
 	// host and port are where the container is reached, once known.
 	host string
@@ -190,10 +192,10 @@ func (s *start) notReady(caller context.Context, cause, lastErr error) error {
 	err := &NotReadyError{
 		Name: s.c.name, ID: s.c.id, Host: s.host, Port: s.port, HostSource: s.spec.HostSource,
 		Timeout: s.spec.StartTimeout, ContextEnded: caller.Err() != nil, Cause: cause, LastErr: lastErr,
-		Running: len(s.slots),
+		starting: len(s.slots),
 	}
 	if s.spec.Advice != nil {
-		err.advice = s.spec.Advice(lastErr, len(s.slots) == cap(s.slots))
+		err.advice = s.spec.Advice(lastErr, crowded(s.slots))
 	}
 	return err
 }

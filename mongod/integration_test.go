@@ -413,9 +413,10 @@ func TestIntegrationWithAuthIsEnforced(t *testing.T) {
 }
 
 // With credentials and --replSet alone the official images exit, asking for a
-// key file; this is the combination Start supplies one for. Initiating the set
-// as the root user proves the member came up, read its key, and enforces the
-// credentials.
+// key file; this is the combination Start supplies one for, owned by the user
+// each image runs mongod as. A write and a read as the root user prove the
+// member came up, read its key, and serves the set; a refused anonymous
+// command proves it enforces the credentials.
 func TestIntegrationAReplicaSetWithAuthAcceptsWritesWhenStartReturns(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -423,6 +424,7 @@ func TestIntegrationAReplicaSetWithAuthAcceptsWritesWhenStartReturns(t *testing.
 	}{
 		{name: "docker official", image: mongod.ImageDockerHub},
 		{name: "mongodb community server", image: mongod.ImageCommunity},
+		{name: "mongodb enterprise server", image: mongod.ImageEnterprise},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -436,9 +438,17 @@ func TestIntegrationAReplicaSetWithAuthAcceptsWritesWhenStartReturns(t *testing.
 
 			assert.Equal(t, "true", evalIn(t, ctx, docker, c, "db.hello().isWritablePrimary"),
 				"the member accepts writes on the first ask, with no retry")
+			assert.Equal(t, "rs0", evalIn(t, ctx, docker, c, "db.hello().setName"), "it is a member of the set it was asked for")
+			assert.Equal(t, "1", evalIn(t, ctx, docker, c, writeThenRead), "the root user can write and read back")
+			assert.Equal(t, "Unauthorized", evalAnonymously(t, ctx, docker, c, anonymousListDatabases),
+				"a connection without credentials is refused")
 		})
 	}
 }
+
+// writeThenRead inserts a document and returns how many such documents
+// mongod finds.
+const writeThenRead = `db.getSiblingDB("probe").docs.insertOne({probe: 1}); db.getSiblingDB("probe").docs.countDocuments({probe: 1})`
 
 // machineAddress returns an address of this machine that is not loopback,
 // which is what a caller in a sibling container or on another host dials.

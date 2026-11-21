@@ -94,6 +94,14 @@
 // if it declares one. With [Options.WithReplicaSet] it also initiates the
 // set and waits until it accepts writes.
 //
+// # Many containers at once
+//
+// At most 8 containers per CPU start at once in a process, and further
+// starts wait their turn. A start holds its place until it returns, so the
+// limit caps how many containers are starting, not how many are running.
+// The wait uses up the context's deadline but not the start timeout.
+// [SetMaxConcurrentStarts] changes the limit.
+//
 // # Where to connect
 //
 // mongod is not always reachable at loopback. A start dials the first of

@@ -5,18 +5,21 @@ what to do if it affects you.
 
 ## Unreleased
 
-### Starts beyond a limit wait their turn
+### Only so many containers start at once; the rest wait their turn
 
-- **At most 8 starts per CPU now run at once in a process, and the others
-  wait for a free slot.** This covers `mongod.Start` and `mongotest.Run`.
+- **At most 8 containers per CPU now start at once in a process, and further
+  starts wait their turn.** This covers `mongod.Start` and `mongotest.Run`.
   Before, a test suite that started dozens of containers at once got
-  `ErrNotReady` from most of them. The wait counts against the context you
-  pass to the start, not against the start timeout, so a context with a
-  short deadline can now end while a start is waiting. Change the limit with
-  `mongod.SetStartLimit(n)`.
-- `NotReadyError` gains `Running`, the number of starts under way when it
-  ended. When every slot was taken, its message advises running fewer starts
-  at once, and no longer suggests correcting the address.
+  `ErrNotReady` from most of them. A start holds its place until it returns,
+  so the limit caps how many containers are starting, not how many are
+  running. Waiting uses up the deadline of the context you pass to the
+  start, but not the start timeout, so a context with a short deadline can
+  now end while a start waits. Give that context a later deadline, or raise
+  the limit. `mongod.SetMaxConcurrentStarts(n)` sets the limit to n starts
+  in all, and returns the previous one.
+- When a start runs out of time, its error says how many containers were
+  starting at once. When the limit was reached, it advises starting fewer at
+  once, and no longer suggests correcting the address.
 
 ### Tests in a container reach mongod on their own network
 
