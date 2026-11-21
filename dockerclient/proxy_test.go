@@ -2,6 +2,7 @@ package dockerclient
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,10 +40,19 @@ func FuzzProxySettings(f *testing.F) {
 		f.Add(http.MethodPost, seed)
 	}
 	f.Fuzz(func(t *testing.T, method, path string) {
-		for _, setting := range proxySettings(method, path) {
-			if setting == "" {
-				t.Fatalf("proxySettings(%q, %q) named an empty setting", method, path)
-			}
+		settings := proxySettings(method, path)
+		if len(settings) > 2 {
+			t.Fatalf("proxySettings(%q, %q) named %d settings; a request needs at most its section and POST", method, path, len(settings))
+		}
+		// A method that writes adds POST to what reading the path needs.
+		want := proxySettings(http.MethodGet, path)
+		if method != http.MethodGet && method != http.MethodHead {
+			want = append(want, "POST")
+		}
+		if !slices.Equal(settings, want) {
+			t.Fatalf("proxySettings(%q, %q) = %q, want %q: POST must be added exactly when the method is not GET or HEAD", method, path, settings, want)
+		}
+		for _, setting := range settings {
 			for _, r := range setting {
 				if (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
 					t.Fatalf("proxySettings(%q, %q) named %q, which is not a setting name", method, path, setting)

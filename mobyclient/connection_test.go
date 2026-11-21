@@ -1,6 +1,7 @@
 package mobyclient_test
 
 import (
+	"bufio"
 	"crypto/x509"
 	"errors"
 	"io/fs"
@@ -199,14 +200,54 @@ func TestAConnectionThatBreaksDuringARequestIsNotAConnectionFailure(t *testing.T
 	}
 }
 
-// A dial that fails is still a daemon that was never reached.
+// A dial that fails is still a daemon that was never reached, however it
+// failed.
 func TestAFailedDialIsStillAConnectionFailure(t *testing.T) {
-	refused := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
-	for client, c := range failingClients(t, refused) {
-		t.Run(client, func(t *testing.T) {
-			_, err := c.ImageInspect(t.Context(), "mongo:8")
+	notFound := &net.DNSError{Err: "no such host", Name: "build-host", IsNotFound: true}
+	for name, dial := range map[string]error{
+		"refused":                   os.NewSyscallError("connect", syscall.ECONNREFUSED),
+		"a name that won't resolve": notFound,
+		"timed out":                 os.ErrDeadlineExceeded,
+		"a missing socket":          os.NewSyscallError("connect", syscall.ENOENT),
+	} {
+		failed := &net.OpError{Op: "dial", Net: "tcp", Err: dial}
+		for client, c := range failingClients(t, failed) {
+			t.Run(name+"/"+client, func(t *testing.T) {
+				_, err := c.ImageInspect(t.Context(), "mongo:8")
 
-			assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a refused dial never reached the daemon")
+				assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a failed dial never reached the daemon")
+				if dial == notFound {
+					var dnsErr *net.DNSError
+					assert.ErrorAs(t, err, &dnsErr, "the name that did not resolve stays in the chain")
+				}
+			})
+		}
+	}
+}
+
+// A daemon's own error is its answer, even when its message reads like a
+// connection failure, as a pull's does when the registry cannot be reached.
+func TestADaemonErrorThatMentionsAConnectionIsTheDaemons(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			clearDockerEnv(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"message":"Get \"https://registry-1.docker.io/v2/\": dial tcp 1.2.3.4:443: connect: connection refused"}`))
+			}))
+			t.Cleanup(srv.Close)
+			t.Setenv("DOCKER_HOST", "tcp://"+srv.Listener.Addr().String())
+			t.Setenv("DOCKER_API_VERSION", "1.44")
+			c, err := build()
+			require.NoError(t, err, "a client for the daemon")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NotErrorIs(t, err, dockerclient.ErrConnectionFailed, "the daemon answered")
+			var status *dockerclient.StatusError
+			require.ErrorAs(t, err, &status, "the answer is a StatusError")
+			assert.Equal(t, http.StatusInternalServerError, status.StatusCode, "with the daemon's status")
 		})
 	}
 }
@@ -227,8 +268,8 @@ func tlsAlertServer(t *testing.T) string {
 			}
 			// Read the request first, as a TLS server reads the ClientHello:
 			// an answer that arrives before the request is written is a
-			// different failure.
-			_, _ = conn.Read(make([]byte, 4096))
+			// different failure, and unread bytes make the close a reset.
+			_, _ = http.ReadRequest(bufio.NewReader(conn))
 			// A fatal protocol_version alert, as a TLS server sends to a
 			// client that does not speak TLS.
 			_, _ = conn.Write([]byte{0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x46})
@@ -288,6 +329,8 @@ func TestARefusalByAProxyIsToldFromTheDaemons(t *testing.T) {
 		{"an HTML page", "text/html", "<html><body><h1>403 Forbidden</h1>\nRequest forbidden by administrative rules.\n</body></html>\n", true},
 		{"an empty body", "", "", true},
 		{"plain text, which mobyclient cannot tell from the daemon's message", "text/plain", "Forbidden", false},
+		{"JSON with a charset and no message", "application/json; charset=utf-8", `{"error":"forbidden"}`, true},
+		{"broken JSON", "application/json", `{nope`, true},
 		{"the daemon's own JSON", "application/json", `{"message":"authorization denied by plugin authz"}`, false},
 	}
 	for _, tc := range cases {

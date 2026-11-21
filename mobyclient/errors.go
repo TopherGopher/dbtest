@@ -2,6 +2,7 @@ package mobyclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -117,14 +118,32 @@ func refusal(method, path string, err error) *dockerclient.StatusError {
 	return e
 }
 
-// proxyMessage reports whether the moby client's message for a 403 is a
-// proxy's page or one of its own sentences for an empty body or a JSON body
-// with no message. A plain-text body cannot be told from the daemon's own
-// message, so it is not counted.
+// proxyMessage reports whether the moby client's message for a 403 came
+// from something other than the daemon, by the rule dockerapi applies to the
+// body: an HTML page, an empty body, or JSON without the daemon's message.
+// The moby client passes a body through as it is unless its Content-Type is
+// exactly application/json, and otherwise replaces an empty body, broken
+// JSON or JSON with no message with a sentence of its own. A plain-text body
+// cannot be told from the daemon's own message, so it is not counted.
 func proxyMessage(msg string) bool {
-	return strings.HasPrefix(msg, "<") ||
-		strings.HasPrefix(msg, "request returned ") ||
-		strings.HasPrefix(msg, "API returned a ")
+	if strings.HasPrefix(msg, "{") {
+		return !hasDaemonMessage(msg)
+	}
+	for _, mark := range []string{"<", "request returned ", "API returned a ", "error reading JSON"} {
+		if strings.HasPrefix(msg, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasDaemonMessage reports whether body is the daemon's JSON error, with a
+// message in it.
+func hasDaemonMessage(body string) bool {
+	var e struct {
+		Message string `json:"message"`
+	}
+	return json.Unmarshal([]byte(body), &e) == nil && e.Message != ""
 }
 
 // causeDropped reports whether err is a moby connection failure with no

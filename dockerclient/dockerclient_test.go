@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -267,10 +268,33 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 		_, err := dockerclient.ContextTLSDir()
 		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "dbtest never skips verification, and will not send plain HTTP instead")
 	})
+	t.Run("a ca.pem that cannot be read", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symbolic links need extra rights on Windows")
+		}
+		_, tlsDir := setup(t, true)
+		ca := filepath.Join(tlsDir, "ca.pem")
+		require.NoError(t, os.Remove(ca), "removing ca.pem")
+		require.NoError(t, os.Symlink(ca, ca), "making ca.pem a link to itself, which even root cannot read")
+		t.Setenv("DOCKER_CONTEXT", "remote")
+		_, err := dockerclient.ContextTLSDir()
+		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "going on without the files could send requests in the clear")
+	})
 	t.Run("a broken config.json", func(t *testing.T) {
 		configDir, _ := setup(t, true)
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing config.json")
 		_, err := dockerclient.ContextTLSDir()
 		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a configuration that cannot be read is a problem to fix, as it is for ResolveHost")
 	})
+}
+
+// Go's answer to plain HTTP on its TLS port is only recognised for a request
+// sent to a TCP address. Through a socket the same 400 is the daemon's.
+func TestGoTLSAnswerIsRecognisedOnlyOverTCP(t *testing.T) {
+	answer := &dockerclient.StatusError{StatusCode: 400, Message: "Client sent an HTTP request to an HTTPS server.", Method: "GET", Path: "/version"}
+
+	assert.ErrorIs(t, dockerclient.WrapConnectionError("tcp://build-host:2376", answer), dockerclient.ErrConnectionFailed,
+		"over TCP it means the daemon only accepts TLS")
+	assert.Same(t, answer, dockerclient.WrapConnectionError("unix:///var/run/docker.sock", answer),
+		"through a socket it is the daemon's own answer")
 }
