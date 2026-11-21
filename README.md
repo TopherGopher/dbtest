@@ -16,7 +16,7 @@ go get github.com/tophergopher/dbtest/mongotestv2  # you import go.mongodb.org/m
 Starting a new project with no driver yet? Use `mongotestv2`: driver v1 is
 in maintenance.
 
-It needs Go 1.26 or newer, and a running Docker or Podman daemon. Without a
+dbtest needs Go 1.26 or newer, and a running Docker or Podman daemon. Without a
 daemon, the test fails rather than skipping. For Podman, see the
 [Podman guide](https://tophergopher.github.io/dbtest/guides/podman/).
 
@@ -36,11 +36,11 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-With driver v2, import `github.com/tophergopher/dbtest/mongotestv2`, and
-write `mongotestv2` in place of `mongotest`; the rest of the test is the
-same. Change the `bson` import too, to `go.mongodb.org/mongo-driver/v2/bson`.
-A v1 `bson` value passed to a v2 client compiles, but is stored as the wrong
-type or refused.
+With driver v2, import `github.com/tophergopher/dbtest/mongotestv2` and
+`go.mongodb.org/mongo-driver/v2/bson`, and write `mongotestv2.Run(t)`.
+Nothing else changes. Keep the `bson` import on v2: a v1 `bson` value passed
+to a v2 client compiles, but at run time it is stored as the wrong type or
+refused.
 
 Upgrading from `github.com/tophergopher/mongotest`? It used driver v1, so
 import `github.com/tophergopher/dbtest/mongotest` instead. The names the old
@@ -57,10 +57,10 @@ a killed test run leaves containers behind, this command removes them and
 their unnamed volumes:
 
 ```shell
-docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
+docker ps -aq --filter label=mongotest=regression | xargs -r docker rm -fv
 ```
 
-The command keeps volumes you named with the `WithNamedVolume` option.
+The command keeps volumes you named with `mongod.Options.WithNamedVolume`.
 Remove those with `docker volume rm <name>`.
 
 ## Documentation

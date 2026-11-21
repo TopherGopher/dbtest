@@ -23,10 +23,10 @@ go vet ./...
 go test -race ./...                     # root module
 
 # Each of these is a separate module, which the root's ./... does not reach.
-(cd mongotest && go test -race ./...)
-(cd mongotestv2 && go test -race ./...)
-(cd mongotest/exporter && go test -race ./...)
-(cd mobyclient && go test -race ./...)
+(cd mongotest && go vet ./... && go test -race ./...)
+(cd mongotestv2 && go vet ./... && go test -race ./...)
+(cd mongotest/exporter && go vet ./... && go test -race ./...)
+(cd mobyclient && go vet ./... && go test -race ./...)
 ```
 
 Integration tests need a Docker daemon, and pull the images they use. Without
@@ -58,8 +58,8 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
   Each module other than the root has a `replace` pointing at the repository
   root, so it builds against the root's working tree. Its users get only the
   root version its `go.mod` requires, so a change that spans the root and a
-  module reaches them only once both are released, as the release steps below
-  do. Go ignores `replace` in a module that is a dependency, so the line does
+  module reaches them only once both are released. The release steps below release
+  them together. Go ignores `replace` in a module that is a dependency, so the line does
   no harm in a release.
 - **`mongotest` and `mongotestv2` keep copies of the same files:**
   `mongotest.go`, `database.go`, `errors.go` and their tests. A change to one
@@ -77,8 +77,8 @@ as `vX.Y.Z`, and the others with their directory as a prefix, such as
 
 Choose a version above the highest `vX.Y.Z` tag. That includes the old tags,
 up to v0.2.9, from when the module was `github.com/tophergopher/mongotest`.
-`go get ...@latest` never picks a lower
-version. A pushed tag cannot be taken back, because the Go module proxy keeps
+`go get ...@latest` picks the highest version, so a lower one would never
+reach users. A pushed tag cannot be taken back, because the Go module proxy keeps
 what it has fetched.
 
 1. In a pull request, point the other four modules at the new version, and
@@ -94,12 +94,12 @@ what it has fetched.
 
 2. Publish a full GitHub release, not a pre-release, with a new tag `vX.Y.Z`
    on that pull request's merge commit. The release creates the root module's
-   tag. The Release workflow (`.github/workflows/release.yml`) skips
-   pre-releases. For a full release, it then checks that the commit is on
-   `main`, that `vX.Y.Z` is the highest version tag, and that all four
-   modules require it. It tags the four
-   modules on the same commit, pushes the tags together, and asks the Go
-   module proxy for all five versions.
+   tag, and publishing it starts the Release workflow
+   (`.github/workflows/release.yml`). The workflow checks that the commit is
+   on `main`, that `vX.Y.Z` is the highest version tag, and that all four
+   modules require it. It then tags the four modules on the same commit,
+   pushes the tags together, and asks the Go module proxy for all five
+   versions. It does nothing for a pre-release.
 
 If the run fails, its log says which step failed and what to do:
 
@@ -112,11 +112,9 @@ If the run fails, its log says which step failed and what to do:
   `curl https://proxy.golang.org/github.com/tophergopher/dbtest/mongotest/@v/vX.Y.Z.info`.
 
 If the workflow cannot run, for a release whose commit predates it or with
-Actions unavailable, tag the merge commit by hand instead. Run the commands
-below. Before the push, check that their output shows that the commit is on
-`main`, that all four modules require `vX.Y.Z`, and that all five tags name
-the commit. If a GitHub release already created
-`vX.Y.Z`, leave it out of the loop and the push.
+Actions unavailable, tag the merge commit by hand instead. If a GitHub
+release already created `vX.Y.Z`, leave it out of the loop and the push.
+First check and tag:
 
 ```sh
 c=SHA-of-the-merge-commit
@@ -127,6 +125,12 @@ for t in vX.Y.Z mongotest/vX.Y.Z mongotestv2/vX.Y.Z mongotest/exporter/vX.Y.Z mo
   git tag -a "$t" -m "$t" "$c"
 done
 git tag --points-at "$c"  # exactly the five tags
+```
+
+Push only if the output shows that the commit is on `main`, that all four
+modules require `vX.Y.Z`, and that all five tags name the commit:
+
+```sh
 git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotestv2/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z
 ```
 

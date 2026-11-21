@@ -85,7 +85,8 @@ v2. If it requires neither, pick v2: driver v1 is in maintenance.
     ```
 
     Import `bson` from driver v2 as well. A v1 `bson` value passed to a v2
-    client compiles, but is stored as the wrong type or refused.
+    client compiles, but at run time it is stored as the wrong type or
+    refused.
 
 Fetch the dependencies and run the test. It needs Go 1.26 or newer and a
 running Docker or Podman daemon:
