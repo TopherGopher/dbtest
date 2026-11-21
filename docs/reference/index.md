@@ -49,7 +49,7 @@ explained, and links out for signatures.
 
 | Field or method | Explained in |
 | --- | --- |
-| The embedded `*mongo.Client`, `Container`, `DatabaseFor(tb)`, `URI()`, `Stop(ctx)` | [Starting a server](../guides/test-connection.md#what-an-instance-gives-you) |
+| The embedded `*mongo.Client`, `Container`, `DatabaseFor(t)`, `URI()`, `Stop(ctx)` | [Starting a server](../guides/test-connection.md#what-an-instance-gives-you) |
 
 ### Errors
 

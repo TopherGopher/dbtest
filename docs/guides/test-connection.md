@@ -29,9 +29,9 @@ inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("r
 
 ## Outside a test
 
-`Start` and `StartWithOptions` do the same where there is no test, such as in
-`TestMain`, where one server can serve every test in a package. The caller
-stops the instance:
+`Start` and `StartWithOptions` do the same outside a test, and the caller
+stops the instance. In `TestMain`, one server started this way can serve
+every test in the package:
 
 ```go
 var server *mongotest.Instance
@@ -47,10 +47,10 @@ func TestMain(m *testing.M) {
 }
 ```
 
-Let `TestMain` return, as here. Calling `os.Exit` would skip the deferred
-`Stop` and leave the container running.
-[A container per package](parallel-tests.md#a-container-per-package) shows the
-tests that go with it.
+`TestMain` returns rather than calling `os.Exit`, which would skip the
+deferred `Stop`.
+[A container per package](parallel-tests.md#a-container-per-package) says
+more, and shows the tests that go with it.
 
 ## A server you already run
 
@@ -67,7 +67,8 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
     own database with `DatabaseFor`, which drops it when the test ends:
 
     ```go
-    db := inst.DatabaseFor(t)
+    coll := inst.DatabaseFor(t).Collection("app")
+    // ...
     ```
 
 ## What an instance gives you
@@ -76,7 +77,7 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
 | --- | --- |
 | The embedded `*mongo.Client` | Every driver method: `inst.Database("app")`, `inst.StartSession()`, … |
 | `inst.Container` | The [`*mongod.Container`](../reference/mongod.md#the-container), for scripts, commands and the TLS configuration. It is nil for an instance from `Attach`. |
-| `inst.DatabaseFor(t)` | A database that only this test uses, dropped when the test ends. For tests that share a server. Its name is built from the test's name, in a form the server accepts. |
+| `inst.DatabaseFor(t)` | A new database that only this test uses, dropped when the test ends. Use it when tests share a server. |
 | `inst.URI()` | The connection string. It includes any password, so keep it out of logs. |
 | `inst.Stop(ctx)` | Disconnects, then removes the container. Safe to call more than once, even after a failed `Stop`. |
 

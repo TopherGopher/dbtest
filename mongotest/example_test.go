@@ -35,7 +35,7 @@ func ExampleRunWithOptions() {
 func ExampleStart() {
 	var m *testing.M // TestMain's own m
 	ctx := context.Background()
-	server, err := mongotest.Start(ctx) // kept in a package variable, for the tests
+	server, err := mongotest.Start(ctx) // a real TestMain assigns this to a package variable
 	if err != nil {
 		log.Fatal(err)
 	}

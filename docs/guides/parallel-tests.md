@@ -66,8 +66,9 @@ func TestRosterQueries(t *testing.T) {
 }
 ```
 
-`DatabaseFor` names the database after the case, in a form the server
-accepts whatever the case is called, and never gives two cases the same one.
+`DatabaseFor` builds the database's name from the case's name, with every
+character the server refuses replaced, and ends it in a random part, so no
+two cases share one.
 
 !!! note "Why cleanup order matters here"
     `Run` registered the container's removal on the outer test, so it runs
@@ -102,6 +103,10 @@ Let `TestMain` return, as here. The testing package then exits with the
 result of `m.Run`. Calling `os.Exit` yourself would skip the deferred `Stop`
 and leave the container running.
 
+A test that panics, or a run that `go test -timeout` ends, also exits without
+running the deferred `Stop`, so the container is left running.
+[The label](cleanup.md#3-the-label) finds it.
+
 ## Choosing
 
 | | Container per test | Container per table | Container per package |
@@ -109,8 +114,8 @@ and leave the container running.
 | Isolation | Complete, including server state such as indexes and server parameters | Per database. Server-wide state is shared across cases | Per database. Server-wide state is shared across the package |
 | Start-up cost | One container per test | One container per table | One container per package |
 | `t.Parallel` | Safe at every level | Safe for subtests; the container outlives them | Safe at every level; the container outlives every test |
-| A crashed `mongod` | Affects one test | Fails the whole table | Fails every test after it |
-| Good for | Integration tests of a feature | Many small query or codec cases | A package of many small tests |
+| A crashed `mongod` | Affects one test | Fails the whole table | Fails the rest of the package |
+| Good for | Integration tests of a feature | Many small query or codec cases | Many small tests that need no server state of their own |
 
 ## Running packages in parallel
 

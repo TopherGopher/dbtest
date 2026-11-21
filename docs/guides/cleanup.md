@@ -17,7 +17,7 @@ that never reaches it.
 `Stop` still removes it when the context it is given has already ended, and
 it can be called again, including after a `Stop` that failed.
 
-With `Start`, prefer `t.Cleanup` over `defer`:
+In a test that calls `Start`, prefer `t.Cleanup` over `defer`:
 
 | | `t.Cleanup` | `defer` |
 | --- | --- | --- |

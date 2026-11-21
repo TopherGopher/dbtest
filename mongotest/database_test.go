@@ -3,9 +3,8 @@ package mongotest_test
 import (
 	"context"
 	"fmt"
-	"net/url"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,11 +31,19 @@ func databaseExists(t *testing.T, client *mongo.Client, name string) bool {
 
 // recorder stands in for a test. It keeps the cleanups a helper registers and
 // the errors it reports, so that a test can end it when it chooses and see
-// what was said.
+// what was said. It answers to name, if it is given one.
 type recorder struct {
 	testing.TB
+	name     string
 	cleanups []func()
 	errors   []string
+}
+
+func (r *recorder) Name() string {
+	if r.name == "" {
+		return r.TB.Name()
+	}
+	return r.name
 }
 
 func (r *recorder) Cleanup(f func()) { r.cleanups = append(r.cleanups, f) }
@@ -72,15 +79,6 @@ func TestIntegrationDatabaseForTakesAnyTestName(t *testing.T) {
 	}
 }
 
-func TestIntegrationDatabaseForIsNamedAfterTheTest(t *testing.T) {
-	inst := mongotest.Run(t)
-
-	db := inst.DatabaseFor(t)
-
-	assert.True(t, strings.HasPrefix(db.Name(), t.Name()),
-		"the name starts with the test's, so the database can be recognised in the server's logs")
-}
-
 func TestIntegrationDatabaseForGivesEachCallItsOwn(t *testing.T) {
 	inst := mongotest.Run(t)
 
@@ -90,6 +88,29 @@ func TestIntegrationDatabaseForGivesEachCallItsOwn(t *testing.T) {
 	n, err := second.Collection("people").CountDocuments(context.Background(), bson.M{})
 	require.NoError(t, err, "the second database can be read")
 	assert.Zero(t, n, "two databases for the same test name do not share data")
+}
+
+func TestIntegrationDatabaseForKeepsApartNamesTheServerWouldConfuse(t *testing.T) {
+	inst := mongotest.Run(t)
+
+	for reason, names := range map[string][2]string{
+		"names that differ only in case": {"TestOrders/Orders", "TestOrders/orders"},
+		"names with a refused character": {"TestOrders/a.b", "TestOrders/a$b"},
+	} {
+		t.Run(reason, func(t *testing.T) {
+			// Two tests whose databases exist at the same time.
+			one, other := &recorder{TB: t, name: names[0]}, &recorder{TB: t, name: names[1]}
+			t.Cleanup(one.end)
+			t.Cleanup(other.end)
+			insertInto(t, inst.DatabaseFor(one))
+			second := inst.DatabaseFor(other)
+			insertInto(t, second)
+
+			n, err := second.Collection("people").CountDocuments(context.Background(), bson.M{})
+			require.NoError(t, err, "the second test's database can be read")
+			assert.EqualValues(t, 1, n, "the second test sees its own document and not the first's")
+		})
+	}
 }
 
 func TestIntegrationDatabaseForDropsTheDatabaseWhenTheTestEnds(t *testing.T) {
@@ -122,21 +143,23 @@ func TestIntegrationDatabaseForReportsNothingOnceTheInstanceIsStopped(t *testing
 func TestIntegrationDatabaseForReportsADropThatFails(t *testing.T) {
 	ctx := context.Background()
 	inst := mongotest.Run(t)
-	// A second client, which gives up on a missing server quickly.
-	uri, err := url.Parse(inst.URI())
-	require.NoError(t, err, "the instance's URI parses")
-	query := uri.Query()
-	query.Set("serverSelectionTimeoutMS", "500")
-	uri.RawQuery = query.Encode()
-	attached, err := mongotest.Attach(ctx, uri.String())
+	attached, err := mongotest.Attach(ctx, inst.URI())
 	require.NoError(t, err, "a second client connects to the same server")
-	t.Cleanup(func() { _ = attached.Stop(context.Background()) })
+	// Disconnecting from a server that has gone would wait for it too.
+	t.Cleanup(func() {
+		soon, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = attached.Stop(soon)
+	})
 	test := &recorder{TB: t}
 	insertInto(t, attached.DatabaseFor(test))
 
 	// The server goes away while the second client is still connected.
 	require.NoError(t, inst.Stop(ctx), "the server is removed")
+	began := time.Now()
 	test.end()
 
 	assert.Len(t, test.errors, 1, "a drop the server never answered is reported on the test")
+	assert.Less(t, time.Since(began), 25*time.Second,
+		"and gives up before the driver's half minute, which every test would otherwise wait")
 }
