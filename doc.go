@@ -1,6 +1,6 @@
 // Package dbtest is the root of a set of packages that start real databases
-// in containers for Go tests. This package has no code: import the one for
-// your database.
+// in containers for Go tests. This package has no code: import one of the
+// packages below.
 //
 //   - [github.com/tophergopher/dbtest/mongotest] starts MongoDB and gives a
 //     test a connected client of MongoDB's Go driver v1,
@@ -10,6 +10,8 @@
 //   - [github.com/tophergopher/dbtest/mongod] starts MongoDB with no driver
 //     imported, and gives its connection string.
 //   - [github.com/tophergopher/dbtest/dockerclient] is the Docker client
-//     interface, with [github.com/tophergopher/dbtest/dockerapi] and
-//     [github.com/tophergopher/dbtest/mobyclient] as its implementations.
+//     interface. Its implementations are
+//     [github.com/tophergopher/dbtest/dockerapi], the default, and
+//     [github.com/tophergopher/dbtest/mobyclient], for code that already
+//     uses Docker's Go client.
 package dbtest

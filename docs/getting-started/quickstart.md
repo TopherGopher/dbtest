@@ -13,7 +13,7 @@ back and removes the server.
 
 Pick the tab for the driver your module requires in `go.mod`:
 `go.mongodb.org/mongo-driver` is v1, and `go.mongodb.org/mongo-driver/v2` is
-v2.
+v2. If it requires neither, pick v2: driver v1 is in maintenance.
 
 === "Driver v1"
 
@@ -88,7 +88,7 @@ v2.
     client compiles, but is stored as the wrong type or refused.
 
 Fetch the dependencies and run the test. It needs Go 1.26 or newer and a
-running Docker daemon:
+running Docker or Podman daemon:
 
 === "Driver v1"
 

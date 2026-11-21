@@ -13,6 +13,9 @@ go get github.com/tophergopher/dbtest/mongotest    # you import go.mongodb.org/m
 go get github.com/tophergopher/dbtest/mongotestv2  # you import go.mongodb.org/mongo-driver/v2
 ```
 
+Starting a new project with no driver yet? Use `mongotestv2`: driver v1 is
+in maintenance.
+
 It needs Go 1.26 or newer, and a running Docker or Podman daemon. Without a
 daemon, the test fails rather than skipping. For Podman, see the
 [Podman guide](https://tophergopher.github.io/dbtest/guides/podman/).
@@ -33,17 +36,19 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-With driver v2, import `github.com/tophergopher/dbtest/mongotestv2` and the
-v2 `bson` package, `go.mongodb.org/mongo-driver/v2/bson`. The test body is
-the same, with `mongotestv2` in place of `mongotest`. A v1 `bson` value
-passed to a v2 client is stored wrongly or refused, so change both imports.
+With driver v2, import `github.com/tophergopher/dbtest/mongotestv2`, and
+write `mongotestv2` in place of `mongotest`; the rest of the test is the
+same. Change the `bson` import too, to `go.mongodb.org/mongo-driver/v2/bson`.
+A v1 `bson` value passed to a v2 client compiles, but is stored as the wrong
+type or refused.
 
-Upgrading from `github.com/tophergopher/mongotest`? Import
-`github.com/tophergopher/dbtest/mongotest` instead. Its exported names from
-v0.2.9 are removed, and
+Upgrading from `github.com/tophergopher/mongotest`? It used driver v1, so
+import `github.com/tophergopher/dbtest/mongotest` instead. The names the old
+module exported at v0.2.9 are gone, and
 [CHANGELOG.md](CHANGELOG.md#the-mongotest-package-is-rebuilt-on-the-new-mongod-package)
-lists what replaces each. If you set
-`MONGOTEST_HOST_IP`, rename it to `DBTEST_HOST_IP`: the old name is ignored.
+lists what replaces each. If you set `MONGOTEST_HOST_IP`, rename it to
+`DBTEST_HOST_IP`: the old name is ignored. `MONGOTEST_IMAGE` and
+`MONGOTEST_START_TIMEOUT` keep their names.
 
 ## Cleaning up stray containers
 
@@ -55,7 +60,8 @@ their unnamed volumes:
 docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ```
 
-A volume from `WithNamedVolume` is kept.
+The command keeps volumes you named with the `WithNamedVolume` option.
+Remove those with `docker volume rm <name>`.
 
 ## Documentation
 

@@ -6,9 +6,8 @@ status: current
 
 # Reference
 
-The authoritative API reference is generated from the source by pkg.go.dev.
-This section is a map, not a copy: it tells you what exists and where it is
-explained, and links out for signatures.
+pkg.go.dev has the full API, generated from the source. This page lists
+what exists and links to where each part is explained.
 
 <div class="grid cards" markdown>
 

@@ -53,15 +53,17 @@ container when the test ends.
 
 | Requirement | Why |
 | --- | --- |
-| **Go 1.26 or newer** | It is the oldest Go release still supported. Requiring dbtest raises your module's `go` line to 1.26 at most. |
-| **A Docker-compatible daemon** | Docker Engine, Docker Desktop or Podman. dbtest talks to the Engine API; it never shells out to the `docker` binary. |
+| **Go 1.26 or newer** | dbtest's `go.mod` says `go 1.26.0`. Adding dbtest may raise your module's `go` line, but never above that. |
+| **A Docker-compatible daemon** | Docker Engine, Docker Desktop or Podman. You do not need the `docker` CLI; dbtest talks to the daemon's API. |
 | **Network access to Docker Hub on the first run** | The `mongo` image is pulled once and cached by the daemon. Later runs need no network. |
-| **MongoDB's Go driver, v1 or v2** | Your test uses the driver's own client. `mongotest` gives a v1 client, and `mongotestv2` a v2 client. |
+| **MongoDB's Go driver: v1.17.10 or later, or v2.10.0 or later** | Your test uses the driver's own client. `mongotest` gives a v1 client, and `mongotestv2` a v2 client. |
 
 Without a daemon, `mongotest.Run` fails the test; it never skips it.
 
 !!! tip "Already running a server?"
     `mongotest.Attach(ctx, uri)` connects to a server you already run, such
-    as a CI service container, and starts nothing. Its instance has no
-    container, so scripts and commands need `Run` or `Start`. See
+    as a CI service container, and starts nothing. An attached instance has
+    no container, so it cannot run a MongoDB shell script or a command in
+    one with `Container.RunScript` or `Container.Exec`. Use `Run` or `Start`
+    for those. See
     [Starting a server](../guides/test-connection.md#a-server-you-already-run).

@@ -12,8 +12,8 @@ Nothing changes for code on driver v1.
 - **`github.com/tophergopher/dbtest/mongotestv2` gives a test a connected
   client of MongoDB's Go driver v2** (`go.mongodb.org/mongo-driver/v2`, at
   v2.10.0 or later). It has the same API as `mongotest`. It is its own
-  module, so a caller on driver v2 builds no part of driver v1. It is
-  released with the same version as the other modules.
+  module, so a caller on driver v2 builds no part of driver v1. Its version
+  always matches the other dbtest modules'.
 - **Import `bson` from driver v2 too.** A v1 `bson` value passed to a v2
   client compiles, but is stored as the wrong type or refused.
 

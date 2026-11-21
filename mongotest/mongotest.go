@@ -12,11 +12,11 @@
 //	}
 //
 // Run starts the container, connects, and removes the container when the
-// test ends. The container itself comes from the mongod package, which
-// imports no driver; this package adds the client.
+// test ends. To start a server without a driver client, use
+// [github.com/tophergopher/dbtest/mongod].
 //
-// To share one server across a package, call Start in TestMain, and
-// Instance.DatabaseFor in each test for a database of its own.
+// To share one server across a package's tests, call [Start] in TestMain,
+// and [Instance.DatabaseFor] in each test for a database of its own.
 //
 // For driver v2, go.mongodb.org/mongo-driver/v2, use
 // [github.com/tophergopher/dbtest/mongotestv2], which has the same API.
@@ -54,8 +54,8 @@ type Instance struct {
 }
 
 // Start starts a MongoDB container with the default options and connects to
-// it. Call Stop when done. In a TestMain, defer the Stop and return after
-// m.Run: os.Exit would skip it.
+// it. Call Stop when done. In TestMain, defer Stop and return after m.Run.
+// Calling os.Exit would skip the deferred Stop.
 func Start(ctx context.Context) (*Instance, error) {
 	return StartWithOptions(ctx, DefaultOptions())
 }
