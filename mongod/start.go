@@ -110,11 +110,10 @@ func PullImage(ctx context.Context, opts Options) error {
 // thing that removes a container nobody stopped:
 //
 //	func TestMain(m *testing.M) {
-//		code := m.Run()
+//		m.Run()
 //		if err := mongod.ReapRunningContainers(context.Background()); err != nil {
 //			log.Print(err)
 //		}
-//		os.Exit(code)
 //	}
 //
 // Every removal is attempted, all at the same time, even if one fails. The
