@@ -80,7 +80,7 @@ func WithLogger(l dockerclient.Logger) Option {
 // New creates a Client. Without WithHost or WithMobyClient it finds the
 // daemon as the docker CLI does: DOCKER_HOST, then the docker context, and
 // otherwise the first Docker or Podman socket that answers (see
-// dockerclient.ResolveHost). Whether the address is passed or found,
+// dockerclient.ResolveDaemon). Whether the address is passed or found,
 // DOCKER_TLS_VERIFY turns on TLS for a tcp:// daemon, and DOCKER_API_VERSION,
 // when set, pins the API version.
 //
@@ -123,7 +123,7 @@ func hostOptions(given string) (host, contextDir string, opts []client.Opt, err 
 		if daemon, err = dockerclient.ResolveDaemon(); err != nil {
 			return "", "", nil, err
 		}
-		host, contextDir = daemon.Host, daemon.TLSDir
+		host, contextDir = daemon.Host, daemon.ContextTLSDir
 	}
 	opts = []client.Opt{client.WithHost(host), client.WithAPIVersionFromEnv()}
 	switch {

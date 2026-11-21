@@ -136,10 +136,12 @@ If you check for `ErrDaemonResponse` to catch these, check for
   made with `skip-tls-verify=true`, a `tcp://` address and no TLS files is
   refused with `ErrInvalidArgument` before anything is sent, rather than
   sent plain HTTP, unless `DOCKER_TLS_VERIFY` turns TLS on.
-- **`dockerclient.ResolveDaemon` is new.** It returns the daemon's address
-  and the docker context's TLS directory together, both from the same
-  context. A client of your own that finds the daemon can call it in place
-  of `ResolveHost` to use the context's TLS files too.
+- **`dockerclient.ResolveDaemon` is new, and `ResolveHost` is deprecated.**
+  `ResolveDaemon` returns the daemon's address and the docker context's TLS
+  directory together, from the same configuration. When the directory is
+  empty, take TLS settings from `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`.
+  If you implement `dockerclient.Client` yourself, call it in place of
+  `ResolveHost` so that your client uses the context's TLS files too.
 
 If you set `DOCKER_CERT_PATH` to files other than the context's, the
 context's files are now used: fix the context, or set `DOCKER_HOST` so that

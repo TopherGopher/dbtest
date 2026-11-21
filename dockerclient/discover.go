@@ -49,45 +49,50 @@ func realLookup() lookup {
 	return lookup{goos: runtime.GOOS, getenv: os.Getenv, dialable: socketDialable, glob: globPaths, uid: os.Getuid()}
 }
 
-// ResolveHost returns the address of the Docker daemon, in DOCKER_HOST
-// form, such as unix:///var/run/docker.sock. Like the docker CLI, it uses
-// DOCKER_HOST if set. Otherwise it uses the docker context named by
-// DOCKER_CONTEXT, or by currentContext in the Docker config file, unless
-// that context is "default". It returns an InvalidArgumentError when the
-// config file or that context cannot be read.
+// ResolveHost returns the address ResolveDaemon finds, without looking for
+// the docker context's TLS files. It returns an InvalidArgumentError only
+// when the config file or the context cannot be read.
 //
-// When neither names a daemon, it returns the first of these with a daemon
-// answering:
-// rootless Docker's socket under XDG_RUNTIME_DIR, /var/run/docker.sock,
-// rootless Podman's socket, /run/podman/podman.sock, and on macOS a podman
-// machine's socket. When none answers it returns /var/run/docker.sock, so
-// the failure comes when a client connects, as a connection error naming
-// that socket. On Windows it skips the search and returns Docker's named
-// pipe, as the docker CLI does. A client that uses this address should also
-// use the context's TLS files: ResolveDaemon finds both.
+// Deprecated: use ResolveDaemon, which also finds the docker context's TLS files.
 func ResolveHost() (string, error) {
 	return resolveHostWith(realLookup(), configDir(os.Getenv))
 }
 
-// Daemon is the Docker daemon discovery found.
+// Daemon is where ResolveDaemon found the Docker daemon, and the TLS files
+// to reach it with.
 type Daemon struct {
-	// Host is the daemon's address, in DOCKER_HOST form.
+	// Host is the daemon's address, in DOCKER_HOST form, such as
+	// unix:///var/run/docker.sock.
 	Host string
-	// TLSDir is the directory of the docker context's TLS files: ca.pem,
-	// and cert.pem and key.pem if the daemon wants a client certificate. It
-	// is "" when no context is used or the context has no TLS files.
-	TLSDir string
+	// ContextTLSDir is the directory of the docker context's TLS files:
+	// those of ca.pem, cert.pem and key.pem that exist. It is "" when
+	// DOCKER_HOST is set, the context is "default", or the context has no
+	// TLS files. Then take TLS settings from DOCKER_TLS_VERIFY and
+	// DOCKER_CERT_PATH, as the docker CLI does.
+	ContextTLSDir string
 }
 
-// ResolveDaemon finds the daemon's address as ResolveHost does, and the TLS
-// files of the docker context it came from. Both come from one reading of
-// the configuration, so they belong to the same context. Use the files in
-// place of DOCKER_TLS_VERIFY and DOCKER_CERT_PATH, as the docker CLI does.
+// ResolveDaemon finds the Docker daemon as the docker CLI does, and the TLS
+// files of the docker context it was found through. Both come from one
+// reading of the configuration. When ContextTLSDir is not empty, use its
+// files in preference to DOCKER_TLS_VERIFY and DOCKER_CERT_PATH, as the
+// docker CLI does.
 //
-// It returns an InvalidArgumentError when ResolveHost would, when the TLS
-// files cannot be read, or when a tcp:// context sets SkipTLSVerify, has no
-// TLS files and DOCKER_TLS_VERIFY is unset: the docker CLI would reach that
-// daemon over TLS without verifying it, and dbtest's clients always verify.
+// It uses DOCKER_HOST if set. Otherwise it uses the docker context named by
+// DOCKER_CONTEXT, or by currentContext in the Docker config file, unless
+// that context is "default". When neither names a daemon, it uses the first
+// of these with a daemon answering: rootless Docker's socket under
+// XDG_RUNTIME_DIR, /var/run/docker.sock, rootless Podman's socket,
+// /run/podman/podman.sock, and on macOS a podman machine's socket. When none
+// answers it uses /var/run/docker.sock, so the failure comes when a client
+// connects, as a connection error naming that socket. On Windows it skips
+// the search and uses Docker's named pipe, as the docker CLI does.
+//
+// It returns an InvalidArgumentError when the config file, the context or
+// the context's TLS files cannot be read. It also refuses a tcp:// context
+// that sets SkipTLSVerify and has no TLS files, unless DOCKER_TLS_VERIFY is
+// set. dbtest's clients never skip verification, and would otherwise reach
+// that daemon without TLS.
 func ResolveDaemon() (Daemon, error) {
 	return resolveDaemonWith(realLookup(), configDir(os.Getenv))
 }
@@ -136,7 +141,7 @@ func resolveDaemonWith(l lookup, configDir string) (Daemon, error) {
 	if err != nil {
 		return Daemon{}, err
 	}
-	return Daemon{Host: f.host, TLSDir: dir}, nil
+	return Daemon{Host: f.host, ContextTLSDir: dir}, nil
 }
 
 // found is where discovery found the daemon.

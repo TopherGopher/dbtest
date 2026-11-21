@@ -20,7 +20,7 @@
 //
 // New with no options finds the daemon as the docker CLI does: DOCKER_HOST,
 // then the docker context, then the Docker and Podman sockets (see
-// dockerclient.ResolveHost). FromEnv is the same as New(); use New().
+// dockerclient.ResolveDaemon). FromEnv is the same as New(); use New().
 // dockerapi finds the same daemon, except on Windows, where it cannot open
 // Docker's named pipe and looks for another endpoint.
 //

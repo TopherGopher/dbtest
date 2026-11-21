@@ -104,7 +104,7 @@ func New(opts ...Option) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		c.host, contextTLSDir = daemon.Host, daemon.TLSDir
+		c.host, contextTLSDir = daemon.Host, daemon.ContextTLSDir
 	}
 	ep, err := parseHost(c.host)
 	if err != nil {

@@ -242,7 +242,7 @@ func TestResolveDaemonFindsTheChosenContextsFiles(t *testing.T) {
 		t.Setenv("DOCKER_CONTEXT", "remote")
 		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", TLSDir: want}, daemon,
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", ContextTLSDir: want}, daemon,
 			"the context's address and TLS directory are found together")
 	})
 	t.Run("the current context in config.json", func(t *testing.T) {
@@ -250,7 +250,7 @@ func TestResolveDaemonFindsTheChosenContextsFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"currentContext":"remote"}`), 0o644), "writing config.json")
 		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", TLSDir: want}, daemon,
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", ContextTLSDir: want}, daemon,
 			"the current context's address and TLS directory are found together")
 	})
 	t.Run("a context with no TLS files", func(t *testing.T) {
@@ -293,7 +293,7 @@ func TestResolveDaemonFindsTheChosenContextsFiles(t *testing.T) {
 		configDir, _ := setup(t, true)
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing config.json")
 		_, err := dockerclient.ResolveDaemon()
-		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a configuration that cannot be read is a problem to fix, as it is for ResolveHost")
+		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a configuration that cannot be read is a problem to fix")
 	})
 }
 

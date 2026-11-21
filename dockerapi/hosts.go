@@ -16,15 +16,17 @@ var resolveDaemon = dockerclient.ResolveDaemon
 
 // discover finds the daemon as dockerclient.ResolveDaemon does. This client
 // cannot open a named pipe, so in place of Docker's default one it finds an
-// endpoint it can dial, or returns ErrNoWindowsEndpoint. A pipe the caller
-// chose is kept, so that parsing it says it cannot be used.
+// endpoint it can dial, or returns ErrNoWindowsEndpoint. That endpoint is
+// not the context's, so the context's TLS files are not used for it. A pipe
+// the caller chose is kept, so that New reports that this client cannot use
+// it.
 func discover() (dockerclient.Daemon, error) {
 	daemon, err := resolveDaemon()
 	if err != nil || daemon.Host != dockerDefaultPipe {
 		return daemon, err
 	}
-	daemon.Host, err = windowsFallback(probeWindows())
-	return daemon, err
+	host, err := windowsFallback(probeWindows())
+	return dockerclient.Daemon{Host: host}, err
 }
 
 // dockerDefaultPipe is the Docker daemon's default address on Windows.

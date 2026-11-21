@@ -88,10 +88,19 @@ func TestOnlyANamedPipeIsReplaced(t *testing.T) {
 			dialable: func(string) bool { return false }, glob: func(string) []string { return nil }}
 	}
 	resolveDaemon = func() (dockerclient.Daemon, error) {
-		return dockerclient.Daemon{Host: "npipe:////./pipe/docker_engine"}, nil
+		return dockerclient.Daemon{Host: "npipe:////./pipe/docker_engine", ContextTLSDir: "/ctx/tls"}, nil
 	}
 	_, err = discover()
 	assert.ErrorIs(t, err, ErrConnectionFailed, "a named pipe is replaced by an endpoint this client can dial, or an error saying so")
+
+	probeWindows = func() windowsProbe {
+		return windowsProbe{getenv: env(nil), listening: func(addr string) bool { return addr == dockerDesktopTCP },
+			dialable: func(string) bool { return false }, glob: func(string) []string { return nil }}
+	}
+	got, err = discover()
+	require.NoError(t, err, "Docker Desktop's TCP endpoint answers")
+	assert.Equal(t, dockerclient.Daemon{Host: "tcp://" + dockerDesktopTCP}, got,
+		"the context's TLS files belong to the pipe, so they are not used for the endpoint that replaces it")
 }
 
 // A pipe the caller chose, such as Podman's, is not swapped for whatever
