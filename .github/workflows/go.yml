@@ -89,6 +89,33 @@ jobs:
       run: |
         go vet -v ./...
         go build -v ./...
+  # Proves a start reaches mongod in each setup CI commonly runs tests in,
+  # which the test job, running on the daemon's own machine, cannot. Each
+  # setup is set up by .github/reach-setups.sh, which also runs it by hand.
+  reach:
+    name: Reach mongod (${{ matrix.setup }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        setup: [sibling, host-network, dind, tcp]
+    steps:
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # No later step pushes, so the token is not left in the git config.
+        persist-credentials: false
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+    # dind runs a privileged docker:dind container. sibling, host-network
+    # and tcp give a container the runner's Docker socket.
+    - name: Start mongod in this setup and talk to it
+      env:
+        SETUP: ${{ matrix.setup }}
+      run: .github/reach-setups.sh "$SETUP"
+
   test:
     name: Test (Go ${{ matrix.go || 'pinned in go.mod' }})
     runs-on: ubuntu-latest
