@@ -44,7 +44,7 @@ The two packages export the same names. Only the driver behind them differs.
 | `Run(tb)`, `RunWithOptions(tb, opts)` | [Starting a server](../guides/test-connection.md#in-a-test) |
 | `Start(ctx)`, `StartWithOptions(ctx, opts)` | [Starting a server](../guides/test-connection.md#outside-a-test) |
 | `Attach(ctx, uri)` | [Starting a server](../guides/test-connection.md#a-server-you-already-run) |
-| `Options` (`mongod.Options`), `DefaultOptions()` | [The mongod package](mongod.md#options) |
+| `Options`, an alias of `mongod.Options`; `DefaultOptions()` | [The mongod package](mongod.md#options) |
 
 ### `Instance`
 

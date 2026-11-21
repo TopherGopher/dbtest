@@ -18,7 +18,7 @@ jobs:
     - name: Check out code into the Go module directory
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # No later step pushes, so the token is not left in the git config.
+        # No later step pushes, so the token need not stay in the git config.
         persist-credentials: false
 
     # After the checkout: it reads the Go version from go.mod.
@@ -68,6 +68,7 @@ jobs:
     # versions that module's users get. A go.work would resolve every
     # module's dependencies together, so the root could be tested against
     # newer versions another module requires.
+    #
     # mongotest is its own module, so that only its callers download
     # MongoDB's Go driver.
     - name: Vet and build mongotest
@@ -103,9 +104,12 @@ jobs:
       run: |
         go vet -v ./...
         go build -v ./...
-  # Proves a start reaches mongod in each setup CI commonly runs tests in,
-  # which the test job, running on the daemon's own machine, cannot. Each
-  # setup is set up by .github/reach-setups.sh, which also runs it by hand.
+
+  # Checks that a start reaches mongod in each setup CI commonly runs tests
+  # in: sibling containers, the host network, Docker-in-Docker and a daemon
+  # over TCP. The test job runs on the daemon's own machine, so it cannot
+  # check these. .github/reach-setups.sh prepares each setup. Run it by hand
+  # with a setup's name to reproduce a failure.
   reach:
     name: Reach mongod (${{ matrix.setup }})
     runs-on: ubuntu-latest
@@ -117,7 +121,7 @@ jobs:
     - name: Check out code into the Go module directory
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # No later step pushes, so the token is not left in the git config.
+        # No later step pushes, so the token need not stay in the git config.
         persist-credentials: false
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -136,16 +140,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Empty uses the release go.mod pins. 1.26.x is the oldest release
-        # the Go team still supports, which every module's go line allows.
-        # setup-go stops the go command fetching a newer one, so if a module
-        # starts to need one, this leg fails before its users find out.
+        # An empty value uses the release go.mod pins. 1.26.x is the oldest
+        # release the Go team still supports, which every module's go line
+        # allows. setup-go stops the go command from downloading a newer
+        # release, so if a module comes to need one, this leg fails before
+        # its users find out.
         go: ['', '1.26.x']
     steps:
     - name: Check out code into the Go module directory
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # No later step pushes, so the token is not left in the git config.
+        # No later step pushes, so the token need not stay in the git config.
         persist-credentials: false
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -158,10 +163,11 @@ jobs:
     - name: Get dependencies
       run: go mod download
 
-    # The reaper's tests start two helper programs, reaphelper and
-    # ignorehelper, and go test does not count coverage in programs the tests
-    # start. Setting DBTEST_HELPER_COVERDIR makes the tests build the
-    # helpers with coverage and write it to that directory.
+    # The tests of the reaper, which removes containers when a test run is
+    # interrupted, start two helper programs, reaphelper and ignorehelper,
+    # and go test does not count coverage in programs the tests start. Setting
+    # DBTEST_HELPER_COVERDIR makes the tests build the helpers with coverage
+    # and write it to that directory.
     - name: Test package
       env:
         DBTEST_HELPER_COVERDIR: ${{ runner.temp }}/helper-coverage
@@ -171,8 +177,8 @@ jobs:
 
     # Adds the helpers' coverage to coverage.out. The counts for each code
     # block are summed, so code that only a helper runs is reported as
-    # covered. Only blocks already in coverage.out are added to, so the merge
-    # never adds code the tests' own profile does not count. The first line
+    # covered. Blocks that are not in coverage.out are dropped, so the merge
+    # reports no code the tests' own profile leaves out. The first line
     # of each file is its coverage mode, and the two must match for the
     # counts to add up.
     - name: Add the helper programs' coverage
@@ -196,8 +202,8 @@ jobs:
       working-directory: ./mongotestv2
       run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
-    # Separate module, so it needs its own invocation. Its conformance and
-    # benchmark suites are the same ones dockerapi runs.
+    # mobyclient's conformance and benchmark suites are the same ones
+    # dockerapi runs.
     - name: Test mobyclient
       working-directory: ./mobyclient
       run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
@@ -206,10 +212,9 @@ jobs:
       working-directory: ./mongotest/exporter
       run: go test -v -race -shuffle=on -timeout=30m -covermode atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
-    # The total for each module, on the run's summary page. go tool cover runs
-    # inside each module, because only that module's go.mod resolves its
-    # packages.
-    # Coverage is reported once, from the Go that go.mod gives.
+    # Writes each module's total to the run's summary page, once, from the
+    # leg that uses the Go that go.mod pins. go tool cover runs inside each
+    # module, because only that module's go.mod resolves its packages.
     - name: Write the coverage summary
       if: matrix.go == ''
       run: |
@@ -233,5 +238,6 @@ jobs:
         # sent as one report.
         files: coverage.out mongotest/coverage.out mongotestv2/coverage.out mongotest/exporter/coverage.out mobyclient/coverage.out
         format: golang
-        # The reporter this action downloads; without it, the newest one.
+        # Pins the reporter this action downloads. Without it, the action
+        # downloads the newest.
         coverage-reporter-version: v0.6.22

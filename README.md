@@ -9,8 +9,8 @@ hands the test a connected client of the official MongoDB Go driver, and
 removes the container when the test ends.
 
 ```sh
-go get github.com/tophergopher/dbtest/mongotest    # driver v1
-go get github.com/tophergopher/dbtest/mongotestv2  # driver v2
+go get github.com/tophergopher/dbtest/mongotest    # you import go.mongodb.org/mongo-driver
+go get github.com/tophergopher/dbtest/mongotestv2  # you import go.mongodb.org/mongo-driver/v2
 ```
 
 It needs Go 1.26 or newer, and a running Docker or Podman daemon. Without a
@@ -18,6 +18,14 @@ daemon, the test fails rather than skipping. For Podman, see the
 [Podman guide](https://tophergopher.github.io/dbtest/guides/podman/).
 
 ```go
+import (
+    "testing"
+
+    "github.com/stretchr/testify/require"
+    "github.com/tophergopher/dbtest/mongotest"
+    "go.mongodb.org/mongo-driver/bson"
+)
+
 func TestOrders(t *testing.T) {
     orders := mongotest.Run(t).Database("shop").Collection("orders")
     _, err := orders.InsertOne(t.Context(), bson.M{"item": "book"})
@@ -25,25 +33,29 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-With driver v2, the test is the same with `mongotestv2` in place of
-`mongotest`.
+With driver v2, import `github.com/tophergopher/dbtest/mongotestv2` and the
+v2 `bson` package, `go.mongodb.org/mongo-driver/v2/bson`. The test body is
+the same, with `mongotestv2` in place of `mongotest`. A v1 `bson` value
+passed to a v2 client is stored wrongly or refused, so change both imports.
 
 Upgrading from `github.com/tophergopher/mongotest`? Import
 `github.com/tophergopher/dbtest/mongotest` instead. Its exported names from
 v0.2.9 are removed, and
 [CHANGELOG.md](CHANGELOG.md#the-mongotest-package-is-rebuilt-on-the-new-mongod-package)
 lists what replaces each. If you set
-`MONGOTEST_HOST_IP`, rename it `DBTEST_HOST_IP`: the old name is ignored.
+`MONGOTEST_HOST_IP`, rename it to `DBTEST_HOST_IP`: the old name is ignored.
 
 ## Cleaning up stray containers
 
 Every container dbtest starts carries the label `mongotest=regression`. If
 a killed test run leaves containers behind, this command removes them and
-their volumes:
+their unnamed volumes:
 
 ```shell
 docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 ```
+
+A volume from `WithNamedVolume` is kept.
 
 ## Documentation
 

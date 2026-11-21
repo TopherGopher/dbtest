@@ -8,16 +8,17 @@ status: current
 
 ## Add the module
 
-Most tests need only `mongotest`, which gives a test a connected client of
-MongoDB's Go driver v1, or `mongotestv2`, which gives the same for driver v2:
+Most tests need one module: `mongotest` for MongoDB's Go driver v1, or
+`mongotestv2` for driver v2. Choose by the driver your `go.mod` requires. If
+it requires `go.mongodb.org/mongo-driver`, use `mongotest`. If it requires
+`go.mongodb.org/mongo-driver/v2`, use `mongotestv2`.
 
 ```sh
-go get github.com/tophergopher/dbtest/mongotest    # driver v1
-go get github.com/tophergopher/dbtest/mongotestv2  # driver v2
+go get github.com/tophergopher/dbtest/mongotest    # you import go.mongodb.org/mongo-driver
+go get github.com/tophergopher/dbtest/mongotestv2  # you import go.mongodb.org/mongo-driver/v2
 ```
 
-The other modules are for particular needs, so that you download only what you
-use:
+Each module is separate, so you download only what you use:
 
 | Module | Use it for |
 | --- | --- |
@@ -25,7 +26,7 @@ use:
 | `github.com/tophergopher/dbtest/mongotestv2` | Tests that use MongoDB's Go driver, v2. It has the same API as `mongotest`: `mongotestv2.Run(t)` returns a connected v2 client. |
 | `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) package, which starts MongoDB without importing a driver, and the Docker client packages. `mongotest` and `mongotestv2` require it, so you rarely add it yourself. |
 | `github.com/tophergopher/dbtest/mobyclient` | Code that already uses Docker's Go client, moby, and wants dbtest to share it. See [`mobyclient`](../docker-clients/mobyclient.md). |
-| `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. See [Exporting data](../guides/exporting-data.md). |
+| `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. It takes a connection string, so it works with either driver. See [Exporting data](../guides/exporting-data.md). |
 
 ## Check the daemon
 
@@ -88,8 +89,8 @@ Windows; see the Docker Desktop tab.
 
 The first start on a machine pulls the image. To keep that download out of
 the tests, call `mongod.PullImage` in `TestMain`. It pulls the image a start
-would run, `MONGOTEST_IMAGE` included, and leaves one the daemon already has
-alone; see [Which image](../reference/mongod.md#which-image).
+would run, including one set by `MONGOTEST_IMAGE`, and does nothing if the
+daemon already has it; see [Which image](../reference/mongod.md#which-image).
 
 ## Check the installation
 
@@ -112,5 +113,4 @@ Run the [quickstart](quickstart.md) test.
     The error names the step that failed and matches a `mongod` sentinel,
     such as `mongod.ErrNotReady` or `mongod.ErrContainerExited`, and says
     what to do. When the container exits, the error ends with what `mongod`
-    wrote last, which usually says why. If it shows nothing, run the image by
-    hand with the same flags.
+    wrote last, which usually says why.

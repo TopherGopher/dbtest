@@ -53,10 +53,10 @@ container when the test ends.
 
 | Requirement | Why |
 | --- | --- |
-| **Go 1.26 or newer** | It is the oldest Go release still supported, so requiring dbtest raises your module's `go` line no further. |
+| **Go 1.26 or newer** | It is the oldest Go release still supported. Requiring dbtest raises your module's `go` line to 1.26 at most. |
 | **A Docker-compatible daemon** | Docker Engine, Docker Desktop or Podman. dbtest talks to the Engine API; it never shells out to the `docker` binary. |
 | **Network access to Docker Hub on the first run** | The `mongo` image is pulled once and cached by the daemon. Later runs need no network. |
-| **mongo-driver v1 or v2** | An instance from `mongotest` embeds the driver's v1 `*mongo.Client`, and one from `mongotestv2` the v2 client. The two packages have the same API. |
+| **MongoDB's Go driver, v1 or v2** | Your test uses the driver's own client. `mongotest` gives a v1 client, and `mongotestv2` a v2 client. |
 
 Without a daemon, `mongotest.Run` fails the test; it never skips it.
 
