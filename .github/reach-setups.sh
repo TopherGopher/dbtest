@@ -103,13 +103,20 @@ dind)
 	;;
 tcp)
 	# The daemon listens only on its socket, so a forwarder serves it on the
-	# docker0 address. It accepts connections only from that address, which
-	# is the one this machine's own processes connect from. A container
-	# connects from its own address, so it is refused.
+	# docker0 address, which only this machine and its containers can reach.
 	gateway=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+	# A connection from this machine to that address leaves through lo with
+	# a docker0 source, so Docker's masquerade rule for the bridge rewrites
+	# its source to this machine's first address. The forwarder accepts only
+	# that source; a container connects from its own address and is refused.
+	host_source=$(hostname -I | tr ' ' '\n' | grep -m 1 -E '^[0-9]+(\.[0-9]+){3}$' || true)
+	if [ -z "$host_source" ]; then
+		echo "$0: cannot find this machine's IPv4 address with hostname -I" >&2
+		exit 1
+	fi
 	docker run -d --rm --name "dbtest-dockertcp-$$" --network host \
 		-v /var/run/docker.sock:/var/run/docker.sock \
-		"$socat_image" -d -d "tcp-listen:2375,bind=$gateway,range=$gateway/32,fork,reuseaddr" \
+		"$socat_image" -d -d "tcp-listen:2375,bind=$gateway,range=$host_source/32,fork,reuseaddr" \
 		unix-connect:/var/run/docker.sock >/dev/null
 	wait_for docker --host "tcp://$gateway:2375" info || give_up "dbtest-dockertcp-$$"
 	DOCKER_HOST="tcp://$gateway:2375" DBTEST_REACH_SETUP=tcp "$work/reach.test" -test.run '^TestIntegrationReach$' -test.v
