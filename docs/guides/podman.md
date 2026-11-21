@@ -74,8 +74,7 @@ Rootless Podman forwards published ports with pasta, its user-mode network
 tool. pasta can deliver a published port to a program that listens only on
 the container's 127.0.0.1, which Docker never does. It does so when:
 
-- pasta is older than release 2024_10_30 (`pasta --version` shows the
-  release), or
+- pasta is a release from before 30 October 2024, or
 - `pasta_options` in `containers.conf` includes `--host-lo-to-ns-lo`.
 
 So a test that passes `WithMongodArgs("--bind_ip", "127.0.0.1")` can pass on
@@ -88,6 +87,26 @@ once. While an image creates its root user, it runs a temporary mongod on the
 container's 127.0.0.1 with no authentication, and pasta can let dbtest reach
 it. dbtest cannot tell that mongod from the final one, so it keeps trying
 until the timeout.
+
+### Checking your setup
+
+To see which pasta Podman runs:
+
+```sh
+podman info --format '{{.Host.Pasta.Version}}'
+```
+
+The version holds the release date: `2024_10_30` from the pasta project,
+`0^20241030` in Fedora's package. Where it says `unknown version`, ask the
+package manager instead, such as `dpkg -s passt` or `rpm -q passt`.
+
+The option is set in `~/.config/containers/containers.conf`, or in
+`/etc/containers/containers.conf` for every user:
+
+```toml
+[network]
+pasta_options = ["--host-lo-to-ns-lo"]
+```
 
 ## Troubleshooting
 
