@@ -53,7 +53,7 @@ func liveClient(t testing.TB) (*Client, context.Context) {
 }
 
 // waitForPort blocks until something accepts TCP connections on 127.0.0.1:port.
-func waitForPort(t testing.TB, port string, timeout time.Duration) {
+func waitForPort(t checker, port string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
@@ -212,7 +212,7 @@ func TestIntegrationParallelContainers(t *testing.T) {
 		require.NoError(t, c.ImagePull(ctx, img), "pulling %s before the parallel runs", img)
 	}
 
-	run := func(t testing.TB, tag string) {
+	run := func(t checker, tag string) {
 		t.Helper()
 		cfg := ContainerConfig{
 			Image:        img,
@@ -257,17 +257,8 @@ func TestIntegrationParallelContainers(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				ft := &fanoutT{}
-				func() {
-					defer func() {
-						if r := recover(); r != nil && r != errFanoutFatal {
-							panic(r)
-						}
-					}()
-					run(ft, "go-"+strconv.Itoa(i))
-				}()
-				if ft.err != nil {
-					errs <- ft.err
+				if err := fanout(func(t checker) { run(t, "go-"+strconv.Itoa(i)) }); err != nil {
+					errs <- err
 				}
 			}(i)
 		}
@@ -284,22 +275,54 @@ func TestIntegrationParallelContainers(t *testing.T) {
 	}
 }
 
+// checker is what run and waitForPort need of a test: what testify needs,
+// and Helper. Both *testing.T and fanoutT satisfy it.
+type checker interface {
+	require.TestingT
+	Helper()
+}
+
 // fanoutT lets run() be driven from a goroutine: testing.T must not be used
 // from goroutines that outlive the test's Fatal, so failures are captured
-// and reported from the parent instead.
+// and reported from the parent instead. It embeds nothing, so a method it
+// lacks is a compile error, not a nil pointer panic.
 type fanoutT struct {
-	testing.TB
 	err error
 }
 
 var errFanoutFatal = errors.New("fanout fatal")
 
-func (f *fanoutT) Helper()        {}
-func (f *fanoutT) Cleanup(func()) {}
+// fanout runs check with a fanoutT and returns the first failure it records.
+func fanout(check func(t checker)) (err error) {
+	ft := &fanoutT{}
+	defer func() {
+		// FailNow ends check by panicking with errFanoutFatal. Any other
+		// panic is a real one.
+		if r := recover(); r != nil && r != errFanoutFatal {
+			panic(r)
+		}
+		err = ft.err
+	}()
+	check(ft)
+	return nil // the deferred function sets err
+}
+
+func (f *fanoutT) Helper() {}
 func (f *fanoutT) Errorf(format string, args ...any) {
 	if f.err == nil {
 		f.err = fmt.Errorf(format, args...)
 	}
 }
-func (f *fanoutT) FailNow()            { panic(errFanoutFatal) }
-func (f *fanoutT) Logf(string, ...any) {}
+func (f *fanoutT) FailNow() { panic(errFanoutFatal) }
+
+// A check that fails in one of the goroutines above is reported with its own
+// message. It must not panic, which would stop every test in the package and
+// leave the other goroutines' containers running.
+func TestFanoutRecordsAFailedCheck(t *testing.T) {
+	var err error
+	require.NotPanics(t, func() {
+		err = fanout(func(t checker) { require.NoError(t, errors.New("boom"), "creating the container") })
+	}, "a failed check is recorded, not raised")
+	require.Error(t, err, "the failure is reported to the test")
+	assert.Contains(t, err.Error(), "creating the container", "with the check's own message")
+}
