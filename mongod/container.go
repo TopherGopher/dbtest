@@ -18,6 +18,7 @@ type Container struct {
 	image      MongoImage
 	ref        string // the reference the container was created from, set before Start returns
 	replicaSet string
+	volume     string
 	username   string
 	password   string
 	host       string
@@ -69,6 +70,13 @@ func (c *Container) MongoImage() MongoImage { return c.image }
 // Atlas Local names its own replica set, so ReplicaSet returns "" for it
 // too. See [MongoImage.ReplicaSetPreconfigured].
 func (c *Container) ReplicaSet() string { return c.replicaSet }
+
+// Volume returns the name of the volume that keeps the data, given to
+// WithNamedVolume or made by WithDurableStorage, or "" when Stop removes the
+// data with the container.
+//
+//	mongotest-data-3f1a9c4b7e2d
+func (c *Container) Volume() string { return c.volume }
 
 // Username returns mongod's root user, or "" if it does not authenticate.
 //

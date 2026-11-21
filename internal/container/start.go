@@ -56,6 +56,10 @@ type Spec struct {
 	// timeout, for example to initiate a replica set. Its error is returned
 	// as BeforeStart's is.
 	AfterReady func(ctx context.Context) error
+	// BeforeRemove runs before Stop or the reaper removes the container,
+	// for example to have the server write what it holds to a volume that
+	// outlives the container. It is not run for a start that failed.
+	BeforeRemove func(ctx context.Context)
 	// Advice returns the sentence a NotReadyError ends with when the start
 	// timeout passed, or "" for none. It is given the last failure the start
 	// saw, and whether other starts and this one filled the limit on starts
@@ -78,6 +82,7 @@ type Endpoint struct {
 // over.
 func (c *Container) Start(ctx context.Context, spec Spec) (Endpoint, error) {
 	s := &start{c: c, spec: spec, ref: spec.Request.Image, host: spec.Host}
+	c.setBeforeRemove(spec.BeforeRemove)
 	slots, release, err := takeSlot(ctx)
 	s.slots = slots
 	if err != nil {

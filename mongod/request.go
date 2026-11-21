@@ -21,9 +21,19 @@ func (c config) containerConfig(r reach) dockerclient.ContainerConfig {
 	}
 }
 
-// hostConfig puts the container on the shared network, or publishes its
-// port on the interface that the address to dial needs.
+// hostConfig says how the container is reached, and mounts the volume that
+// keeps the data, if there is one.
 func (c config) hostConfig(r reach) *dockerclient.HostConfig {
+	hc := c.reachConfig(r)
+	if c.volume != "" {
+		hc.Binds = []string{c.volume + ":" + dataDir}
+	}
+	return hc
+}
+
+// reachConfig puts the container on the shared network, or publishes its
+// port on the interface that the address to dial needs.
+func (c config) reachConfig(r reach) *dockerclient.HostConfig {
 	if r.shared() {
 		return &dockerclient.HostConfig{NetworkMode: r.network}
 	}
@@ -89,6 +99,16 @@ func (c config) withCredentialsIfExposed(r reach) config {
 	}
 	c.username, c.password = DefaultUsername, randomHex(secretRandomBytes)
 	return c
+}
+
+// checkVolumeCredentials refuses a volume where credentials would be
+// generated: the volume keeps the first start's password, and the next
+// start would generate another.
+func (c config) checkVolumeCredentials(r reach) error {
+	if c.volume != "" && c.needsGeneratedCredentials(r) {
+		return ErrVolumeNeedsCredentials
+	}
+	return nil
 }
 
 // announceExposure logs that more than this process will be able to reach

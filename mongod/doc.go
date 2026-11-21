@@ -140,7 +140,10 @@
 // removes this process's containers on demand: call it after m.Run in
 // TestMain. SIGKILL cannot be handled, so its containers are left running.
 // Each container carries the label [RequiredLabelKey]=[RequiredLabelValue],
-// so it can be found and removed with its volumes:
+// so it can be found and removed with its anonymous volumes:
 //
 //	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
+//
+// A volume from [Options.WithNamedVolume] or [Options.WithDurableStorage]
+// holds data the caller asked to keep, so none of these removes it.
 package mongod

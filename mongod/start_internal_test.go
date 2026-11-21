@@ -20,6 +20,7 @@ func TestTheReadyLineExplainsAHiddenPasswordOnlyWhenThereIsOne(t *testing.T) {
 
 func TestTheShellLogsInOnlyWhenTheContainerHasCredentials(t *testing.T) {
 	open, authenticated := &Container{}, &Container{username: "admin", password: "s3cret"}
+	initiateScript := initiateScript("rs0")
 
 	script := func(c *Container) string {
 		command := c.shellCommand("mongosh", initiateScript)

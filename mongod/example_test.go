@@ -367,3 +367,40 @@ func ExampleOptions_WithTLS() {
 	fmt.Println("trusted:", conn.ConnectionState().HandshakeComplete)
 	// Output: trusted: true
 }
+
+// A later start with the same name finds the data this one writes. Stop
+// keeps the volume; docker volume rm cart-tests removes it.
+func ExampleOptions_WithNamedVolume() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithNamedVolume("cart-tests"))
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer c.Stop(ctx)
+
+	fmt.Println(c.Volume())
+	// Output: cart-tests
+}
+
+// WithDurableStorage chooses the name, the same on every run of a package.
+// Volume returns it, to pass to docker volume rm when the data is no longer
+// wanted.
+func ExampleOptions_WithDurableStorage() {
+	docker, closeDocker := exampleDocker()
+	defer closeDocker()
+	ctx := context.Background()
+
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithDurableStorage())
+	if err != nil {
+		fmt.Println("cannot start mongod:", err)
+		return
+	}
+	defer c.Stop(ctx)
+
+	fmt.Println(strings.HasPrefix(c.Volume(), "mongotest-data-"))
+	// Output: true
+}

@@ -3,6 +3,7 @@ package mongod
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/tophergopher/dbtest/dockerapi"
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -35,6 +36,9 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 		return nil, err
 	}
 	// Who else can connect decides whether the container needs credentials.
+	if err := cfg.checkVolumeCredentials(r); err != nil {
+		return nil, err
+	}
 	cfg = cfg.withCredentialsIfExposed(r)
 	cfg.hostSource, cfg.network, cfg.publishHost = r.source, r.network, r.publishHost
 	cfg.announceExposure(r)
@@ -175,7 +179,7 @@ func (c config) client() (dockerclient.Client, error) {
 func newContainer(host string, cfg config, docker dockerclient.Client, certs *certificates) *Container {
 	return &Container{
 		ctr:   container.New(cfg.name, docker, cfg.logger),
-		image: cfg.image, ref: cfg.image.Reference(), replicaSet: cfg.replicaSet,
+		image: cfg.image, ref: cfg.image.Reference(), replicaSet: cfg.replicaSet, volume: cfg.volume,
 		username: cfg.username, password: cfg.password,
 		host: host, certs: certs, docker: docker, logger: cfg.logger,
 	}
@@ -196,6 +200,7 @@ func (c *Container) spec(cfg config, r reach) container.Spec {
 		BeforeStart:  c.beforeStart(cfg),
 		Ready:        c.ready(cfg),
 		AfterReady:   c.afterReady(cfg),
+		BeforeRemove: c.flushBeforeRemove(cfg),
 		Advice:       cfg.notReadyAdvice,
 	}
 }
@@ -263,5 +268,34 @@ func (c *Container) afterReady(cfg config) func(context.Context) error {
 			return errNoPrimary
 		}
 		return err
+	}
+}
+
+// flushTimeout bounds the flush before a container on a kept volume is
+// removed, so a mongod that cannot answer holds up the removal only briefly.
+const flushTimeout = 10 * time.Second
+
+// flushScript has mongod write everything it has acknowledged to disk.
+const flushScript = `db.adminCommand({fsync: 1}).ok`
+
+// flushBeforeRemove has mongod flush before a container on a kept volume is
+// removed. Removing it kills mongod, which loses the writes of about the
+// last tenth of a second: acknowledged, but not yet in its journal. A flush
+// that fails is logged, and the removal goes ahead.
+func (c *Container) flushBeforeRemove(cfg config) func(context.Context) {
+	if cfg.volume == "" {
+		return nil
+	}
+	return func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, flushTimeout)
+		defer cancel()
+		result, err := c.runShell(ctx, flushScript)
+		if err == nil && result.ExitCode != 0 {
+			err = result.failure()
+		}
+		if err != nil {
+			c.logger.Warn("mongod could not be made to flush its data before the container was removed, so the volume may lack the last writes.",
+				"container", c.Name(), "volume", cfg.volume, "error", err)
+		}
 	}
 }

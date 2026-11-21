@@ -23,14 +23,15 @@ type Container struct {
 	docker dockerclient.Client
 	logger dockerclient.Logger
 
-	// mu guards stopped and reaperHandle, and the writing of id, which
-	// Create does once; after that id is read without the lock. Stop can be
-	// called from a defer, a test cleanup and the reaper at once, and holds
-	// mu while it waits for the daemon; see lockContext.
+	// mu guards stopped, reaperHandle and beforeRemove, and the writing of
+	// id, which Create does once; after that id is read without the lock.
+	// Stop can be called from a defer, a test cleanup and the reaper at
+	// once, and holds mu while it waits for the daemon; see lockContext.
 	mu           sync.Mutex
 	id           string
 	stopped      bool
 	reaperHandle reaper.Handle
+	beforeRemove func(context.Context) // see Spec.BeforeRemove
 	// stopWanted says Stop has been called, by the caller or the reaper.
 	// Create's caller reads it to learn that Stop came while the daemon was
 	// creating the container.
@@ -95,6 +96,14 @@ func (c *Container) create(ctx context.Context, request dockerclient.ContainerCo
 	return nil
 }
 
+// setBeforeRemove records what to run before Stop or the reaper removes the
+// container.
+func (c *Container) setBeforeRemove(f func(context.Context)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.beforeRemove = f
+}
+
 // forget drops a container the daemon never created, so that nothing tries
 // to remove it.
 func (c *Container) forget() {
@@ -137,6 +146,9 @@ func (c *Container) stop(ctx context.Context) error {
 	defer c.mu.Unlock()
 	if c.stopped {
 		return nil
+	}
+	if c.beforeRemove != nil && c.id != "" {
+		c.beforeRemove(ctx)
 	}
 	if err := c.remove(ctx); err != nil {
 		return err

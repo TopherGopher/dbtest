@@ -85,6 +85,15 @@ var (
 	// ErrEmptyReplicaSet: WithReplicaSet was given an empty name.
 	ErrEmptyReplicaSet error = &optionError{option: "WithReplicaSet", problem: "the name is empty",
 		fix: `Pass one such as WithReplicaSet("rs0"), or leave the option out for a standalone mongod`}
+	// ErrEmptyVolumeName: WithNamedVolume was given an empty name.
+	ErrEmptyVolumeName error = &optionError{option: "WithNamedVolume", problem: "the name is empty",
+		fix: `Pass one such as WithNamedVolume("cart-tests"), or use WithDurableStorage to have one chosen`}
+	// ErrVolumeNeedsCredentials: a volume option was set where a start
+	// would generate credentials. The volume keeps the root user from its
+	// first start, so a password generated for a later start would not work.
+	ErrVolumeNeedsCredentials error = &optionError{option: "WithNamedVolume or WithDurableStorage",
+		problem: "other machines or containers can reach this mongod, so Start would generate a password, and the volume would keep only the first",
+		fix:     "Pass WithAuth with credentials that stay the same between runs, or WithoutAuth on a network you trust"}
 	// ErrEmptyHostIP: WithHostIP was given an empty address.
 	ErrEmptyHostIP error = &optionError{option: "WithHostIP", problem: "the address is empty",
 		fix: `Pass one such as WithHostIP("172.17.0.1"), or leave the option out to have it worked out`}
@@ -140,7 +149,19 @@ const (
 		"so remove the option and read the name from the server"
 	reasonCommandIsEntrypoint = "it has no entrypoint, so the flags would replace the program it runs; remove the option"
 	reasonNoTLSFlags          = "it starts mongod itself and takes no flags, so TLS cannot be turned on; use another image or remove the option"
+	reasonVolumeUntried       = "it names its replica set after the container, which changes with every start, " +
+		"so it has not been shown to start again on a kept volume; use another image or remove the option"
 )
+
+func invalidVolumeName(name string) error {
+	return &optionError{option: "WithNamedVolume", problem: strconv.Quote(name) + " is not a Docker volume name",
+		fix: "Use at least two letters, digits, '_', '.' or '-', starting with a letter or digit. A host directory cannot be used"}
+}
+
+func unreadableWorkingDirectory(err error) error {
+	return &optionError{option: "WithDurableStorage", problem: "the working directory, which names the volume, cannot be read (" + err.Error() + ")",
+		fix: "Name the volume with WithNamedVolume instead"}
+}
 
 func invalidPort(port int) error {
 	return &optionError{option: "WithPort", problem: strconv.Itoa(port) + " is outside the range 0 to 65535",

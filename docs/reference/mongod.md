@@ -55,6 +55,7 @@ tests. `Start(ctx)` is `StartWithOptions(ctx, mongod.DefaultOptions())`.
 | `WithStartTimeout(d)` | How long a start waits, replica set initiation included. The default is one minute. |
 | `WithMongodArgs(args...)` | Extra flags for `mongod`. |
 | `WithTLS()` | Accept only TLS connections; see [TLS](#tls). |
+| `WithNamedVolume(name)`, `WithDurableStorage()` | Keep the data in a Docker volume that a later start finds again; see [Keeping data between runs](#keeping-data-between-runs). |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
 | `WithLogger(l)` | Where a start is logged. `*slog.Logger` works; the default discards. |
 | `WithDocker(client)` | A specific Docker client, such as a [double](#testing-code-that-starts-containers). |
@@ -101,7 +102,8 @@ A start refuses two mistakes before it creates anything:
 - A bare version such as `8` for `ImageCommunity` or `ImageEnterprise`, whose
   tags all name an OS variant such as `8.0-ubi9`: `ErrNoSuchVersion`.
 - `WithReplicaSet`, `WithMongodArgs` or `WithTLS` for `ImageAtlasLocal`, which
-  runs its own replica set and takes no `mongod` flags:
+  runs its own replica set and takes no `mongod` flags, and `WithNamedVolume`
+  or `WithDurableStorage`, which have not been shown to work with it:
   `ErrUnsupportedForImage`.
 
 An image the package does not know is treated like the official one. To pull
@@ -163,7 +165,8 @@ func TestMain(m *testing.M) {
 | `ID()`, `Name()`, `Image()` | What was started. |
 | `Username()`, `Password()` | The root user, or empty for a `mongod` that does not authenticate. `URI()` already includes them. |
 | `ReplicaSet()` | The name given to `WithReplicaSet`, or empty. |
-| `Stop(ctx)` | Removes the container and its volumes. Safe to call twice. |
+| `Volume()` | The volume that keeps the data, or empty when `Stop` removes it. |
+| `Stop(ctx)` | Removes the container and its anonymous volumes, keeping a volume from `WithNamedVolume` or `WithDurableStorage`. Safe to call twice. |
 
 ## When a start returns
 
@@ -264,6 +267,41 @@ file `mongod` then requires. An empty name is refused with
 Initiating uses the shell in the image: `mongosh`, or the legacy `mongo`
 where the image has only that. An image with neither fails with
 `ErrNotInitiated`. A replica set adds about half a second to a start.
+
+## Keeping data between runs
+
+By default the data goes when the container goes. To load a large data set
+once and keep it for later runs, keep the data in a named Docker volume:
+
+```go
+c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDurableStorage())
+```
+
+`WithDurableStorage()` names the volume after the directory the test runs in,
+so each package keeps its own. `WithNamedVolume("cart-tests")` chooses the
+name. A later start with the same option finds the data again, and
+`c.Volume()` returns the volume's name.
+
+Nothing in dbtest removes the volume: not `Stop`, not the signal handler and
+not `ReapRunningContainers`. Remove it with `docker volume rm <name>`. Before
+a container on a volume is removed, `mongod` is asked to write what it holds
+to disk, so the last writes are kept.
+
+The volume keeps what its first start set up:
+
+- The root user is created only on the first start. A later start with a
+  different `WithAuth` password cannot log in.
+- `mongod` refuses data that a newer version of `mongod` wrote, so a volume
+  cannot go back to an older image.
+- Only one container can use a volume at a time. A second start while the
+  first runs fails with `ErrContainerExited`, so tests that run at the same
+  time each need their own name.
+
+Where a start would [generate credentials](#who-can-connect), a volume is
+refused with `ErrVolumeNeedsCredentials`, because the next start would
+generate a different password. Pass `WithAuth` or `WithoutAuth` there. An
+empty name is refused with `ErrEmptyVolumeName`, and a host directory is
+refused too, because it would not exist on a remote daemon.
 
 ## Commands and scripts
 
