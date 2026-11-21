@@ -1,7 +1,7 @@
 name: Release
 
 # Publishing a GitHub release for vX.Y.Z creates the root module's tag. This
-# workflow then checks the release and tags the other three modules on the same
+# workflow then checks the release and tags the other modules on the same
 # commit. See "Releasing" in docs/project/contributing.md.
 on:
   release:
@@ -53,11 +53,11 @@ jobs:
     # Fetching each version through the Go module proxy makes it available to
     # "go get" at once, and fails the run if a tag does not give a module Go
     # can use.
-    - name: Ask the Go module proxy for the four versions
+    - name: Ask the Go module proxy for every module's version
       env:
         VERSION: ${{ github.event.release.tag_name }}
       run: |
-        for path in "" /mongotest /mongotest/exporter /mobyclient; do
+        for path in "" /mongotest /mongotestv2 /mongotest/exporter /mobyclient; do
           curl --fail --silent --show-error --retry 5 --retry-delay 15 --retry-all-errors \
             "https://proxy.golang.org/github.com/tophergopher/dbtest${path}/@v/${VERSION}.info"
           echo

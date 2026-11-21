@@ -126,7 +126,7 @@ defined in `.claude/agents/`.
 ## Before a change is done
 
 1. `gofmt -l .` prints nothing, and `go vet ./...` passes.
-2. `go test -race ./...` passes here and in `mongotest/`,
+2. `go test -race ./...` passes here and in `mongotest/`, `mongotestv2/`,
    `mongotest/exporter/` and `mobyclient/`. The integration
    tests need a Docker daemon, and fail rather than skip without one.
 3. Reviewers with no context read the change adversarially: a newly
