@@ -22,13 +22,14 @@ import (
 )
 
 func TestNewRequiresValidHost(t *testing.T) {
-	_, err := New(WithHost("bogus"))
-	require.ErrorIs(t, err, ErrInvalidArgument, "a host without a scheme must be rejected as an invalid argument")
-	assert.Contains(t, err.Error(), "use unix:///var/run/docker.sock", "the error must tell the caller which host forms are accepted")
-
-	_, err = New(WithHost("npipe:////./pipe/docker_engine"))
-	require.ErrorIs(t, err, ErrInvalidArgument, "npipe hosts must be rejected as an invalid argument")
-	assert.Contains(t, err.Error(), "DOCKER_HOST=tcp://localhost:2375", "the npipe error must say how to switch Docker Desktop to TCP")
+	for _, host := range []string{"bogus", "npipe:////./pipe/docker_engine"} {
+		_, err := New(WithHost(host))
+		require.ErrorIs(t, err, ErrInvalidArgument, "%s must be rejected as an invalid argument", host)
+		var invalid *InvalidArgumentError
+		require.ErrorAs(t, err, &invalid, "%s: the error says what was refused", host)
+		assert.Equal(t, host, invalid.Value, "the error quotes the host it refused")
+		assert.NotEmpty(t, invalid.Fix, "%s: the error says what to use instead", host)
+	}
 }
 
 func TestNewUsesDiscoveryWhenNoHostOption(t *testing.T) {

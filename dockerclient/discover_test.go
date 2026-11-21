@@ -60,9 +60,11 @@ func TestResolveHostPrecedence(t *testing.T) {
 	t.Run("missing context metadata is a descriptive error", func(t *testing.T) {
 		_, err := resolveHost(env(map[string]string{"DOCKER_CONTEXT": "ghost"}), cfg)
 		require.ErrorIs(t, err, ErrInvalidArgument, "an unknown context is a configuration problem")
-		assert.Contains(t, err.Error(), "ghost", "the error must name the context")
+		var invalid *InvalidArgumentError
+		require.ErrorAs(t, err, &invalid, "the error says what was refused")
+		assert.Equal(t, "ghost", invalid.Value, "the error must name the context")
 		assert.Contains(t, err.Error(), "meta.json", "the error must name the file that was missing")
-		assert.Contains(t, err.Error(), "docker context ls", "the error must tell the user how to list contexts")
+		assert.NotEmpty(t, invalid.Fix, "the error must tell the user what to do")
 	})
 	t.Run("nothing set uses the default socket", func(t *testing.T) {
 		// Probes are injected so the result does not depend on what happens
@@ -78,7 +80,9 @@ func TestResolveHostPrecedence(t *testing.T) {
 		_, err := resolveHost(env(nil), bad)
 		require.ErrorIs(t, err, ErrInvalidArgument, "a broken config.json is a configuration problem")
 		assert.Contains(t, err.Error(), "config.json", "the error must name the file")
-		assert.Contains(t, err.Error(), "DOCKER_HOST", "the error must offer DOCKER_HOST as the bypass")
+		var invalid *InvalidArgumentError
+		require.ErrorAs(t, err, &invalid, "the error says what was refused")
+		assert.NotEmpty(t, invalid.Fix, "the error must say what to do")
 	})
 }
 

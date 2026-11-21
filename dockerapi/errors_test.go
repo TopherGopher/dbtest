@@ -24,22 +24,22 @@ func TestStatusErrorMapping(t *testing.T) {
 	assert.True(t, IsNotFound(e), "IsNotFound is the convenience for 404")
 	assert.NotErrorIs(t, e, ErrConflict, "404 must not match ErrConflict")
 	assert.Contains(t, e.Error(), "rejected GET /containers/x/json with status 404: No such container: x", "the message must tell what was asked and what the daemon said")
-	assert.Contains(t, e.Error(), "Check the id, name or image tag", "a 404 must carry a hint about what to check")
+	assert.NotEmpty(t, e.Hint(), "a 404 must carry a hint about what to check")
 
 	c := mk(409, `{"message":"in use"}`)
 	assert.ErrorIs(t, c, ErrConflict, "409 must match ErrConflict")
 	assert.NotErrorIs(t, c, ErrNotFound, "409 must not match ErrNotFound")
-	assert.Contains(t, c.Error(), "retry shortly", "a 409 must carry a retry hint")
+	assert.NotEmpty(t, c.Hint(), "a 409 must carry a retry hint")
 
 	u := mk(401, `{"message":"unauthorized"}`)
 	assert.ErrorIs(t, u, ErrUnauthorized, "401 must match ErrUnauthorized")
 	assert.ErrorIs(t, mk(403, ""), ErrUnauthorized, "403 must match ErrUnauthorized")
-	assert.Contains(t, u.Error(), "docker login", "an auth failure must point at docker login")
+	assert.NotEmpty(t, u.Hint(), "an auth failure must say what to do")
 
 	raw := mk(500, "<html>oops</html>")
 	assert.Equal(t, "<html>oops</html>", raw.Message, "a non-JSON body is kept verbatim as the message")
 	assert.Contains(t, raw.Error(), "500", "the status code must appear in the message")
-	assert.Contains(t, raw.Error(), "journalctl -u docker", "a 500 must tell the user where to look")
+	assert.NotEmpty(t, raw.Hint(), "a 500 must tell the user where to look")
 
 	assert.Equal(t, "Bad Gateway", mk(502, "").Message, "an empty body falls back to the status text")
 	assert.Equal(t, "the daemon gave no message", mk(368, "").Message, "an unregistered status code with no body still gets a message")

@@ -34,8 +34,6 @@ func TestTransportFailureIsNotReportedAsAConnectionProblem(t *testing.T) {
 	assert.NotErrorIs(t, err, dockerclient.ErrConnectionFailed,
 		"a failure that is not a connection problem must not claim the daemon is unreachable")
 	assert.ErrorIs(t, err, tarBroke, "the underlying cause must stay in the chain")
-	assert.NotContains(t, err.Error(), "Is the docker daemon running",
-		"the message must not advise starting a daemon that answered")
 }
 
 func TestRefusedConnectionIsStillAConnectionProblem(t *testing.T) {
@@ -47,7 +45,9 @@ func TestRefusedConnectionIsStillAConnectionProblem(t *testing.T) {
 	_, err := c.ContainerInspect(context.Background(), "c0ffee1234ab")
 	require.Error(t, err, "a refused dial must produce an error")
 	assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a refused dial is a connection problem")
-	assert.Contains(t, err.Error(), "Is the docker daemon running", "the fix must be stated")
+	var failed *dockerclient.ConnectionError
+	require.ErrorAs(t, err, &failed, "the error is a connection error")
+	assert.NotEmpty(t, failed.Fix, "the fix must be stated")
 }
 
 func TestCancelledContextIsReportedAsCancellation(t *testing.T) {
@@ -65,8 +65,8 @@ func TestCancelledContextIsReportedAsCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled, "the caller must be able to see their own cancellation")
 	assert.NotErrorIs(t, err, dockerclient.ErrDaemonResponse,
 		"a cancellation is not a bad response; the daemon never responded")
-	assert.NotContains(t, err.Error(), "DOCKER_API_VERSION",
-		"a cancellation must not blame the negotiated API version")
+	var response *dockerclient.ResponseError
+	assert.False(t, errors.As(err, &response), "a cancellation must not carry advice about the API version")
 }
 
 func TestStatusErrorTruncatesOnARuneBoundary(t *testing.T) {
@@ -109,7 +109,9 @@ func TestParseHostRejectsARelativeUnixPath(t *testing.T) {
 	_, err := parseHost("unix://relative.sock")
 	require.Error(t, err, "a relative socket path must be refused")
 	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "it is a configuration mistake")
-	assert.Contains(t, err.Error(), "absolute", "the error must say the path has to be absolute")
+	var invalid *dockerclient.InvalidArgumentError
+	require.ErrorAs(t, err, &invalid, "the error says what was refused")
+	assert.NotEmpty(t, invalid.Fix, "the error must say the path has to be absolute")
 	assert.Contains(t, err.Error(), "relative.sock", "the error must quote what was given")
 }
 

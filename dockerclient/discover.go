@@ -207,7 +207,7 @@ func contextTLSDir(getenv func(string) string, configDir string, f found) (strin
 	// directory that cannot be read is an error.
 	if _, err := os.Stat(filepath.Join(dir, "ca.pem")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", InvalidArgument("docker context", name, "its TLS files in "+dir+" could not be read ("+err.Error()+")",
-			"fix the directory's permissions, or update the context with `docker context update "+name+"`")
+			"Fix the directory's permissions, or update the context with `docker context update "+name+"`")
 	}
 	return dir, nil
 }
@@ -222,7 +222,7 @@ func refuseSkipVerify(getenv func(string) string, f found) error {
 		return nil
 	}
 	return InvalidArgument("docker context", f.context, "it skips TLS verification, which dbtest never does",
-		"give the context the daemon's CA with `docker context update "+f.context+" --docker host=<address>,ca=<path>`, or set DOCKER_HOST")
+		"Give the context the daemon's CA with `docker context update "+f.context+" --docker host=<address>,ca=<path>`, or set DOCKER_HOST")
 }
 
 // skipsVerifyInTheClear reports whether a context skips TLS verification at
@@ -281,11 +281,11 @@ func currentContext(configDir string) (string, error) {
 		return "", nil
 	}
 	if err != nil {
-		return "", InvalidArgument("docker config file", path, "it could not be read ("+err.Error()+")", "fix the file permissions, or set DOCKER_HOST to bypass context lookup")
+		return "", InvalidArgument("docker config file", path, "it could not be read ("+err.Error()+")", "Fix the file permissions, or set DOCKER_HOST to bypass context lookup")
 	}
 	var cfg dockerConfigFile
 	if err := json.Unmarshal(b, &cfg); err != nil {
-		return "", InvalidArgument("docker config file", path, "it is not valid JSON ("+err.Error()+")", "repair the file, or set DOCKER_HOST to bypass context lookup")
+		return "", InvalidArgument("docker config file", path, "it is not valid JSON ("+err.Error()+")", "Repair the file, or set DOCKER_HOST to bypass context lookup")
 	}
 	return cfg.CurrentContext, nil
 }
@@ -297,15 +297,15 @@ func contextDockerEndpoint(configDir, name string) (contextEndpoint, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return contextEndpoint{}, InvalidArgument("docker context", name, "its metadata file "+path+" could not be read ("+err.Error()+")",
-			"run `docker context ls` to see the contexts that exist, `docker context use <name>` to switch, or set DOCKER_HOST directly")
+			"Run `docker context ls` to see the contexts that exist, `docker context use <name>` to switch, or set DOCKER_HOST directly")
 	}
 	var meta contextMeta
 	if err := json.Unmarshal(b, &meta); err != nil {
-		return contextEndpoint{}, InvalidArgument("docker context", name, "its metadata file "+path+" is not valid JSON ("+err.Error()+")", "fix the file, or remove the context with `docker context rm "+name+"` and create it again, or set DOCKER_HOST directly")
+		return contextEndpoint{}, InvalidArgument("docker context", name, "its metadata file "+path+" is not valid JSON ("+err.Error()+")", "Fix the file, or remove the context with `docker context rm "+name+"` and create it again, or set DOCKER_HOST directly")
 	}
 	ep, ok := meta.Endpoints["docker"]
 	if !ok || ep.Host == "" {
-		return contextEndpoint{}, InvalidArgument("docker context", name, "it has no docker endpoint in "+path, "give it one with `docker context update "+name+" --docker host=...`, or set DOCKER_HOST directly")
+		return contextEndpoint{}, InvalidArgument("docker context", name, "it has no docker endpoint in "+path, "Give it one with `docker context update "+name+" --docker host=...`, or set DOCKER_HOST directly")
 	}
 	return ep, nil
 }

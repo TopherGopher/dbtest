@@ -47,7 +47,7 @@ func defaultTLSConfig(ep endpoint, contextTLSDir string) (*tls.Config, error) {
 
 // contextTLSFix is what to do about a docker context's TLS file that
 // cannot be used.
-const contextTLSFix = "update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` " +
+const contextTLSFix = "Update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` " +
 	"(`docker context ls` shows which is current), or set DOCKER_CONTEXT=default to stop using it"
 
 // tlsConfigFromContext loads the TLS files in a docker context's
@@ -86,11 +86,11 @@ func tlsConfigFromDir(dir string, caRequired bool, invalid func(problem, fix str
 	case errors.Is(err, fs.ErrNotExist) && !caRequired:
 	case err != nil:
 		return nil, invalid("ca.pem could not be read ("+err.Error()+")",
-			"point DOCKER_CERT_PATH at the directory holding the daemon's ca.pem, and cert.pem and key.pem if it wants a client certificate, or unset DOCKER_TLS_VERIFY")
+			"Point DOCKER_CERT_PATH at the directory holding the daemon's ca.pem, and cert.pem and key.pem if it wants a client certificate, or unset DOCKER_TLS_VERIFY")
 	default:
 		cfg.RootCAs = x509.NewCertPool()
 		if !cfg.RootCAs.AppendCertsFromPEM(caPEM) {
-			return nil, invalid("no certificates were found in ca.pem", "replace ca.pem with the daemon's PEM-encoded CA certificate")
+			return nil, invalid("no certificates were found in ca.pem", "Replace ca.pem with the daemon's PEM-encoded CA certificate")
 		}
 	}
 	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
@@ -100,7 +100,7 @@ func tlsConfigFromDir(dir string, caRequired bool, invalid func(problem, fix str
 	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		return nil, invalid("cert.pem and key.pem do not form a valid key pair ("+err.Error()+")",
-			"regenerate the client certificate, or remove cert.pem and key.pem to connect without one")
+			"Regenerate the client certificate, or remove cert.pem and key.pem to connect without one")
 	}
 	cfg.Certificates = []tls.Certificate{pair}
 	return cfg, nil

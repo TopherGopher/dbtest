@@ -52,7 +52,7 @@ func (c *Client) CopyArchiveToContainer(ctx context.Context, id, destDir string,
 		return err
 	}
 	if archive == nil {
-		return dockerclient.InvalidArgument("archive", "", "no tar stream was given", "pass an io.Reader that yields a tar archive")
+		return dockerclient.InvalidArgument("archive", "", "no tar stream was given", "Pass an io.Reader that yields a tar archive")
 	}
 	opts := client.CopyToContainerOptions{DestinationPath: destDir, Content: archive}
 	if _, err := c.cli.CopyToContainer(ctx, id, opts); err != nil {

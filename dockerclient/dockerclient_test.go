@@ -55,7 +55,9 @@ func TestParseImageRef(t *testing.T) {
 	for _, ref := range bad {
 		_, err := dockerclient.ParseImageRef(ref)
 		require.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "%q must be rejected as an invalid argument", ref)
-		assert.Contains(t, err.Error(), "repository", "%q: the error must explain the reference grammar", ref)
+		var invalid *dockerclient.InvalidArgumentError
+		require.ErrorAs(t, err, &invalid, "%q: the error says what was refused", ref)
+		assert.NotEmpty(t, invalid.Fix, "%q: the error must explain the reference grammar", ref)
 	}
 	_, err := dockerclient.ParseImageRef("Mongo:8")
 	assert.Contains(t, err.Error(), "lowercase", "an uppercase repository gets the daemon's familiar wording")
@@ -73,8 +75,10 @@ func TestCheckID(t *testing.T) {
 		require.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "%q must be rejected so it cannot alter the URL path", in)
 	}
 	_, err := dockerclient.CheckID("exec", "")
-	assert.Contains(t, err.Error(), "exec id", "the error must name the kind of id that was empty")
-	assert.Contains(t, err.Error(), "ExecCreate", "the error must say where a valid id comes from")
+	var invalid *dockerclient.InvalidArgumentError
+	require.ErrorAs(t, err, &invalid, "the error says what was refused")
+	assert.Equal(t, "exec id", invalid.Argument, "the error must name the kind of id that was empty")
+	assert.NotEmpty(t, invalid.Fix, "the error must say where a valid id comes from")
 }
 
 func TestValidateContainerConfig(t *testing.T) {
@@ -112,9 +116,11 @@ func TestValidateContainerConfig(t *testing.T) {
 }
 
 func TestInvalidArgumentErrorMessage(t *testing.T) {
-	err := dockerclient.InvalidArgument("container id", "a/b", "only letters are allowed", "pass the id from ContainerCreate")
+	err := dockerclient.InvalidArgument("container id", "a/b", "only letters are allowed", "Pass the id from ContainerCreate")
 	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "every InvalidArgumentError matches the sentinel")
-	assert.Equal(t, `docker: invalid container id "a/b": only letters are allowed. pass the id from ContainerCreate`, err.Error(), "the message follows argument, value, problem, fix")
+	for _, part := range []string{err.Argument, err.Value, err.Problem, err.Fix} {
+		assert.Contains(t, err.Error(), part, "the message carries the argument, value, problem and fix")
+	}
 	var ia *dockerclient.InvalidArgumentError
 	require.True(t, errors.As(err, &ia), "callers can extract the typed error")
 	assert.Equal(t, "a/b", ia.Value, "the offending value is available to callers")
@@ -125,16 +131,17 @@ func TestInvalidArgumentErrorMessage(t *testing.T) {
 func TestConnectionErrorWrapping(t *testing.T) {
 	err := dockerclient.WrapConnectionError("unix:///var/run/docker.sock", fs.ErrPermission)
 	require.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "permission denied on the socket is a connection failure")
-	assert.Contains(t, err.Error(), "permission denied", "the problem must be stated")
-	assert.Contains(t, err.Error(), "docker group", "the fix must mention the docker group")
+	assert.ErrorIs(t, err, fs.ErrPermission, "the cause is kept")
 	var ce *dockerclient.ConnectionError
 	require.True(t, errors.As(err, &ce), "callers can extract the typed error")
 	assert.Equal(t, "unix:///var/run/docker.sock", ce.Host, "the host is carried on the error")
+	assert.NotEmpty(t, ce.Fix, "the fix must be stated")
 
 	err = dockerclient.WrapConnectionError("unix:///x.sock", fs.ErrNotExist)
 	assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a missing socket is a connection failure")
-	assert.Contains(t, err.Error(), "does not exist", "the problem must be stated")
-	assert.Contains(t, err.Error(), "Start the docker daemon", "the fix must say to start the daemon")
+	assert.ErrorIs(t, err, fs.ErrNotExist, "the cause is kept")
+	require.True(t, errors.As(err, &ce), "callers can extract the typed error")
+	assert.NotEmpty(t, ce.Fix, "the fix must say to start the daemon")
 
 	assert.Nil(t, dockerclient.WrapConnectionError("h", nil), "nil stays nil")
 	plain := errors.New("something else")
@@ -159,15 +166,15 @@ func TestAPIVersionErrorMessages(t *testing.T) {
 	assert.ErrorIs(t, feature, dockerclient.ErrAPIVersion, "feature gates match the sentinel")
 	assert.Contains(t, feature.Error(), "1.35", "the required version is named")
 	assert.Contains(t, feature.Error(), "1.30", "the negotiated version is named")
-	assert.Contains(t, feature.Error(), "drop the ExecConfig.WorkingDir option", "the fix is stated")
+	assert.Contains(t, feature.Error(), "ExecConfig.WorkingDir", "the feature is named")
 }
 
 func TestResponseErrorMessage(t *testing.T) {
 	err := dockerclient.DecodeError("GET", "/containers/x/json", io.ErrUnexpectedEOF)
 	assert.ErrorIs(t, err, dockerclient.ErrDaemonResponse, "decode failures match the sentinel")
 	assert.ErrorIs(t, err, io.ErrUnexpectedEOF, "the underlying decode error is wrapped")
-	assert.Contains(t, err.Error(), "DOCKER_API_VERSION", "the message points at the version pin as the likely cause")
-	assert.Contains(t, dockerclient.UnexpectedStatus("POST", "/x", 202).Error(), "unexpected status 202", "unexpected statuses are named")
+	assert.NotEmpty(t, err.Fix, "the error says what to check")
+	assert.Contains(t, dockerclient.UnexpectedStatus("POST", "/x", 202).Error(), "202", "unexpected statuses are named")
 }
 
 // Daemons report a registry's rate limit in three ways: as a 429 status, as

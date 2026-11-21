@@ -132,7 +132,7 @@ func toMobyConfig(cfg dockerclient.ContainerConfig) (*container.Config, *contain
 		for k := range cfg.ExposedPorts {
 			p, err := network.ParsePort(k)
 			if err != nil {
-				return nil, nil, dockerclient.InvalidArgument("ContainerConfig.ExposedPorts key", k, err.Error(), `use keys like "27017/tcp"`)
+				return nil, nil, dockerclient.InvalidArgument("ContainerConfig.ExposedPorts key", k, err.Error(), `Use keys like "27017/tcp"`)
 			}
 			ports[p] = struct{}{}
 		}
@@ -150,7 +150,7 @@ func toMobyConfig(cfg dockerclient.ContainerConfig) (*container.Config, *contain
 		for k, bindings := range cfg.HostConfig.PortBindings {
 			p, err := network.ParsePort(k)
 			if err != nil {
-				return nil, nil, dockerclient.InvalidArgument("HostConfig.PortBindings key", k, err.Error(), `use keys like "27017/tcp"`)
+				return nil, nil, dockerclient.InvalidArgument("HostConfig.PortBindings key", k, err.Error(), `Use keys like "27017/tcp"`)
 			}
 			converted := make([]network.PortBinding, len(bindings))
 			for i, b := range bindings {
@@ -159,7 +159,7 @@ func toMobyConfig(cfg dockerclient.ContainerConfig) (*container.Config, *contain
 					a, err := netip.ParseAddr(b.HostIP)
 					if err != nil {
 						return nil, nil, dockerclient.InvalidArgument("HostConfig.PortBindings["+k+"].HostIP", b.HostIP,
-							"it is not an IP address", `use "127.0.0.1" to publish on loopback only, or "" for all interfaces`)
+							"it is not an IP address", `Use "127.0.0.1" to publish on loopback only, or "" for all interfaces`)
 					}
 					addr = a
 				}

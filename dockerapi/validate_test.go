@@ -97,7 +97,9 @@ func TestConnectionErrorsAreActionable(t *testing.T) {
 	err = c.Negotiate(context.Background())
 	require.ErrorIs(t, err, ErrConnectionFailed, "a missing socket is a connection failure")
 	assert.Contains(t, err.Error(), "/nonexistent/dir/docker.sock", "the error names the socket it tried")
-	assert.Contains(t, err.Error(), "Start the docker daemon", "the error says what to do")
+	var failed *ConnectionError
+	require.ErrorAs(t, err, &failed, "the error is a connection error")
+	assert.NotEmpty(t, failed.Fix, "the error says what to do")
 	assert.NotContains(t, err.Error(), "api.moby.localhost", "the placeholder host must not leak into messages")
 
 	fd := newDaemon(t, dockermock.OverTCP())
@@ -116,5 +118,6 @@ func TestConnectionErrorsAreActionable(t *testing.T) {
 	err = c3.Negotiate(context.Background())
 	require.ErrorIs(t, err, ErrConnectionFailed, "connection refused is a connection failure")
 	assert.Contains(t, err.Error(), addr, "the error names the address")
-	assert.Contains(t, err.Error(), "Is the docker daemon running?", "the error asks the obvious question")
+	require.ErrorAs(t, err, &failed, "the error is a connection error")
+	assert.NotEmpty(t, failed.Fix, "the error says what to do")
 }

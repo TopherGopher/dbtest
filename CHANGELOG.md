@@ -16,6 +16,13 @@ what to do if it affects you.
   again on the same connection. The official `mongo` image declares no
   health check, so its starts are unchanged.
 
+### The fix in an invalid-argument error starts with a capital
+
+- **The sentence that says what to do in a `dockerclient.InvalidArgumentError`
+  now starts with a capital letter,** as it already did in every other
+  error. If you compare an error's message text, use `errors.Is` or the
+  error's fields, such as `InvalidArgumentError.Fix`, instead.
+
 ### Starts beyond a limit wait their turn
 
 - **At most 8 containers per CPU now start at once in a process, and further

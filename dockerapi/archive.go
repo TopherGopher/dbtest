@@ -50,7 +50,7 @@ func (c *Client) CopyArchiveToContainer(ctx context.Context, id, destDir string,
 		return err
 	}
 	if archive == nil {
-		return invalidArg("archive", "", "no tar stream was given", "pass an io.Reader that yields a tar archive")
+		return invalidArg("archive", "", "no tar stream was given", "Pass an io.Reader that yields a tar archive")
 	}
 	p := "/containers/" + id + "/archive"
 	q := url.Values{"path": {destDir}, "noOverwriteDirNonDir": {"true"}}

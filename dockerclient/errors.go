@@ -63,13 +63,13 @@ var (
 	// ErrNoCommand is returned by Exec and ExecCreate when no program is
 	// given.
 	ErrNoCommand = InvalidArgument("command", "", "no program was given",
-		`pass the program and its arguments, for example Exec(ctx, containerID, "mongosh", "--quiet", "--eval", "1")`)
+		`Pass the program and its arguments, for example Exec(ctx, containerID, "mongosh", "--quiet", "--eval", "1")`)
 	// ErrNoFiles is returned by CopyToContainer when the file list is empty.
 	ErrNoFiles = InvalidArgument("files", "", "no files were given",
-		"pass at least one File with a relative Name and its Content")
+		"Pass at least one File with a relative Name and its Content")
 	// ErrEmptyHost is returned when the docker host string is empty.
 	ErrEmptyHost = InvalidArgument("docker host", "", "the value is empty",
-		"set DOCKER_HOST to unix:///var/run/docker.sock or tcp://host:2375, or pass the client's WithHost option")
+		"Set DOCKER_HOST to unix:///var/run/docker.sock or tcp://host:2375, or pass the client's WithHost option")
 )
 
 // InvalidArgumentError describes a value the client refused to send to the
@@ -440,8 +440,8 @@ func wrapTransportError(host string, err error) error {
 	if errors.As(err, &certErr) {
 		return ConnectionFailed(host, "the daemon's certificate is not trusted ("+certErr.Error()+")",
 			"Check that ca.pem holds the CA certificate that signed the daemon's certificate, and that the daemon's certificate names the host it was reached at and has not expired. "+
-				"ca.pem is read from the docker context's TLS files if it has them, else from DOCKER_CERT_PATH (by default the Docker config directory, ~/.docker). "+
-				"dbtest verifies the certificate even when the docker context sets SkipTLSVerify", err)
+				"The client reads ca.pem from the docker context's TLS files if it has them, else from DOCKER_CERT_PATH (by default the Docker config directory, ~/.docker). "+
+				"It verifies the certificate even when the docker context sets SkipTLSVerify", err)
 	}
 	if refusedHandshake(err) {
 		return ConnectionFailed(host, "the daemon refused the TLS handshake ("+RootCause(err).Error()+")",
