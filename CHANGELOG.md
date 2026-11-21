@@ -19,6 +19,23 @@ Nothing needs to change in your code or settings.
   a pull.** Before, a mirror that failed for any reason was skipped for five
   minutes, so a mirror that was briefly down could not be used again.
 
+### A daemon that cannot be reached or trusted is a connection failure through either client
+
+- **Through `mobyclient`, a refused or timed-out connection, a socket with no
+  daemon behind it, or a socket you do not have permission to use now
+  matches `dockerclient.ErrConnectionFailed`,** as it already did through
+  `dockerapi`. Before, it matched `ErrDaemonResponse`. A socket you do not
+  have permission to use also matches `fs.ErrPermission`, and its message
+  gives the same fix as `dockerapi`'s.
+- **A daemon certificate the client does not trust now matches
+  `ErrConnectionFailed` through either client.** Examples are a certificate
+  not signed by the CA in `DOCKER_CERT_PATH`, or one that names another
+  host. Before, it matched `ErrDaemonResponse`. The message says what to
+  check, and `errors.As` still finds the `x509` error.
+
+If you check for `ErrDaemonResponse` to catch these, check for
+`ErrConnectionFailed` instead.
+
 ## v0.3.0
 
 ### The modules are renamed to `github.com/tophergopher/dbtest`

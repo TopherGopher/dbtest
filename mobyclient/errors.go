@@ -3,12 +3,16 @@ package mobyclient
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/client"
 
 	"github.com/tophergopher/dbtest/dockerclient"
 )
@@ -61,6 +65,16 @@ func mapError(host, method, path string, err error) error {
 		// StatusError, as dockerapi does, so that message can be read.
 		return statusError(http.StatusInternalServerError, method, path, err)
 	}
+	if causeDropped(err) {
+		// Only the moby client's message tells a denied socket from a refused
+		// or timed-out connection. A denied socket gets fs.ErrPermission back,
+		// so it is reported as dockerapi reports it.
+		if strings.Contains(err.Error(), "permission denied") {
+			return dockerclient.WrapConnectionError(host, fmt.Errorf("%w (%w)", err, fs.ErrPermission))
+		}
+		return dockerclient.ConnectionFailed(host, "the connection was refused or timed out",
+			"Is the docker daemon running? Start it, or set DOCKER_HOST to a daemon that is", err)
+	}
 	// Not a classified daemon response: it may be that the daemon could not
 	// be reached at all. WrapConnectionError inspects the error chain
 	// itself (fs.ErrNotExist, a timed-out net.Error, a DNS failure, ...) so
@@ -83,6 +97,16 @@ func mapError(host, method, path string, err error) error {
 	}
 	return &dockerclient.ResponseError{Method: method, Path: path, Err: err,
 		Problem: "the docker daemon returned an error mobyclient could not classify"}
+}
+
+// causeDropped reports whether err is a moby connection failure with no
+// network error behind it. The moby client replaces a refused or timed-out
+// connection, and a socket it cannot dial or may not open, with a message
+// that wraps nothing. Its other connection failures keep the transport's
+// error, and some of them, such as a broken upload, happen after the daemon
+// was reached.
+func causeDropped(err error) bool {
+	return client.IsErrConnectionFailed(err) && !errors.As(err, new(net.Error))
 }
 
 // statusError builds a dockerclient.StatusError for a classified daemon
