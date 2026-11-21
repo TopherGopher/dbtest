@@ -5,6 +5,19 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Starts beyond a limit wait their turn
+
+- **At most 8 starts per CPU now run at once in a process, and the others
+  wait for a free slot.** This covers `mongod.Start` and `mongotest.Run`.
+  Before, a test suite that started dozens of containers at once got
+  `ErrNotReady` from most of them. The wait counts against the context you
+  pass to the start, not against the start timeout, so a context with a
+  short deadline can now end while a start is waiting. Change the limit with
+  `mongod.SetStartLimit(n)`.
+- `NotReadyError` gains `Running`, the number of starts under way when it
+  ended. When every slot was taken, its message advises running fewer starts
+  at once, and no longer suggests correcting the address.
+
 ### Tests in a container reach mongod on their own network
 
 - **When your tests run in a container on the Docker daemon dbtest uses,

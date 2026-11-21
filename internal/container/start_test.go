@@ -185,7 +185,7 @@ func TestTheAdviceIsGivenTheLastFailureAndEndsTheError(t *testing.T) {
 	var givenLastErr error
 	s := spec(150 * time.Millisecond)
 	s.Ready = func(context.Context, string, int) error { return stillStarting }
-	s.Advice = func(lastErr error) string {
+	s.Advice = func(lastErr error, _ bool) string {
 		givenLastErr = lastErr
 		return "Try the image package's own option."
 	}

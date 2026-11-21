@@ -35,7 +35,7 @@ var (
 
 // NotReadyAdvice is the advice a start that ran out of time gives, after
 // lastErr.
-func NotReadyAdvice(lastErr error) string { return config{}.notReadyAdvice(lastErr) }
+func NotReadyAdvice(lastErr error) string { return config{}.notReadyAdvice(lastErr, false) }
 
 // NetworkLookup finds the network a start shares with this process's
 // container. A test replaces it to describe running in a container.
@@ -63,3 +63,7 @@ func (o Options) WithNetworkPort(port int) Options {
 	o.networkPort = port
 	return o
 }
+
+// AdvisesFewerStarts reports whether the error tells the caller how to run
+// fewer starts at once, by naming SetStartLimit.
+func AdvisesFewerStarts(err error) bool { return strings.Contains(err.Error(), "SetStartLimit") }

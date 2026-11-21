@@ -12,6 +12,8 @@ start one can run in parallel. The choice is how many containers to start.
 ## A container per test, in parallel
 
 The simplest shape. Each test is fully isolated and `t.Parallel` is safe.
+Starts beyond what the machine can handle wait their turn; see
+[Many containers at once](../reference/mongod.md#many-containers-at-once).
 
 ```go
 func TestFindByCity(t *testing.T) {

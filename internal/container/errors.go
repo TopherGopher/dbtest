@@ -106,6 +106,9 @@ type NotReadyError struct {
 	// check, or the error of a step that was cut short, or nil.
 	Cause   error
 	LastErr error
+	// Running is how many starts in this process were under way when this
+	// one ended, itself included unless it was still waiting for a slot.
+	Running int
 	// advice is what to do once the start timeout passed, from the image's
 	// package, which knows the options it offers.
 	advice string

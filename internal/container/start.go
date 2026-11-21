@@ -51,8 +51,10 @@ type Spec struct {
 	// as BeforeStart's is.
 	AfterReady func(ctx context.Context) error
 	// Advice returns the sentence a NotReadyError ends with when the start
-	// timeout passed, given the last failure the start saw, or "" for none.
-	Advice func(lastErr error) string
+	// timeout passed, or "" for none. It is given the last failure the start
+	// saw, and whether every start slot was taken, in which case the other
+	// starts may be what slowed this one.
+	Advice func(lastErr error, crowded bool) string
 }
 
 // Endpoint is where a started container is reached.
@@ -64,8 +66,17 @@ type Endpoint struct {
 // Start creates the container, pulling its image if the daemon does not
 // have it, starts it, finds where it is reached and waits until it is ready.
 // A start that fails removes the container.
+//
+// Beyond the start limit, a start first waits for another to finish. That
+// wait counts against ctx; the start timeout begins once it is over.
 func (c *Container) Start(ctx context.Context, spec Spec) (Endpoint, error) {
 	s := &start{c: c, spec: spec, ref: spec.Request.Image, host: spec.Host}
+	slots, release, err := takeSlot(ctx)
+	s.slots = slots
+	if err != nil {
+		return Endpoint{}, s.notReady(ctx, err, errWaitingForSlot)
+	}
+	defer release()
 	deadline, err := s.create(ctx)
 	if err != nil {
 		return Endpoint{}, err
@@ -82,6 +93,8 @@ type start struct {
 	c    *Container
 	spec Spec
 	ref  string
+	// slots are the start slots this start counts against.
+	slots chan struct{}
 	// host and port are where the container is reached, once known.
 	host string
 	port int
@@ -177,9 +190,10 @@ func (s *start) notReady(caller context.Context, cause, lastErr error) error {
 	err := &NotReadyError{
 		Name: s.c.name, ID: s.c.id, Host: s.host, Port: s.port, HostSource: s.spec.HostSource,
 		Timeout: s.spec.StartTimeout, ContextEnded: caller.Err() != nil, Cause: cause, LastErr: lastErr,
+		Running: len(s.slots),
 	}
 	if s.spec.Advice != nil {
-		err.advice = s.spec.Advice(lastErr)
+		err.advice = s.spec.Advice(lastErr, len(s.slots) == cap(s.slots))
 	}
 	return err
 }
