@@ -44,8 +44,9 @@
 // two TLS variables, as with the docker CLI. With WithHost no context is
 // used. The daemon's certificate is always verified, even when the context
 // sets SkipTLSVerify, because skipping it would let anyone on the network
-// pose as the daemon. A context that sets SkipTLSVerify and has no TLS files
-// is refused rather than sent plain HTTP.
+// pose as the daemon. A tcp:// context that sets SkipTLSVerify and has no
+// TLS files is refused rather than sent plain HTTP, unless DOCKER_TLS_VERIFY
+// is set.
 //
 // WithMobyClient wraps a *client.Client the caller already built, with its
 // own TLS, headers or transport. To use the moby client's own discovery,

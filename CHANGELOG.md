@@ -47,8 +47,9 @@ If you check for `ErrDaemonResponse` to catch these, check for
 - **The daemon's certificate is always verified, even when the context was
   made with `skip-tls-verify=true`,** which the `docker` CLI honours.
   Skipping it would let anyone on the network pose as the daemon. A context
-  made with `skip-tls-verify=true` and no TLS files is refused with
-  `ErrInvalidArgument` before anything is sent, rather than sent plain HTTP.
+  made with `skip-tls-verify=true`, a `tcp://` address and no TLS files is
+  refused with `ErrInvalidArgument` before anything is sent, rather than
+  sent plain HTTP, unless `DOCKER_TLS_VERIFY` turns TLS on.
 
 If you set `DOCKER_CERT_PATH` to files other than the context's, the
 context's files are now used: fix the context, or set `DOCKER_HOST` so that
@@ -64,15 +65,21 @@ files, `ErrInvalidArgument`: add the daemon's CA to the context as `ca=`.
   and no `DOCKER_TLS_VERIFY`. Before, it matched no sentinel, or
   `ErrDaemonResponse` when the port answered with TLS rather than HTTP, and
   the message suggested a malformed request or an API version mismatch.
+- **TLS sent to a daemon that speaks plain HTTP now matches
+  `ErrConnectionFailed` through either client,** and the message says how
+  to turn TLS off or use the daemon's TLS port. Before, it matched
+  `ErrDaemonResponse` or no sentinel.
 - **A connection that breaks partway through a request, with a broken pipe
   or a reset, now matches `ErrDaemonResponse`, not `ErrConnectionFailed`.**
-  The daemon was reached, so the message no longer says to start it. It
-  says to retry and check the daemon's logs.
+  Something answered, so the message no longer says to start the daemon. It
+  says to check that the daemon is still running and retry.
 - **A 403 from a proxy in front of the daemon, such as
   `tecnativa/docker-socket-proxy`, sets the new `StatusError.FromProxy`
   field.** The message names the refused request and the proxy settings
   that allow it, instead of quoting the proxy's HTML page and suggesting
-  `docker login`. It still matches `ErrUnauthorized`.
+  `docker login`. It still matches `ErrUnauthorized`. A refusal with an
+  HTML page, an empty body or JSON counts; one in plain text cannot be told
+  from the daemon's own message, so it does not.
 
 If you branch on `ErrConnectionFailed` to tell the user to start Docker, a
 connection broken partway through a request now arrives as

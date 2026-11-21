@@ -19,6 +19,7 @@ import (
 
 	"github.com/tophergopher/dbtest/dockerapi"
 	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/dockermock"
 	"github.com/tophergopher/dbtest/mobyclient"
 )
 
@@ -224,6 +225,10 @@ func tlsAlertServer(t *testing.T) string {
 			if err != nil {
 				return
 			}
+			// Read the request first, as a TLS server reads the ClientHello:
+			// an answer that arrives before the request is written is a
+			// different failure.
+			_, _ = conn.Read(make([]byte, 4096))
 			// A fatal protocol_version alert, as a TLS server sends to a
 			// client that does not speak TLS.
 			_, _ = conn.Write([]byte{0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x46})
@@ -282,6 +287,7 @@ func TestARefusalByAProxyIsToldFromTheDaemons(t *testing.T) {
 	}{
 		{"an HTML page", "text/html", "<html><body><h1>403 Forbidden</h1>\nRequest forbidden by administrative rules.\n</body></html>\n", true},
 		{"an empty body", "", "", true},
+		{"plain text, which mobyclient cannot tell from the daemon's message", "text/plain", "Forbidden", false},
 		{"the daemon's own JSON", "application/json", `{"message":"authorization denied by plugin authz"}`, false},
 	}
 	for _, tc := range cases {
@@ -303,5 +309,49 @@ func TestARefusalByAProxyIsToldFromTheDaemons(t *testing.T) {
 				assert.Equal(t, "/containers/create", status.Path, "the error names the refused path")
 			})
 		}
+	}
+}
+
+// A daemon run with --tlsverify refuses a client that has no certificate to
+// show. Over TLS 1.3 the client learns it from the daemon's alert, after the
+// handshake looked complete. No request reached the daemon.
+func TestADaemonThatRefusesTheClientCertificateIsAConnectionFailure(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			clearDockerEnv(t)
+			host, caPEM := trustedServer(t, writeClientCerts(t))
+			certs := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(certs, "ca.pem"), caPEM, 0o600), "trusting the server, with no client certificate")
+			t.Setenv("DOCKER_HOST", host)
+			t.Setenv("DOCKER_CERT_PATH", certs)
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			c, err := build()
+			require.NoError(t, err, "a client with TLS and no client certificate")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "the daemon refused the handshake, so no request reached it")
+		})
+	}
+}
+
+// TLS sent to a daemon that speaks plain HTTP never reaches its API either.
+func TestTLSToAPlainHTTPDaemonIsAConnectionFailure(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			clearDockerEnv(t)
+			d := dockermock.NewDaemon(dockermock.OverTCP())
+			t.Cleanup(d.Close)
+			t.Setenv("DOCKER_HOST", d.Host())
+			t.Setenv("DOCKER_CERT_PATH", writeClientCerts(t))
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			c, err := build()
+			require.NoError(t, err, "a client with TLS")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "the daemon does not speak TLS, so no request reached it")
+			assert.ErrorIs(t, err, http.ErrSchemeMismatch, "the cause stays in the chain")
+		})
 	}
 }

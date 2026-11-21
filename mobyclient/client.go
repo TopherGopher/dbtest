@@ -1,6 +1,8 @@
 package mobyclient
 
 import (
+	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -139,8 +141,8 @@ func hostOptions(given string) (host, contextDir string, opts []client.Opt, err 
 // trusted.
 func contextTLS(dir string) client.Opt {
 	ca := filepath.Join(dir, "ca.pem")
-	if !exists(ca) {
-		ca = ""
+	if _, err := os.Stat(ca); errors.Is(err, fs.ErrNotExist) {
+		ca = "" // a ca.pem that cannot be read is left for the moby client to refuse
 	}
 	cert, key := clientCert(dir)
 	return client.WithTLSClientConfig(ca, cert, key)
@@ -229,7 +231,8 @@ func constructError(host, contextDir string, err error) error {
 	}
 	if contextDir != "" {
 		return dockerclient.InvalidArgument("docker context TLS files", contextDir, err.Error(),
-			"recreate the context with `docker context create`, giving it the daemon's ca.pem and, if it asks for one, a client cert.pem and key.pem")
+			"update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` "+
+				"(`docker context ls` shows which is current), or set DOCKER_CONTEXT=default to stop using it")
 	}
 	return dockerclient.InvalidArgument("DOCKER_CERT_PATH", certDir(), err.Error(),
 		"point DOCKER_CERT_PATH at the directory holding ca.pem, and cert.pem and key.pem if the daemon wants a client certificate, "+

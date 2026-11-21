@@ -1,6 +1,7 @@
 package dockerapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -75,10 +76,17 @@ func newStatusError(resp *http.Response, method, path string) *StatusError {
 			msg = "the daemon gave no message"
 		}
 	}
-	// The daemon puts its own refusals in its JSON envelope. A 403 without
-	// one, such as an HTML page or no body at all, came from a proxy.
-	fromProxy := resp.StatusCode == http.StatusForbidden && !fromDaemon
+	fromProxy := resp.StatusCode == http.StatusForbidden && !fromDaemon && proxyBody(b)
 	return &StatusError{StatusCode: resp.StatusCode, Message: msg, Method: method, Path: path, FromProxy: fromProxy}
+}
+
+// proxyBody reports whether the body of a 403 without the daemon's message
+// is one a proxy sends: empty, an HTML page, or JSON. A plain-text body is
+// not counted, because mobyclient cannot tell it from the daemon's message,
+// and both clients must agree.
+func proxyBody(b []byte) bool {
+	b = bytes.TrimSpace(b)
+	return len(b) == 0 || b[0] == '<' || b[0] == '{'
 }
 
 // statusError is newStatusError, except that Go's answer to plain HTTP on a

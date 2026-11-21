@@ -175,7 +175,8 @@ func requestBody(method, path string, body any) (io.Reader, bool, error) {
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {
-		return nil, false, &ResponseError{Method: method, Path: path, Problem: "could not encode the request body", Err: err}
+		return nil, false, &ResponseError{Method: method, Path: path, Problem: "could not encode the request body", Err: err,
+			Fix: "Pass a value encoding/json can encode"}
 	}
 	return bytes.NewReader(buf), true, nil
 }
@@ -216,7 +217,8 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
-		return nil, &ResponseError{Method: method, Path: path, Problem: "could not build the request", Err: err}
+		return nil, &ResponseError{Method: method, Path: path, Problem: "could not build the request", Err: err,
+			Fix: "Check the daemon address in DOCKER_HOST or WithHost"}
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	if hasBody {

@@ -102,7 +102,8 @@ func mapError(host, method, path string, err error) error {
 		return dockerclient.RequestFailed(method, path, host, err)
 	}
 	return &dockerclient.ResponseError{Method: method, Path: path, Err: err,
-		Problem: "the docker daemon returned an error mobyclient could not classify"}
+		Problem: "the docker daemon returned an error mobyclient could not classify",
+		Fix:     "Check `docker version` against this client and any DOCKER_API_VERSION pin; the moby client's own message is above"}
 }
 
 // refusal builds the StatusError for a 403, and says whether a proxy in
@@ -112,12 +113,18 @@ func mapError(host, method, path string, err error) error {
 // message gets the moby client's own sentence instead.
 func refusal(method, path string, err error) *dockerclient.StatusError {
 	e := statusError(http.StatusForbidden, method, path, err)
-	for _, mark := range []string{"<", "request returned ", "API returned a "} {
-		if strings.HasPrefix(e.Message, mark) {
-			e.FromProxy = true
-		}
-	}
+	e.FromProxy = proxyMessage(e.Message)
 	return e
+}
+
+// proxyMessage reports whether the moby client's message for a 403 is a
+// proxy's page or one of its own sentences for an empty body or a JSON body
+// with no message. A plain-text body cannot be told from the daemon's own
+// message, so it is not counted.
+func proxyMessage(msg string) bool {
+	return strings.HasPrefix(msg, "<") ||
+		strings.HasPrefix(msg, "request returned ") ||
+		strings.HasPrefix(msg, "API returned a ")
 }
 
 // causeDropped reports whether err is a moby connection failure with no

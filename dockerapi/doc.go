@@ -73,8 +73,8 @@
 // context is used, so only the two variables apply. The daemon's
 // certificate is always verified, even when the context sets SkipTLSVerify,
 // because skipping it would let anyone on the network pose as the daemon.
-// A context that sets SkipTLSVerify and has no TLS files is refused rather
-// than sent plain HTTP.
+// A tcp:// context that sets SkipTLSVerify and has no TLS files is refused
+// rather than sent plain HTTP, unless DOCKER_TLS_VERIFY is set.
 //
 // # Podman
 //

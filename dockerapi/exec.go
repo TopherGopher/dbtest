@@ -109,7 +109,8 @@ func (c *Client) ExecStartTo(ctx context.Context, execID string, stdout, stderr 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader([]byte(execStartBody)))
 	if err != nil {
-		return &ResponseError{Method: http.MethodPost, Path: unversioned, Problem: "could not build the exec start request", Err: err}
+		return &ResponseError{Method: http.MethodPost, Path: unversioned, Problem: "could not build the exec start request", Err: err,
+			Fix: "Check the daemon address in DOCKER_HOST or WithHost"}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connection", "Upgrade")

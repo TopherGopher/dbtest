@@ -23,8 +23,9 @@ over TLS with them, as with the `docker` CLI, and `DOCKER_TLS_VERIFY` and
 `DOCKER_CERT_PATH` are ignored. A context has TLS files when it was made
 with, for example, `docker context create --docker "host=…,ca=…,cert=…,key=…"`.
 The daemon's certificate is always verified, even when the context was
-made with `skip-tls-verify=true`, and a context made that way with no TLS
-files is refused rather than sent plain HTTP. A client given an address with
+made with `skip-tls-verify=true`. A context made that way, with a `tcp://`
+address and no TLS files, is refused rather than sent plain HTTP, unless
+`DOCKER_TLS_VERIFY` is set. A client given an address with
 `WithHost` uses no context.
 
 | Variable | Read by | Effect |

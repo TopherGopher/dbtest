@@ -52,13 +52,15 @@
 //   - ErrInvalidArgument (InvalidArgumentError): a value was rejected before
 //     any request was sent. The message names the argument, the problem and
 //     the fix.
-//   - ErrConnectionFailed (ConnectionError): the daemon could not be reached.
+//   - ErrConnectionFailed (ConnectionError): the daemon could not be
+//     reached, or no TLS connection could be made with it.
 //   - ErrAPIVersion (APIVersionError): the client and daemon API windows do
 //     not overlap, or a feature needs a newer daemon.
 //   - ErrNotFound, ErrConflict, ErrUnauthorized (StatusError): the daemon
-//     answered 404, 409, or 401/403, with its own message and a hint.
-//   - ErrDaemonResponse (ResponseError): the daemon answered with a status or
-//     body the client could not interpret.
+//     answered 404, 409, or 401/403, with its own message and a hint, or a
+//     proxy in front of it refused the request (StatusError.FromProxy).
+//   - ErrDaemonResponse (ResponseError): the daemon's answer could not be
+//     used, or a request failed after its connection was made.
 //   - ErrStream (StreamError), ErrPull (PullError): an exec output stream or
 //     a pull progress stream reported a problem.
 //   - ErrRateLimited (StatusError or PullError): a registry refused a pull

@@ -647,3 +647,28 @@ func TestAContextThatSkipsTLSVerificationWithoutFilesIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// With DOCKER_TLS_VERIFY set, the same context gets verified TLS from
+// DOCKER_CERT_PATH, so nothing is sent in the clear and it is not refused.
+func TestAContextThatSkipsTLSVerificationIsUsedWithDockerTLSVerify(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host, caPEM := trustedServer(t, "")
+			writeContextMeta(t, configDir, "remote",
+				`{"Name":"remote","Endpoints":{"docker":{"Host":"`+host+`","SkipTLSVerify":true}}}`)
+			certs := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(certs, "ca.pem"), caPEM, 0o600), "trusting the server")
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			t.Setenv("DOCKER_CERT_PATH", certs)
+			t.Setenv("DOCKER_API_VERSION", "1.44") // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon is reached over TLS verified with DOCKER_CERT_PATH's ca.pem")
+		})
+	}
+}
