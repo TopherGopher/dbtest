@@ -19,6 +19,7 @@ var (
 	ErrNotMongod    = errNotMongod
 	ErrHelloRefused = errHelloRefused
 	ErrAuthUnknown  = errAuthUnknown
+	ErrMongodGone   = errMongodGone
 )
 
 // AddressInDoubt reports whether the error tells the caller how to correct

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -45,9 +46,11 @@ type Spec struct {
 	// Ready checks once whether the container is usable at host and port.
 	// Its error means not ready yet: the start asks again until the start
 	// timeout, and the last error becomes the LastErr of the NotReadyError.
-	// When whileOpen is not nil, Ready calls it once its own check passes,
-	// with the connection it checked on still open, and then checks again
-	// on that connection.
+	// If whileOpen is not nil, Ready calls it after its check passes,
+	// keeping that connection open. It then checks again on the same
+	// connection. An error from whileOpen is returned as Ready's. A Ready
+	// that never calls whileOpen still gets the image's health check, but
+	// without the second check.
 	Ready func(ctx context.Context, host string, port int, whileOpen func(context.Context) error) error
 	// AfterReady runs once the container is ready, within the same start
 	// timeout, for example to initiate a replica set. Its error is returned
@@ -359,20 +362,36 @@ func (s *start) ready(ctx context.Context, hasHealthCheck bool) error {
 	case s.spec.Ready == nil:
 		return nil
 	case hasHealthCheck:
-		return s.spec.Ready(ctx, s.host, s.port, s.settled)
+		return s.readyAndSettled(ctx)
 	}
 	return s.spec.Ready(ctx, s.host, s.port, nil)
 }
 
+// readyAndSettled runs the readiness check with settled as its whileOpen.
+// A Ready that returned nil without calling settled has not run the health
+// check, so it is run here.
+func (s *start) readyAndSettled(ctx context.Context) error {
+	var called atomic.Bool
+	whileOpen := func(ctx context.Context) error {
+		called.Store(true)
+		return s.settled(ctx)
+	}
+	if err := s.spec.Ready(ctx, s.host, s.port, whileOpen); err != nil || called.Load() {
+		return err
+	}
+	return s.healthy(ctx)
+}
+
 // settleDelay is how long the readiness check's connection is held open
 // after the health check passes. Atlas Local's health check can pass for a
-// moment while a mongod it is about to replace still answers. That mongod
-// stops within half a second, dropping its connections, so a connection
-// still open after settleDelay reached the one that stays.
-const settleDelay = time.Second
+// moment while the temporary mongod that Atlas Local is about to replace
+// still answers. That mongod stops soon after, dropping its connections, so
+// a connection still open after settleDelay is to the final mongod. The
+// delay leaves room for a host busy with other starts.
+const settleDelay = 3 * time.Second
 
-// settled checks the image's health check, then waits settleDelay, while
-// the readiness check holds its connection open.
+// settled runs the image's health check, then waits settleDelay, while the
+// readiness check holds its connection open.
 func (s *start) settled(ctx context.Context) error {
 	if err := s.healthy(ctx); err != nil {
 		return err

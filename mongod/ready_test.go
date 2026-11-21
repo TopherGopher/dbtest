@@ -278,11 +278,15 @@ func TestStartWaitsPastAMongodThatGoesAsTheHealthCheckPasses(t *testing.T) {
 			openMongod(conn) // the final mongod
 			return
 		}
-		defer conn.Close() // the mongod about to be replaced goes
+		defer conn.Close() // the temporary mongod goes
 		answerOne(conn, func(string) string { return okField })
 		select {
 		case <-passed:
 		case <-time.After(10 * time.Second):
+		}
+		// It still answers for a moment after the health check passes.
+		_ = conn.SetDeadline(time.Now().Add(300 * time.Millisecond))
+		for answerOne(conn, func(string) string { return okField }) {
 		}
 	})
 	var inspections atomic.Int32
@@ -301,6 +305,38 @@ func TestStartWaitsPastAMongodThatGoesAsTheHealthCheckPasses(t *testing.T) {
 
 	require.NoError(t, err, "the final mongod answers inside the timeout")
 	assert.GreaterOrEqual(t, connections.Load(), int32(2), "Start did not return on the connection that dropped")
+}
+
+// A connection that drops between the two hellos reached a temporary mongod.
+// If the start runs out of time then, the error says so, and does not
+// suggest that the address is wrong.
+func TestAMongodThatGoesBetweenTheTwoHellosDoesNotPutTheAddressInDoubt(t *testing.T) {
+	m, port := servingMock(t, func(conn net.Conn) {
+		defer conn.Close() // answers the first hello, then goes
+		answerOne(conn, func(string) string { return okField })
+	})
+	health(m, port, 2)
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(4*time.Second))
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "no connection stayed open, so the start ran out of time")
+	assert.ErrorIs(t, err, mongod.ErrMongodGone, "the error says the mongod that answered went away")
+	assert.NotErrorIs(t, err, mongod.ErrNoReply, "mongod did answer at that address")
+	var notReady *mongod.NotReadyError
+	require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+	assert.False(t, mongod.AddressInDoubt(notReady), "the error does not blame the address")
+}
+
+// With credentials, the check that mongod enforces them comes after the
+// health check, on the same connection.
+func TestAnImageWithAHealthCheckAndCredentialsIsReady(t *testing.T) {
+	m, port := authMock(t)
+	healthy := health(m, port, 2)
+
+	_, err := start(t, m, mongod.DefaultOptions().WithAuth("admin", "secret"))
+
+	require.NoError(t, err, "the check passes and mongod enforces the credentials")
+	assert.True(t, *healthy, "returned only once the image reported healthy")
 }
 
 func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {

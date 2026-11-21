@@ -138,6 +138,24 @@ func TestAStartWaitsForADeclaredHealthCheck(t *testing.T) {
 	assert.GreaterOrEqual(t, len(m.CallsTo("ContainerInspect")), 4, "and not before")
 }
 
+// A Ready hook that never calls whileOpen does not skip the image's health
+// check.
+func TestAReadyHookThatIgnoresWhileOpenStillWaitsForTheHealthCheck(t *testing.T) {
+	m := daemon(func(calls int) (dockerclient.ContainerInspect, error) {
+		if calls < 4 {
+			return inspected("starting"), nil
+		}
+		return inspected("healthy"), nil
+	})
+	s := spec(10 * time.Second)
+	s.Ready = func(context.Context, string, int, func(context.Context) error) error { return nil }
+
+	_, err := newContainer(m).Start(t.Context(), s)
+
+	require.NoError(t, err, "the start succeeds once the health check passes")
+	assert.GreaterOrEqual(t, len(m.CallsTo("ContainerInspect")), 4, "and not before")
+}
+
 func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {
 	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return inspected("starting"), nil })
 

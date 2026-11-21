@@ -92,8 +92,9 @@
 // user or a replica set first runs a temporary mongod, then replaces it;
 // the start waits for the final one, and for the image's own health check
 // if it declares one. That check can pass while the temporary mongod still
-// answers, so after it passes the start waits a second and asks mongod again
-// on the same connection. With [Options.WithReplicaSet] it also initiates the
+// answers. So once it passes, the start waits a few seconds and asks again
+// on the same connection. If that connection has dropped, the temporary
+// mongod has gone, and the start keeps waiting. With [Options.WithReplicaSet] it also initiates the
 // set and waits until it accepts writes.
 //
 // # Many containers at once

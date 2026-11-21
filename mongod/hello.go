@@ -63,6 +63,9 @@ var (
 	// errAuthUnknown: mongod answered the hello but did not say whether it
 	// enforces the credentials.
 	errAuthUnknown = errors.New("mongod did not say whether it enforces the credentials")
+	// errMongodGone: mongod answered, then went away before a second hello
+	// on the same connection, as a temporary mongod does.
+	errMongodGone = errors.New("mongod answered, then went away, as a temporary mongod does")
 )
 
 // helloMessage returns a complete hello command.
@@ -86,8 +89,8 @@ func commandMessage(id uint32, elements string) []byte {
 // port for a moment after the container starts, then accepts them and hangs
 // up while no mongod is listening behind it.
 //
-// When whileOpen is not nil, it runs once mongod has answered, and then the
-// same connection sends a second hello; see helloAgain. When the container
+// When whileOpen is not nil, it runs once mongod has answered, then it sends
+// a second hello on the same connection (see helloAgain). When the container
 // has credentials, the same connection then sends getCmdLineOpts without
 // them, to learn whether mongod enforces them.
 func (p readyProbe) ask(ctx context.Context, whileOpen func(context.Context) error) error {
@@ -120,14 +123,19 @@ func hello(conn net.Conn) error {
 }
 
 // helloAgain runs whileOpen, then sends a second hello on the same
-// connection. If the mongod that answered the first was about to be
-// replaced, the connection has dropped and the second gets no reply.
+// connection. If the mongod that answered the first hello was a temporary
+// one, the connection has dropped and the second fails with errMongodGone.
 func helloAgain(ctx context.Context, conn net.Conn, whileOpen func(context.Context) error) error {
 	if err := whileOpen(ctx); err != nil {
 		return err
 	}
 	_ = conn.SetDeadline(time.Now().Add(helloTimeout))
-	return hello(conn)
+	if err := hello(conn); err != nil {
+		// %v, not %w: mongod answered the first hello at this address, so
+		// this must not match errNoReply and put the address in doubt.
+		return fmt.Errorf("%w: %v", errMongodGone, err)
+	}
+	return nil
 }
 
 // checkAuth sends getCmdLineOpts on a connection that has not
