@@ -29,14 +29,14 @@ highest() {
 }
 
 if ! printf '%s\n' "$version" | grep -Eqx 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'; then
-	fail "the release's tag is \"$version\", not vX.Y.Z; tag modules by hand or publish a release named vX.Y.Z"
+	fail "the release's tag is \"$version\", not vX.Y.Z; delete that release and its tag, then publish a release whose tag is vX.Y.Z"
 fi
 
 git fetch --quiet --tags origin main
 commit=$(git rev-parse "refs/tags/$version^{commit}")
 
 if ! git merge-base --is-ancestor "$commit" origin/main; then
-	fail "$version names $commit, which is not on main; release the next patch version from main instead"
+	fail "$version names $commit, which is not on main; release the next patch version from a commit on main"
 fi
 # The tags from before the rename, up to v0.2.9, are versions of this module
 # path too, so a lower version would never be what "go get ...@latest" picks.
@@ -45,10 +45,10 @@ if [ "$(highest)" != "$version" ]; then
 fi
 for m in $modules; do
 	if [ "$(required "$commit" "$m")" != "$version" ]; then
-		fail "$m/go.mod at $version does not require $root $version; merge the version-bump pull request, then release the next patch version"
+		fail "$m/go.mod at $version does not require $root $version; open a pull request that makes the three modules require the next patch version, merge it, and release that version"
 	fi
 	if git rev-parse --quiet --verify "refs/tags/$m/$version" >/dev/null; then
-		fail "the tag $m/$version already exists"
+		fail "the tag $m/$version already exists; if it names $commit, an earlier run pushed it, and only the proxy step may need repeating"
 	fi
 done
 

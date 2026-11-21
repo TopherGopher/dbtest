@@ -60,8 +60,9 @@ Each module is released by its own tag, all with the same version: the root
 as `vX.Y.Z`, and the others with their directory as a prefix, such as
 `mongotest/vX.Y.Z`. A release is one pull request and one GitHub release.
 
-Choose a version above v0.2.9. The repository's tags from before the rename,
-up to v0.2.9, are versions of `github.com/tophergopher/dbtest` too, so a lower
+Choose a version above the highest existing `vX.Y.Z` tag. The tags made
+before the module was renamed from `github.com/tophergopher/mongotest`, up to
+v0.2.9, count as versions of `github.com/tophergopher/dbtest` too, and a lower
 version is never the one `go get ...@latest` picks. A pushed tag cannot be
 taken back, because the Go module proxy keeps what it has fetched.
 
@@ -76,9 +77,9 @@ taken back, because the Go module proxy keeps what it has fetched.
 
     The `replace` lines keep this building before `vX.Y.Z` is tagged.
 
-2. Straight after it merges, publish a GitHub release with a new tag `vX.Y.Z`
-   and, as its target, that pull request's merge commit. The release creates
-   the root module's tag. The Release workflow (`.github/workflows/release.yml`)
+2. Publish a GitHub release with a new tag `vX.Y.Z` and, as its target, that
+   pull request's merge commit. Publish it as a full release: the workflow
+   skips pre-releases. The release creates the root module's tag. The Release workflow (`.github/workflows/release.yml`)
    then checks that the commit is on `main`, that `vX.Y.Z` is the highest
    version tag, and that all three modules require it. It tags the three
    modules on the same commit, pushes the tags together, and asks the Go
@@ -86,8 +87,9 @@ taken back, because the Go module proxy keeps what it has fetched.
 
 If the run fails, its log says which check failed and what to do:
 
-- **A check on the commit failed:** the root tag is public and cannot be
-  reused. Fix the cause, then release the next patch version.
+- **A check failed:** nothing was pushed, but the root tag is public and
+  cannot be reused. Follow the log's advice, which is usually to release the
+  next patch version.
 - **The push failed:** re-run the job from the Actions page.
 - **Only the proxy step failed:** the tags are pushed. Ask the proxy again,
   for example with
@@ -96,7 +98,8 @@ If the run fails, its log says which check failed and what to do:
 If the workflow cannot run, for a release whose commit predates it or with
 Actions unavailable, tag the merge commit by hand instead. Before the push,
 check the output: the commit is on `main`, all three modules require `vX.Y.Z`,
-and all four tags name the commit.
+and all four tags name the commit. If a GitHub release already created
+`vX.Y.Z`, leave it out of the loop and the push.
 
 ```sh
 c=SHA-of-the-merge-commit
