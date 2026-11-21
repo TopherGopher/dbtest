@@ -64,9 +64,32 @@ func realLookup() lookup {
 // the failure comes when a client connects, as a connection error naming
 // that socket. On Windows it skips the search and returns Docker's named
 // pipe, as the docker CLI does. A client that uses this address should also
-// use the TLS files ContextTLSDir finds.
+// use the context's TLS files: ResolveDaemon finds both.
 func ResolveHost() (string, error) {
 	return resolveHostWith(realLookup(), configDir(os.Getenv))
+}
+
+// Daemon is the Docker daemon discovery found.
+type Daemon struct {
+	// Host is the daemon's address, in DOCKER_HOST form.
+	Host string
+	// TLSDir is the directory of the docker context's TLS files: ca.pem,
+	// and cert.pem and key.pem if the daemon wants a client certificate. It
+	// is "" when no context is used or the context has no TLS files.
+	TLSDir string
+}
+
+// ResolveDaemon finds the daemon's address as ResolveHost does, and the TLS
+// files of the docker context it came from. Both come from one reading of
+// the configuration, so they belong to the same context. Use the files in
+// place of DOCKER_TLS_VERIFY and DOCKER_CERT_PATH, as the docker CLI does.
+//
+// It returns an InvalidArgumentError when ResolveHost would, when the TLS
+// files cannot be read, or when a tcp:// context sets SkipTLSVerify, has no
+// TLS files and DOCKER_TLS_VERIFY is unset: the docker CLI would reach that
+// daemon over TLS without verifying it, and dbtest's clients always verify.
+func ResolveDaemon() (Daemon, error) {
+	return resolveDaemonWith(realLookup(), configDir(os.Getenv))
 }
 
 // resolveHost is resolveHostWith against the real machine, for callers that
@@ -97,35 +120,63 @@ func configDir(getenv func(string) string) string {
 	return filepath.Join(home, ".docker")
 }
 
-// resolveHostWith applies the discovery order: DOCKER_HOST, then
-// DOCKER_CONTEXT or currentContext from config.json (resolved through the
-// contexts store), then the platform default.
+// resolveHostWith is ResolveHost with the lookup passed in.
+func resolveHostWith(l lookup, configDir string) (string, error) {
+	f, err := findDaemon(l, configDir)
+	return f.host, err
+}
+
+// resolveDaemonWith is ResolveDaemon with the lookup passed in.
+func resolveDaemonWith(l lookup, configDir string) (Daemon, error) {
+	f, err := findDaemon(l, configDir)
+	if err != nil {
+		return Daemon{}, err
+	}
+	dir, err := contextTLSDir(l.getenv, configDir, f)
+	if err != nil {
+		return Daemon{}, err
+	}
+	return Daemon{Host: f.host, TLSDir: dir}, nil
+}
+
+// found is where discovery found the daemon.
+type found struct {
+	host string
+	// context names the docker context host came from, or is "" when none
+	// was used.
+	context string
+	// skipTLSVerify is that context's SkipTLSVerify setting.
+	skipTLSVerify bool
+}
+
+// findDaemon applies the discovery order: DOCKER_HOST, then DOCKER_CONTEXT
+// or currentContext from config.json (resolved through the contexts store),
+// then the platform default.
 //
 // The socket probe is part of that last step only. Configuration is the user
 // telling us where the daemon is, so a socket that happens to exist locally
 // must never overrule it.
-func resolveHostWith(l lookup, configDir string) (string, error) {
+func findDaemon(l lookup, configDir string) (found, error) {
 	if h := l.getenv("DOCKER_HOST"); h != "" {
-		return h, nil
+		return found{host: h}, nil
 	}
 	name, err := chosenContext(l.getenv, configDir)
 	if err != nil {
-		return "", err
+		return found{}, err
 	}
-	if name != "" {
-		return hostFromContext(configDir, name)
+	if name == "" {
+		host, err := defaultHostForLookup(l)
+		return found{host: host}, err
 	}
-	return defaultHostForLookup(l)
+	ep, err := contextDockerEndpoint(configDir, name)
+	return found{host: ep.Host, context: name, skipTLSVerify: ep.SkipTLSVerify}, err
 }
 
-// chosenContext names the docker context discovery takes the daemon from:
-// DOCKER_CONTEXT, else currentContext in config.json. It returns "" when
-// DOCKER_HOST is set or the context is "default", since then no context is
-// used.
+// chosenContext names the docker context discovery takes the daemon from
+// when DOCKER_HOST is unset: DOCKER_CONTEXT, else currentContext in
+// config.json. It returns "" when the context is "default", since then no
+// context is used.
 func chosenContext(getenv func(string) string, configDir string) (string, error) {
-	if getenv("DOCKER_HOST") != "" {
-		return "", nil
-	}
 	name := getenv("DOCKER_CONTEXT")
 	if name == "" {
 		var err error
@@ -139,29 +190,16 @@ func chosenContext(getenv func(string) string, configDir string) (string, error)
 	return name, nil
 }
 
-// ContextTLSDir returns the directory of the docker context that ResolveHost
-// uses, which holds its TLS files: ca.pem, and cert.pem and key.pem if the
-// daemon wants a client certificate. It returns "" when ResolveHost uses no
-// context, or the context has no TLS files. Use these files in place of
-// DOCKER_TLS_VERIFY and DOCKER_CERT_PATH, as the docker CLI does. The
-// context's SkipTLSVerify setting is not reported, because dbtest's clients
-// always verify. It returns an InvalidArgumentError when the configuration
-// cannot be read, or when a tcp:// context sets SkipTLSVerify, has no TLS
-// files and DOCKER_TLS_VERIFY is unset: the docker CLI would reach it over
-// TLS without verifying it.
-func ContextTLSDir() (string, error) {
-	return contextTLSDir(os.Getenv, configDir(os.Getenv))
-}
-
-// contextTLSDir is ContextTLSDir with the environment passed in.
-func contextTLSDir(getenv func(string) string, configDir string) (string, error) {
-	name, err := chosenContext(getenv, configDir)
-	if err != nil || name == "" {
-		return "", err
+// contextTLSDir returns the directory of the TLS files of the context the
+// daemon was found through, or "" if there is none.
+func contextTLSDir(getenv func(string) string, configDir string, f found) (string, error) {
+	if f.context == "" {
+		return "", nil
 	}
+	name := f.context
 	dir := filepath.Join(configDir, "contexts", "tls", contextID(name), "docker")
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
-		return "", refuseSkipVerify(getenv, configDir, name)
+		return "", refuseSkipVerify(getenv, f)
 	}
 	// Stat on ca.pem, not on the directory, because only it needs the
 	// directory to be searchable. Going on without the files would send a
@@ -179,22 +217,18 @@ func contextTLSDir(getenv func(string) string, configDir string) (string, error)
 // not turn TLS on. The docker CLI reaches such a context over TLS without
 // checking the daemon's certificate. dbtest never skips the check, and must
 // not send the requests in the clear instead.
-func refuseSkipVerify(getenv func(string) string, configDir, name string) error {
-	if getenv("DOCKER_TLS_VERIFY") != "" {
+func refuseSkipVerify(getenv func(string) string, f found) error {
+	if getenv("DOCKER_TLS_VERIFY") != "" || !skipsVerifyInTheClear(f) {
 		return nil
 	}
-	ep, err := contextDockerEndpoint(configDir, name)
-	if err != nil || !skipsVerifyInTheClear(ep) {
-		return err
-	}
-	return InvalidArgument("docker context", name, "it skips TLS verification, which dbtest never does",
-		"give the context the daemon's CA with `docker context update "+name+" --docker host=<address>,ca=<path>`, or set DOCKER_HOST")
+	return InvalidArgument("docker context", f.context, "it skips TLS verification, which dbtest never does",
+		"give the context the daemon's CA with `docker context update "+f.context+" --docker host=<address>,ca=<path>`, or set DOCKER_HOST")
 }
 
-// skipsVerifyInTheClear reports whether an endpoint skips TLS verification
-// at an address dbtest would otherwise reach without TLS.
-func skipsVerifyInTheClear(ep contextEndpoint) bool {
-	return ep.SkipTLSVerify && plainTCP(ep.Host)
+// skipsVerifyInTheClear reports whether a context skips TLS verification at
+// an address dbtest would otherwise reach without TLS.
+func skipsVerifyInTheClear(f found) bool {
+	return f.skipTLSVerify && plainTCP(f.host)
 }
 
 // contextID is the name of a context's directories in the contexts store:
@@ -254,13 +288,6 @@ func currentContext(configDir string) (string, error) {
 		return "", InvalidArgument("docker config file", path, "it is not valid JSON ("+err.Error()+")", "repair the file, or set DOCKER_HOST to bypass context lookup")
 	}
 	return cfg.CurrentContext, nil
-}
-
-// hostFromContext resolves a named docker context to its docker endpoint's
-// address.
-func hostFromContext(configDir, name string) (string, error) {
-	ep, err := contextDockerEndpoint(configDir, name)
-	return ep.Host, err
 }
 
 // contextDockerEndpoint reads a named docker context's docker endpoint from

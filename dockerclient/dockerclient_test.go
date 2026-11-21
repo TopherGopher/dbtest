@@ -207,9 +207,9 @@ func TestARateLimitMatchesErrRateLimitedHoweverItArrives(t *testing.T) {
 }
 
 // A docker context saves its daemon's TLS files where `docker context
-// create` puts them. ContextTLSDir finds them for the context discovery
-// uses, and only then.
-func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
+// create` puts them. ResolveDaemon finds them for the context discovery
+// uses, and only then, with that context's address.
+func TestResolveDaemonFindsTheChosenContextsFiles(t *testing.T) {
 	setup := func(t *testing.T, withTLS bool) (configDir, tlsDir string) {
 		for _, name := range []string{"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY"} {
 			t.Setenv(name, "")
@@ -233,31 +233,33 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 	t.Run("a context with TLS files", func(t *testing.T) {
 		_, want := setup(t, true)
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Equal(t, want, dir, "the context's TLS directory is found")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", TLSDir: want}, daemon,
+			"the context's address and TLS directory are found together")
 	})
 	t.Run("the current context in config.json", func(t *testing.T) {
 		configDir, want := setup(t, true)
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"currentContext":"remote"}`), 0o644), "writing config.json")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Equal(t, want, dir, "the current context's TLS directory is found")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", TLSDir: want}, daemon,
+			"the current context's address and TLS directory are found together")
 	})
 	t.Run("a context with no TLS files", func(t *testing.T) {
 		setup(t, false)
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Empty(t, dir, "a context without TLS files has none to use")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376"}, daemon, "a context without TLS files has none to use")
 	})
 	t.Run("DOCKER_HOST overrides the context", func(t *testing.T) {
 		setup(t, true)
 		t.Setenv("DOCKER_CONTEXT", "remote")
 		t.Setenv("DOCKER_HOST", "tcp://other:2376")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "nothing needs reading")
-		assert.Empty(t, dir, "the context is not used, so neither are its files")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://other:2376"}, daemon, "the context is not used, so neither are its files")
 	})
 	t.Run("a context that skips TLS verification with no TLS files", func(t *testing.T) {
 		configDir, _ := setup(t, false)
@@ -265,7 +267,7 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "contexts", "meta", hex.EncodeToString(sum[:]), "meta.json"),
 			[]byte(`{"Name":"remote","Endpoints":{"docker":{"Host":"tcp://build-host:2376","SkipTLSVerify":true}}}`), 0o644), "writing the context")
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		_, err := dockerclient.ContextTLSDir()
+		_, err := dockerclient.ResolveDaemon()
 		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "dbtest never skips verification, and will not send plain HTTP instead")
 	})
 	t.Run("a ca.pem that cannot be read", func(t *testing.T) {
@@ -277,13 +279,13 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 		require.NoError(t, os.Remove(ca), "removing ca.pem")
 		require.NoError(t, os.Symlink(ca, ca), "making ca.pem a link to itself, which even root cannot read")
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		_, err := dockerclient.ContextTLSDir()
+		_, err := dockerclient.ResolveDaemon()
 		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "going on without the files could send requests in the clear")
 	})
 	t.Run("a broken config.json", func(t *testing.T) {
 		configDir, _ := setup(t, true)
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing config.json")
-		_, err := dockerclient.ContextTLSDir()
+		_, err := dockerclient.ResolveDaemon()
 		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a configuration that cannot be read is a problem to fix, as it is for ResolveHost")
 	})
 }

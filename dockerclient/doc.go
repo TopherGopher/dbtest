@@ -4,9 +4,9 @@
 // It lets callers depend on an interface rather than on one particular
 // Docker client. Every implementation reports the same errors for the same
 // conditions. Every client that connects to a daemon finds it with
-// ResolveHost, so they find the same daemon. Only ResolveHost and ConfigDir
-// read the environment, and only ResolveHost connects to local sockets to
-// see which answers.
+// ResolveDaemon, so they find the same daemon. Only ResolveDaemon,
+// ResolveHost and ConfigDir read the environment, and only the first two
+// connect to local sockets to see which answers.
 //
 // # Choosing an implementation
 //

@@ -114,17 +114,16 @@ func New(opts ...Option) (*Client, error) {
 
 // hostOptions returns the daemon's address, the directory of the docker
 // context's TLS files if they are used, and the moby options that reach it.
-// The address is the one given, or else the one dockerclient.ResolveHost
+// The address is the one given, or else the one dockerclient.ResolveDaemon
 // finds.
 func hostOptions(given string) (host, contextDir string, opts []client.Opt, err error) {
 	host = given
 	if host == "" {
-		if host, err = dockerclient.ResolveHost(); err != nil {
+		var daemon dockerclient.Daemon
+		if daemon, err = dockerclient.ResolveDaemon(); err != nil {
 			return "", "", nil, err
 		}
-		if contextDir, err = dockerclient.ContextTLSDir(); err != nil {
-			return "", "", nil, err
-		}
+		host, contextDir = daemon.Host, daemon.TLSDir
 	}
 	opts = []client.Opt{client.WithHost(host), client.WithAPIVersionFromEnv()}
 	switch {

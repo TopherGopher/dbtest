@@ -11,34 +11,32 @@ import (
 	"github.com/tophergopher/dbtest/dockerclient"
 )
 
-// resolveHost finds the daemon; tests replace it.
-var resolveHost = dockerclient.ResolveHost
+// resolveDaemon finds the daemon; tests replace it.
+var resolveDaemon = dockerclient.ResolveDaemon
 
-// resolveHostFromEnv finds the daemon as dockerclient.ResolveHost does.
-// This client cannot open a named pipe, so in place of Docker's default one
-// it finds an endpoint it can dial, or returns ErrNoWindowsEndpoint. A pipe
-// the caller chose is kept, so that parsing it says it cannot be used.
-func resolveHostFromEnv() (string, error) {
-	host, err := resolveHost()
-	if err != nil || host != dockerDefaultPipe {
-		return host, err
+// discover finds the daemon as dockerclient.ResolveDaemon does. This client
+// cannot open a named pipe, so in place of Docker's default one it finds an
+// endpoint it can dial, or returns ErrNoWindowsEndpoint. A pipe the caller
+// chose is kept, so that parsing it says it cannot be used.
+func discover() (dockerclient.Daemon, error) {
+	daemon, err := resolveDaemon()
+	if err != nil || daemon.Host != dockerDefaultPipe {
+		return daemon, err
 	}
-	return windowsFallback(probeWindows())
+	daemon.Host, err = windowsFallback(probeWindows())
+	return daemon, err
 }
 
 // dockerDefaultPipe is the Docker daemon's default address on Windows.
 const dockerDefaultPipe = "npipe:////./pipe/docker_engine"
 
 // defaultTLSConfig returns the TLS settings for a tcp endpoint with no
-// WithTLSConfig: those of the docker context the host was discovered
-// through, else those from the environment, else TLS against the system's
-// roots for an https:// address, else none.
-func defaultTLSConfig(ep endpoint, discovered bool) (*tls.Config, error) {
-	if discovered {
-		dir, err := dockerclient.ContextTLSDir()
-		if err != nil || dir != "" {
-			return tlsConfigFromContext(dir, err)
-		}
+// WithTLSConfig: those in contextTLSDir, the TLS directory of the docker
+// context the host was discovered through, else those from the environment,
+// else TLS against the system's roots for an https:// address, else none.
+func defaultTLSConfig(ep endpoint, contextTLSDir string) (*tls.Config, error) {
+	if contextTLSDir != "" {
+		return tlsConfigFromContext(contextTLSDir)
 	}
 	cfg, err := tlsConfigFromEnv(os.Getenv)
 	if cfg == nil && err == nil && ep.tls {
@@ -52,13 +50,9 @@ func defaultTLSConfig(ep endpoint, discovered bool) (*tls.Config, error) {
 const contextTLSFix = "update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` " +
 	"(`docker context ls` shows which is current), or set DOCKER_CONTEXT=default to stop using it"
 
-// tlsConfigFromContext loads the TLS files in a docker context's directory,
-// or returns err from finding it. As with the docker CLI, ca.pem is
-// optional.
-func tlsConfigFromContext(dir string, err error) (*tls.Config, error) {
-	if err != nil {
-		return nil, err
-	}
+// tlsConfigFromContext loads the TLS files in a docker context's
+// directory. As with the docker CLI, ca.pem is optional.
+func tlsConfigFromContext(dir string) (*tls.Config, error) {
 	return tlsConfigFromDir(dir, false, func(problem, _ string) error {
 		return invalidArg("docker context TLS files", dir, problem, contextTLSFix)
 	})

@@ -107,11 +107,11 @@ func TestIntegrationDiscoveryFindsTheRunningDaemon(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "")            // ignore any configured daemon,
 	t.Setenv("DOCKER_CONTEXT", "")         // any context named in the environment,
 	t.Setenv("DOCKER_CONFIG", t.TempDir()) // and any context in the config file
-	host, err := resolveHostFromEnv()
+	daemon, err := discover()
 	require.NoError(t, err, "discovery must succeed on a machine with a daemon running")
-	t.Logf("discovered %s", host)
+	t.Logf("discovered %s", daemon.Host)
 
-	c, err := New(WithHost(host))
+	c, err := New(WithHost(daemon.Host))
 	require.NoError(t, err, "the discovered host must build a client")
 	require.NoError(t, c.Negotiate(context.Background()), "the discovered host must be a daemon that answers GET /version")
 	assert.NotEqual(t, RuntimeUnknown, c.Runtime(), "the discovered daemon must identify itself")
