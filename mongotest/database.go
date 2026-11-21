@@ -13,9 +13,9 @@ import (
 )
 
 // DatabaseFor returns a new database that only this test uses, and drops it
-// when the test ends. Tests that share a server, such as one started in
-// TestMain or one reached with Attach, each call it once and pass the
-// database on: every call returns another database.
+// when the test ends. It is for tests that share a server, such as one
+// started in TestMain or one reached with Attach. Call it once per test and
+// pass the database on, because each call returns a different database.
 //
 // The database's name is built from the test's name, so it can be recognised
 // in the server's logs, and ends in a random part, so no two tests share one.
@@ -53,9 +53,9 @@ func drop(db *mongo.Database) error {
 const maxDatabaseName = 63
 
 // databaseName returns a database name for a test: the test's name, cut
-// short, then a random ending. The ending keeps apart two tests of one name,
-// names that differ only in case, which the server will not hold side by
-// side, and the same test in another process.
+// short, then a random ending. The ending keeps apart two tests with the same
+// name, names that differ only in case (the server will not hold both), and
+// the same test run in another process.
 func databaseName(test string) string {
 	random := make([]byte, 4)
 	rand.Read(random) // never fails: see crypto/rand.Read

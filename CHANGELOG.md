@@ -7,17 +7,16 @@ what to do if it affects you.
 
 ### Tests that share a server each get a database of their own
 
-Only code copied from the guides' snippet for a database per test needs to
-change.
+Only code that names a database after `t.Name()`, as the guides used to
+show, needs to change.
 
 - **`Instance.DatabaseFor(t)` is new.** It returns a new database that only
   that test uses, and drops it when the test ends. The name is built from the
-  test's name, with every character the server refuses replaced, and ends in
-  a random part, so no two tests share one.
-- **If you copied the guides' snippet for a database per test, replace it
-  with `DatabaseFor`.** The snippet used the test's name as the database's
-  name, which the server refuses if it holds a dot, a `$` or a double quote,
-  or is longer than 63 bytes.
+  test's name, with anything but letters, digits, `-` and `_` replaced, cut to
+  fit the server's limit. It ends in a random part, so no two tests share one.
+- **If you name a database after `t.Name()`, as the guides used to show, call
+  `DatabaseFor` instead.** The server refuses such a name if the test's name
+  holds a dot, a `$` or a double quote, or is longer than 63 bytes.
 - **The guides now show one server for a whole package,** started in
   `TestMain`: see
   [A container per package](https://tophergopher.github.io/dbtest/guides/parallel-tests/#a-container-per-package).

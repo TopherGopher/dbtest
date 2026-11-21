@@ -47,8 +47,7 @@ func TestMain(m *testing.M) {
 }
 ```
 
-`TestMain` returns rather than calling `os.Exit`, which would skip the
-deferred `Stop`.
+Let `TestMain` return. Calling `os.Exit` would skip the deferred `Stop`.
 [A container per package](parallel-tests.md#a-container-per-package) says
 more, and shows the tests that go with it.
 

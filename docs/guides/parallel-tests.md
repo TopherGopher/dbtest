@@ -66,9 +66,9 @@ func TestRosterQueries(t *testing.T) {
 }
 ```
 
-`DatabaseFor` builds the database's name from the case's name, with every
-character the server refuses replaced, and ends it in a random part, so no
-two cases share one.
+`DatabaseFor` builds the database's name from the case's name, with anything
+but letters, digits, `-` and `_` replaced, cut to fit the server's limit. The
+name ends in a random part, so no two cases share one.
 
 !!! note "Why cleanup order matters here"
     `Run` registered the container's removal on the outer test, so it runs
