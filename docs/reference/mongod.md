@@ -284,8 +284,8 @@ name. A later start with the same option finds the data again, and
 
 Nothing in dbtest removes the volume: not `Stop`, not the signal handler and
 not `ReapRunningContainers`. Remove it with `docker volume rm <name>`. Before
-a container on a volume is removed, `mongod` is asked to write what it holds
-to disk, so the last writes are kept.
+a container on a volume is removed, `mongod` is shut down cleanly, so its
+last writes are kept.
 
 The volume keeps what its first start set up:
 

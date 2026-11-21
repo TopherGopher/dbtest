@@ -57,8 +57,9 @@ type Spec struct {
 	// as BeforeStart's is.
 	AfterReady func(ctx context.Context) error
 	// BeforeRemove runs before Stop or the reaper removes the container,
-	// for example to have the server write what it holds to a volume that
-	// outlives the container. It is not run for a start that failed.
+	// for example to shut the server down cleanly when its data is on a
+	// volume that outlives the container. It is not run for a start that
+	// failed.
 	BeforeRemove func(ctx context.Context)
 	// Advice returns the sentence a NotReadyError ends with when the start
 	// timeout passed, or "" for none. It is given the last failure the start

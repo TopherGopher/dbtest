@@ -145,9 +145,9 @@ func volumeOf(t testing.TB, opts mongod.Options) string {
 }
 
 // Removing a container kills mongod, which loses writes it has acknowledged
-// but not yet flushed. On a kept volume a later start would miss them, so
-// every removal asks mongod to flush first.
-func TestEveryRemovalFlushesAKeptVolumeFirst(t *testing.T) {
+// but not yet journaled. On a kept volume a later start would miss them, so
+// every removal shuts mongod down cleanly first.
+func TestEveryRemovalShutsMongodDownFirstOnAKeptVolume(t *testing.T) {
 	removals := map[string]func(*mongod.Container) error{
 		"Stop":                  func(c *mongod.Container) error { return c.Stop(context.Background()) },
 		"ReapRunningContainers": func(*mongod.Container) error { return mongod.ReapRunningContainers(context.Background()) },
@@ -161,23 +161,23 @@ func TestEveryRemovalFlushesAKeptVolumeFirst(t *testing.T) {
 
 			calls := methods(m.Calls())
 			require.Contains(t, calls, "ContainerRemove", "the container is removed")
-			assert.Contains(t, calls[:slices.Index(calls, "ContainerRemove")], "Exec", "after mongod was asked to flush")
+			assert.Contains(t, calls[:slices.Index(calls, "ContainerRemove")], "Exec", "after mongod was asked to shut down")
 		})
 	}
 }
 
-func TestAContainerWithoutAVolumeIsRemovedWithoutAFlush(t *testing.T) {
+func TestAContainerWithoutAVolumeIsRemovedWithoutAShutdown(t *testing.T) {
 	m, _ := readyMock(t)
 	c := mustStart(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, c.Stop(context.Background()), "the stop succeeds")
 
-	assert.Empty(t, m.CallsTo("Exec"), "its data goes with it, so there is nothing to flush")
+	assert.Empty(t, m.CallsTo("Exec"), "its data goes with it, so there is nothing to keep")
 }
 
-// A flush is a courtesy: a container whose mongod cannot answer is still
-// removed.
-func TestAFlushThatFailsDoesNotStopTheRemoval(t *testing.T) {
+// The shutdown is a courtesy: a container whose mongod cannot be shut down
+// is still removed.
+func TestAShutdownThatFailsDoesNotStopTheRemoval(t *testing.T) {
 	m, _ := readyMock(t)
 	c := mustStart(t, m, mongod.DefaultOptions().WithNamedVolume("cart-tests"))
 	m.ExecFunc = func(context.Context, string, ...string) (dockerclient.ExecResult, error) {

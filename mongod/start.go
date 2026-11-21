@@ -2,6 +2,8 @@ package mongod
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -200,7 +202,7 @@ func (c *Container) spec(cfg config, r reach) container.Spec {
 		BeforeStart:  c.beforeStart(cfg),
 		Ready:        c.ready(cfg),
 		AfterReady:   c.afterReady(cfg),
-		BeforeRemove: c.flushBeforeRemove(cfg),
+		BeforeRemove: c.shutdownBeforeRemove(cfg),
 		Advice:       cfg.notReadyAdvice,
 	}
 }
@@ -271,30 +273,30 @@ func (c *Container) afterReady(cfg config) func(context.Context) error {
 	}
 }
 
-// flushTimeout bounds the flush before a container on a kept volume is
-// removed, so a mongod that cannot answer holds up the removal only briefly.
-const flushTimeout = 10 * time.Second
+// shutdownTimeout bounds the clean shutdown before a container on a kept
+// volume is removed, so a mongod that cannot answer holds up the removal
+// only briefly.
+const shutdownTimeout = 10 * time.Second
 
-// flushScript has mongod write everything it has acknowledged to disk.
-const flushScript = `db.adminCommand({fsync: 1}).ok`
-
-// flushBeforeRemove has mongod flush before a container on a kept volume is
-// removed. Removing it kills mongod, which loses the writes of about the
-// last tenth of a second: acknowledged, but not yet in its journal. A flush
-// that fails is logged, and the removal goes ahead.
-func (c *Container) flushBeforeRemove(cfg config) func(context.Context) {
+// shutdownBeforeRemove shuts mongod down cleanly before a container on a
+// kept volume is removed. Removing it kills mongod, which loses the writes
+// of about the last tenth of a second: acknowledged, but not yet in its
+// journal. mongod --shutdown signals the process named in the data
+// directory's lock file, so it needs no credentials. If it fails, the
+// failure is logged and the removal goes ahead.
+func (c *Container) shutdownBeforeRemove(cfg config) func(context.Context) {
 	if cfg.volume == "" {
 		return nil
 	}
 	return func(ctx context.Context) {
-		ctx, cancel := context.WithTimeout(ctx, flushTimeout)
+		ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 		defer cancel()
-		result, err := c.runShell(ctx, flushScript)
+		result, err := c.docker.Exec(ctx, c.ID(), "mongod", "--shutdown", "--dbpath", dataDir)
 		if err == nil && result.ExitCode != 0 {
-			err = result.failure()
+			err = fmt.Errorf("mongod --shutdown exited with code %d: %s", result.ExitCode, strings.TrimSpace(result.Stdout+" "+result.Stderr))
 		}
 		if err != nil {
-			c.logger.Warn("mongod could not be made to flush its data before the container was removed, so the volume may lack the last writes.",
+			c.logger.Warn("mongod could not be shut down cleanly before the container was removed, so the volume may lack the last writes.",
 				"container", c.Name(), "volume", cfg.volume, "error", err)
 		}
 	}
