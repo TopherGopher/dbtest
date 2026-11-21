@@ -44,7 +44,7 @@ func (c *Client) ImagePull(ctx context.Context, ref string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return newStatusError(resp, http.MethodPost, "/images/create")
+		return c.statusError(resp, http.MethodPost, "/images/create")
 	}
 	return drainPullStream(bufio.NewScanner(resp.Body), ref)
 }

@@ -3,6 +3,7 @@ package dockerclient
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -102,4 +103,36 @@ func TestDefaultHost(t *testing.T) {
 // platform and the probes.
 func defaultHostFor(goos string, getenv func(string) string, dialable func(path string) bool) (string, error) {
 	return defaultHostForLookup(lookup{goos: goos, getenv: getenv, dialable: dialable})
+}
+
+// A context's meta.json is whatever is on disk, so reading its docker
+// endpoint must never panic, and must either fail as an invalid argument or
+// give an address.
+func FuzzContextDockerEndpoint(f *testing.F) {
+	for _, seed := range []string{
+		`{"Name":"remote","Endpoints":{"docker":{"Host":"tcp://build-host:2376","SkipTLSVerify":true}}}`,
+		`{"Endpoints":{"docker":{"Host":""}}}`,
+		`{"Endpoints":{"docker":{"SkipTLSVerify":"yes"}}}`,
+		`{"Endpoints":null}`,
+		`[]`, ``, `{`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, meta string) {
+		configDir := t.TempDir()
+		dir := filepath.Join(configDir, "contexts", "meta", contextID("remote"))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ep, err := contextDockerEndpoint(configDir, "remote")
+		if err != nil && !errors.Is(err, ErrInvalidArgument) {
+			t.Fatalf("meta.json %q failed with %v, which is not an invalid argument", meta, err)
+		}
+		if err == nil && ep.Host == "" {
+			t.Fatalf("meta.json %q gave no address and no error", meta)
+		}
+	})
 }

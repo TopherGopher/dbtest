@@ -47,10 +47,16 @@ func clearDockerEnv(t *testing.T) string {
 // config directory, as `docker context create` does.
 func writeContext(t *testing.T, configDir, name, host string) {
 	t.Helper()
+	writeContextMeta(t, configDir, name, `{"Name":"`+name+`","Endpoints":{"docker":{"Host":"`+host+`"}}}`)
+}
+
+// writeContextMeta saves meta as the meta.json of the docker context named
+// name.
+func writeContextMeta(t *testing.T, configDir, name, meta string) {
+	t.Helper()
 	sum := sha256.Sum256([]byte(name))
 	dir := filepath.Join(configDir, "contexts", "meta", hex.EncodeToString(sum[:]))
 	require.NoError(t, os.MkdirAll(dir, 0o755), "creating the context's directory")
-	meta := `{"Name":"` + name + `","Endpoints":{"docker":{"Host":"` + host + `"}}}`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644), "writing the context")
 }
 
@@ -423,4 +429,288 @@ func TestDockerTLSVerifyAloneUsesTheConfigDirectory(t *testing.T) {
 	t.Setenv("DOCKER_TLS_VERIFY", "1")
 
 	assert.NoError(t, reachesOverTLS(t), "the server is trusted through the ca.pem in the config directory")
+}
+
+// contextTLSPath is where `docker context create` puts the TLS files of
+// the context named name.
+func contextTLSPath(configDir, name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return filepath.Join(configDir, "contexts", "tls", hex.EncodeToString(sum[:]), "docker")
+}
+
+// writeContextTLS saves files as the TLS files of the docker context named
+// name, where `docker context create` puts them.
+func writeContextTLS(t *testing.T, configDir, name string, files map[string][]byte) {
+	t.Helper()
+	dir := contextTLSPath(configDir, name)
+	require.NoError(t, os.MkdirAll(dir, 0o700), "creating the context's TLS directory")
+	for file, data := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, file), data, 0o600), "writing %s", file)
+	}
+}
+
+// readCerts reads the ca.pem, cert.pem and key.pem in dir.
+func readCerts(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	files := map[string][]byte{}
+	for _, file := range []string{"ca.pem", "cert.pem", "key.pem"} {
+		data, err := os.ReadFile(filepath.Join(dir, file))
+		require.NoError(t, err, "reading %s", file)
+		files[file] = data
+	}
+	return files
+}
+
+// A docker context created with TLS files reaches its daemon over TLS, as
+// the docker CLI does, with no TLS variables set. Its ca.pem decides which
+// daemon is trusted, and its cert.pem and key.pem are the client
+// certificate.
+func TestAContextsTLSFilesAreUsed(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run("a daemon the context's CA signed/"+client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			certs := writeClientCerts(t)
+			host, caPEM := trustedServer(t, certs)
+			files := readCerts(t, certs)
+			files["ca.pem"] = caPEM
+			writeContext(t, configDir, "remote", host)
+			writeContextTLS(t, configDir, "remote", files)
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_API_VERSION", "1.44") // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon accepts the context's client certificate, and the client trusts the daemon through the context's ca.pem")
+		})
+		for name, skip := range map[string]string{"": "false", " even with SkipTLSVerify": "true"} {
+			t.Run("a daemon another CA signed"+name+"/"+client, func(t *testing.T) {
+				configDir := clearDockerEnv(t)
+				host := tlsServer(t)
+				writeContextMeta(t, configDir, "remote",
+					`{"Name":"remote","Endpoints":{"docker":{"Host":"`+host+`","SkipTLSVerify":`+skip+`}}}`)
+				writeContextTLS(t, configDir, "remote", readCerts(t, writeClientCerts(t)))
+				t.Setenv("DOCKER_CONTEXT", "remote")
+				c, err := build()
+				require.NoError(t, err, "a client for the context")
+
+				_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+				assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a daemon the context's CA did not sign is not used")
+				var unknownCA x509.UnknownAuthorityError
+				assert.ErrorAs(t, err, &unknownCA, "the daemon was checked against the context's ca.pem")
+			})
+		}
+		t.Run("no ca.pem/"+client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host := tlsServer(t)
+			files := readCerts(t, writeClientCerts(t))
+			delete(files, "ca.pem")
+			writeContext(t, configDir, "remote", host)
+			writeContextTLS(t, configDir, "remote", files)
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			c, err := build()
+			require.NoError(t, err, "a context's ca.pem is optional")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			var unknownCA x509.UnknownAuthorityError
+			assert.ErrorAs(t, err, &unknownCA, "without ca.pem the daemon is checked against the system's roots, which do not hold the test CA")
+		})
+	}
+}
+
+// As with the docker CLI, a context's TLS files win over DOCKER_TLS_VERIFY
+// and DOCKER_CERT_PATH.
+func TestAContextsTLSFilesWinOverTheEnvironment(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host, caPEM := trustedServer(t, "")
+			writeContext(t, configDir, "remote", host)
+			writeContextTLS(t, configDir, "remote", map[string][]byte{"ca.pem": caPEM})
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			t.Setenv("DOCKER_CERT_PATH", writeClientCerts(t)) // a CA that did not sign the daemon
+			t.Setenv("DOCKER_API_VERSION", "1.44")            // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon is trusted through the context's ca.pem, not DOCKER_CERT_PATH's")
+		})
+		t.Run("DOCKER_CERT_PATH without its files/"+client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			writeContext(t, configDir, "remote", "tcp://build-host:2376")
+			writeContextTLS(t, configDir, "remote", readCerts(t, writeClientCerts(t)))
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			t.Setenv("DOCKER_CERT_PATH", t.TempDir()) // holds no ca.pem
+
+			_, err := build()
+
+			assert.NoError(t, err, "DOCKER_CERT_PATH is not read when the context has TLS files")
+		})
+	}
+}
+
+// A context with no TLS files is reached as before: without TLS, unless
+// DOCKER_TLS_VERIFY asks for it.
+func TestAContextWithoutTLSFilesIsReachedWithoutTLS(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			d := dockermock.NewDaemon(dockermock.OverTCP())
+			t.Cleanup(d.Close)
+			writeContext(t, configDir, "remote", d.Host())
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, _ = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NotEmpty(t, d.Requests(), "the request reaches a plain-HTTP daemon")
+		})
+	}
+}
+
+// A host the caller gives is not the context's, so the context's TLS files
+// are not used for it.
+func TestAContextsTLSFilesAreNotUsedForAGivenHost(t *testing.T) {
+	configDir := clearDockerEnv(t)
+	writeContext(t, configDir, "remote", "tcp://build-host:2376")
+	// A client that read these for a given host would fail to build.
+	writeContextTLS(t, configDir, "remote", map[string][]byte{"ca.pem": []byte("not a certificate")})
+	t.Setenv("DOCKER_CONTEXT", "remote")
+	d := dockermock.NewDaemon(dockermock.OverTCP())
+	t.Cleanup(d.Close)
+	given := map[string]func() (dockerclient.Client, error){
+		"dockerapi":  func() (dockerclient.Client, error) { return dockerapi.New(dockerapi.WithHost(d.Host())) },
+		"mobyclient": func() (dockerclient.Client, error) { return mobyclient.New(mobyclient.WithHost(d.Host())) },
+	}
+	for client, build := range given {
+		t.Run(client, func(t *testing.T) {
+			c, err := build()
+			require.NoError(t, err, "a client for a given host")
+
+			_, _ = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NotEmpty(t, d.Requests(), "the given host is reached over plain HTTP")
+		})
+	}
+}
+
+// A context's TLS file that cannot be used is a configuration problem that
+// names the context's files, not DOCKER_CERT_PATH.
+func TestABrokenContextTLSFileIsNamed(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			writeContext(t, configDir, "remote", "tcp://build-host:2376")
+			writeContextTLS(t, configDir, "remote", map[string][]byte{"ca.pem": []byte("not a certificate")})
+			t.Setenv("DOCKER_CONTEXT", "remote")
+
+			_, err := build()
+
+			var invalid *dockerclient.InvalidArgumentError
+			require.ErrorAs(t, err, &invalid, "a broken ca.pem is an invalid argument")
+			assert.Equal(t, contextTLSPath(configDir, "remote"), invalid.Value, "the error names the context's TLS files")
+		})
+	}
+}
+
+// An http:// address in a context is still TCP, so the context's TLS files
+// apply to it, as they do to tcp://.
+func TestAContextsTLSFilesApplyToAnHTTPAddress(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host, caPEM := trustedServer(t, "")
+			writeContext(t, configDir, "remote", strings.Replace(host, "tcp://", "http://", 1))
+			writeContextTLS(t, configDir, "remote", map[string][]byte{"ca.pem": caPEM})
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_API_VERSION", "1.44") // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon is reached over TLS with the context's ca.pem")
+		})
+	}
+}
+
+// The docker CLI reaches a context that skips TLS verification over TLS,
+// even with no TLS files. dbtest never skips verification, and must not
+// send the requests in the clear instead, so it refuses the context before
+// anything is sent.
+func TestAContextThatSkipsTLSVerificationWithoutFilesIsRefused(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			d := dockermock.NewDaemon(dockermock.OverTCP())
+			t.Cleanup(d.Close)
+			writeContextMeta(t, configDir, "remote",
+				`{"Name":"remote","Endpoints":{"docker":{"Host":"`+d.Host()+`","SkipTLSVerify":true}}}`)
+			t.Setenv("DOCKER_CONTEXT", "remote")
+
+			c, err := build()
+			if err == nil {
+				_, err = c.ImageInspect(t.Context(), "mongo:8")
+			}
+
+			assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "the context asks for something dbtest will not do")
+			assert.Empty(t, d.Requests(), "nothing is sent in the clear")
+		})
+	}
+}
+
+// With DOCKER_TLS_VERIFY set, the same context gets verified TLS from
+// DOCKER_CERT_PATH, so nothing is sent in the clear and it is not refused.
+func TestAContextThatSkipsTLSVerificationIsUsedWithDockerTLSVerify(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host, caPEM := trustedServer(t, "")
+			writeContextMeta(t, configDir, "remote",
+				`{"Name":"remote","Endpoints":{"docker":{"Host":"`+host+`","SkipTLSVerify":true}}}`)
+			certs := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(certs, "ca.pem"), caPEM, 0o600), "trusting the server")
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			t.Setenv("DOCKER_CERT_PATH", certs)
+			t.Setenv("DOCKER_API_VERSION", "1.44") // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon is reached over TLS verified with DOCKER_CERT_PATH's ca.pem")
+		})
+	}
+}
+
+// A context TLS directory whose files cannot be read is a configuration
+// problem in both clients, never a quiet fall back to the system's roots.
+func TestUnreadableContextTLSFilesAreAnInvalidArgument(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symbolic links need extra rights on Windows")
+	}
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			writeContext(t, configDir, "remote", "tcp://build-host:2376")
+			writeContextTLS(t, configDir, "remote", nil)
+			// A ca.pem that links to itself cannot be read, even by root.
+			ca := filepath.Join(contextTLSPath(configDir, "remote"), "ca.pem")
+			require.NoError(t, os.Symlink(ca, ca), "making ca.pem a link to itself")
+			t.Setenv("DOCKER_CONTEXT", "remote")
+
+			_, err := build()
+
+			assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "files that cannot be read are a problem to fix")
+		})
+	}
 }

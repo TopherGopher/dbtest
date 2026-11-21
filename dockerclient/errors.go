@@ -2,11 +2,13 @@ package dockerclient
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"syscall"
@@ -23,10 +25,12 @@ var (
 	// an operation already in progress on the same object.
 	ErrConflict = errors.New("conflict")
 	// ErrUnauthorized is matched by 401 and 403, for example a pull from a
-	// registry that needs credentials.
+	// registry that needs credentials, or a request a socket proxy refused.
 	ErrUnauthorized = errors.New("unauthorized")
-	// ErrConnectionFailed is matched when the daemon could not be reached at
-	// all: socket missing, permission denied, connection refused, timeout.
+	// ErrConnectionFailed is matched when the daemon could not be reached or
+	// would not complete a TLS handshake, for example a missing socket,
+	// permission denied, a refused or timed-out connection, a host name that
+	// does not resolve, or a certificate either side rejects.
 	ErrConnectionFailed = errors.New("cannot connect to the docker daemon")
 	// ErrInvalidArgument is matched by every client-side validation failure:
 	// a bad host string, image reference, id, port or option.
@@ -34,9 +38,9 @@ var (
 	// ErrAPIVersion is matched when the daemon's API window and the client's
 	// do not overlap, or a feature needs a newer API than was negotiated.
 	ErrAPIVersion = errors.New("unsupported docker API version")
-	// ErrDaemonResponse is matched when the daemon answered with something
-	// the client could not interpret: an unexpected status, or a body that
-	// does not decode.
+	// ErrDaemonResponse is matched when the daemon's answer could not be
+	// used, such as an unexpected status or a body that does not decode, or
+	// when a request that reached the daemon broke off partway.
 	ErrDaemonResponse = errors.New("unexpected response from the docker daemon")
 	// ErrStream is matched when an exec output stream is malformed or the
 	// daemon reported an error inside it.
@@ -119,9 +123,19 @@ type StatusError struct {
 	Message string
 	Method  string
 	Path    string
+	// FromProxy is true when a proxy in front of the daemon refused the
+	// request, not the daemon itself, for example a socket proxy that does
+	// not allow the endpoint. Message then holds the proxy's body, or a
+	// placeholder when it sent none. It is only set for a 403 that does not
+	// carry the daemon's JSON error, so a proxy that answers in that format
+	// goes undetected.
+	FromProxy bool
 }
 
 func (e *StatusError) Error() string {
+	if e.FromProxy {
+		return fmt.Sprintf("docker: a proxy in front of the docker daemon refused %s %s with status %d. %s", e.Method, e.Path, e.StatusCode, e.Hint())
+	}
 	msg := fmt.Sprintf("docker: the docker daemon rejected %s %s with status %d: %s", e.Method, e.Path, e.StatusCode, e.Message)
 	if hint := e.Hint(); hint != "" {
 		msg += ". " + hint
@@ -131,6 +145,9 @@ func (e *StatusError) Error() string {
 
 // Hint suggests what to do about the status code. Error includes it.
 func (e *StatusError) Hint() string {
+	if e.FromProxy {
+		return proxyHint(e.Method, e.Path)
+	}
 	if e.Is(ErrRateLimited) {
 		return rateLimitHint
 	}
@@ -184,37 +201,126 @@ func rateLimited(msg string) bool {
 	return false
 }
 
+// proxyHint says which settings of a socket proxy allow the request.
+func proxyHint(method, path string) string {
+	settings := proxySettings(method, path)
+	if len(settings) == 0 {
+		return "Allow the request in the proxy's configuration"
+	}
+	return "If it is a socket proxy such as tecnativa/docker-socket-proxy, allow the request by setting " +
+		strings.Join(settings, "=1 and ") + "=1 in the proxy container's environment"
+}
+
+// proxySettings names the settings of a socket proxy such as
+// tecnativa/docker-socket-proxy that allow a request. Such a proxy allows
+// each part of the API with a setting named for the first segment of its
+// path, and every method but GET and HEAD with POST.
+func proxySettings(method, path string) []string {
+	var settings []string
+	if section := proxySection(path); section != "" {
+		settings = append(settings, section)
+	}
+	if method != http.MethodGet && method != http.MethodHead {
+		settings = append(settings, "POST")
+	}
+	return settings
+}
+
+// proxySection names the setting for the part of the API a path is in: its
+// first segment after any API version, in capitals, without the leading
+// underscore of /_ping. It returns "" when that segment is not a setting
+// name.
+func proxySection(path string) string {
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segments) > 1 && isAPIVersionSegment(segments[0]) {
+		segments = segments[1:]
+	}
+	name := strings.ToUpper(strings.TrimPrefix(segments[0], "_"))
+	if !isSettingName(name) {
+		return ""
+	}
+	return name
+}
+
+// isAPIVersionSegment reports whether a path segment is an API version
+// prefix such as v1.44.
+func isAPIVersionSegment(s string) bool {
+	rest, ok := strings.CutPrefix(s, "v")
+	major, _ := splitAPIVersion(rest)
+	return ok && major >= 0
+}
+
+// isSettingName reports whether s is made only of capitals, digits and
+// underscores, as an environment variable's name is.
+func isSettingName(s string) bool {
+	for _, r := range s {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return s != ""
+}
+
 // IsNotFound reports whether err is a 404 from the daemon. It is the check
 // callers make most often, usually to pull an image and retry.
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
 
-// ResponseError is returned when a reply could not be used: an unexpected
-// status, or a body that does not decode. It matches ErrDaemonResponse.
+// ResponseError is returned when a reply could not be used, such as an
+// unexpected status or a body that does not decode, or when a request that
+// reached the daemon broke off partway. It matches ErrDaemonResponse.
 type ResponseError struct {
 	Method string
 	Path   string
-	// Problem says what was wrong with the response.
+	// Problem says what went wrong with the request or its response.
 	Problem string
-	Err     error
+	// Fix says what to do about it.
+	Fix string
+	Err error
 }
 
 // DecodeError reports that a daemon response could not be decoded.
 func DecodeError(method, path string, err error) *ResponseError {
-	return &ResponseError{Method: method, Path: path, Problem: "could not decode the daemon's response", Err: err}
+	return &ResponseError{Method: method, Path: path, Problem: "could not decode the daemon's response", Err: err, Fix: apiVersionFix}
+}
+
+// RequestFailed reports a request to host that failed after its connection
+// was made, such as an upload whose connection the daemon closed. It matches
+// ErrDaemonResponse, not ErrConnectionFailed, because something answered at
+// host.
+func RequestFailed(method, path, host string, err error) *ResponseError {
+	return &ResponseError{Method: method, Path: path, Problem: "the request to " + host + " failed after connecting", Err: err,
+		Fix: "Unless the cause is in what was sent, check that the daemon is still running (`docker info`) and retry; its logs may say why (journalctl -u docker, or Docker Desktop's Troubleshoot view)"}
 }
 
 // UnexpectedStatus reports a success status the endpoint does not document.
 func UnexpectedStatus(method, path string, code int) *ResponseError {
-	return &ResponseError{Method: method, Path: path, Problem: fmt.Sprintf("unexpected status %d", code)}
+	return &ResponseError{Method: method, Path: path, Problem: fmt.Sprintf("unexpected status %d", code), Fix: apiVersionFix}
 }
 
 func (e *ResponseError) Error() string {
 	msg := fmt.Sprintf("docker: %s %s: %s", e.Method, e.Path, e.Problem)
 	if e.Err != nil {
-		msg += ": " + e.Err.Error()
+		msg += ": " + withoutRequestURL(e.Err)
 	}
-	return msg + ". This usually means the daemon speaks a different API version than negotiated; check `docker version` and any DOCKER_API_VERSION pin"
+	if e.Fix != "" {
+		msg += ". " + e.Fix
+	}
+	return msg
 }
+
+// withoutRequestURL is err's message without the *url.Error that net/http
+// wraps around a transport failure, whose request URL is a placeholder for
+// a socket and repeats what the message already says.
+func withoutRequestURL(err error) string {
+	var u *url.Error
+	if errors.As(err, &u) {
+		return u.Err.Error()
+	}
+	return err.Error()
+}
+
+// apiVersionFix is what to do about a response the client cannot read.
+const apiVersionFix = "This usually means the daemon speaks a different API version than negotiated; check `docker version` and any DOCKER_API_VERSION pin"
 
 func (e *ResponseError) Unwrap() error        { return e.Err }
 func (e *ResponseError) Is(target error) bool { return target == ErrDaemonResponse }
@@ -250,15 +356,78 @@ func (e *ConnectionError) Is(target error) bool { return target == ErrConnection
 // ConnectionError whose message says what to do about it, following the
 // docker CLI's wording. Context errors are returned untouched so callers can
 // compare them directly, and an error that is not a connection problem is
-// returned unchanged. Every implementation routes transport failures through
-// this, so the guidance is the same whichever client is in use.
+// returned unchanged. A StatusError is the daemon's answer, so it too is
+// returned unchanged, unless it is the answer Go's HTTP server gives to plain
+// HTTP on its TLS port. Every implementation routes transport failures and
+// daemon answers through this, so the guidance is the same whichever client
+// is in use.
 func WrapConnectionError(host string, err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || isContextError(err) {
 		return err
 	}
+	if sentPlainHTTPToTLS(host, err) {
+		return ConnectionFailed(host, "it accepts only TLS, but the request was sent as plain HTTP", tlsFix, err)
+	}
+	if errors.Is(err, http.ErrSchemeMismatch) {
+		return ConnectionFailed(host, "it does not use TLS, but the request was sent over TLS",
+			"Unset DOCKER_TLS_VERIFY or remove the docker context's TLS files, and address the daemon as tcp:// rather than https://, or use its TLS port (usually 2376)", err)
+	}
+	if errors.As(err, new(*StatusError)) {
+		return err
+	}
+	return wrapTransportError(host, err)
+}
+
+// tlsFix is what to do when the daemon expects TLS and the client did not
+// use it.
+const tlsFix = "Turn TLS on: set DOCKER_TLS_VERIFY=1, and put the daemon's ca.pem, with cert.pem and key.pem if it wants a client certificate, " +
+	"in DOCKER_CERT_PATH or ~/.docker. Or use a docker context that has those files"
+
+// goTLSAnswer is the body Go's HTTP server, which the Docker daemon and
+// Podman are built on, sends with status 400 to plain HTTP on its TLS port.
+const goTLSAnswer = "Client sent an HTTP request to an HTTPS server."
+
+// sentPlainHTTPToTLS reports whether err shows that plain HTTP reached a
+// port that speaks only TLS: Go's 400 to a request sent to a plain tcp://
+// address, or a TLS record read back where an HTTP response should be.
+func sentPlainHTTPToTLS(host string, err error) bool {
+	var status *StatusError
+	if errors.As(err, &status) {
+		return isGoTLSAnswer(status) && plainTCP(host)
+	}
+	return tlsRecordAsHTTP(err.Error())
+}
+
+// isGoTLSAnswer reports whether a status is Go's answer to plain HTTP on a
+// TLS port. Only the body tells: the answer carries no headers.
+func isGoTLSAnswer(e *StatusError) bool {
+	return e.StatusCode == http.StatusBadRequest && e.Message == goTLSAnswer
+}
+
+// plainTCP reports whether host is a TCP address reached without TLS by
+// default.
+func plainTCP(host string) bool {
+	host = strings.ToLower(host)
+	return strings.HasPrefix(host, "tcp://") || strings.HasPrefix(host, "http://")
+}
+
+// tlsRecordAsHTTP reports whether msg is net/http's complaint about a
+// response that starts with a TLS alert (0x15) or handshake (0x16) record.
+// Over TLS those bytes are never seen, so the client must have sent plain
+// HTTP.
+func tlsRecordAsHTTP(msg string) bool {
+	return strings.Contains(msg, `malformed HTTP response "\x15\x03`) ||
+		strings.Contains(msg, `malformed HTTP response "\x16\x03`)
+}
+
+// isContextError reports whether err is the caller's own cancellation or
+// deadline.
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// wrapTransportError is WrapConnectionError for a failure in the transport.
+func wrapTransportError(host string, err error) error {
 	switch {
 	case errors.Is(err, fs.ErrPermission):
 		return ConnectionFailed(host, "permission denied",
@@ -267,15 +436,22 @@ func WrapConnectionError(host string, err error) error {
 		return ConnectionFailed(host, "the socket does not exist",
 			"Start the docker daemon (or Docker Desktop, Colima, Podman with its docker socket), or set DOCKER_HOST to where it listens", err)
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "bad certificate") || strings.Contains(msg, "handshake failure") {
-		return ConnectionFailed(host, "the TLS handshake failed",
-			"The daemon probably requires a client certificate: set DOCKER_CERT_PATH to a directory with ca.pem, cert.pem and key.pem", err)
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return ConnectionFailed(host, "the daemon's certificate is not trusted ("+certErr.Error()+")",
+			"Check that ca.pem holds the CA certificate that signed the daemon's certificate, and that the daemon's certificate names the host it was reached at and has not expired. "+
+				"ca.pem is read from the docker context's TLS files if it has them, else from DOCKER_CERT_PATH (by default the Docker config directory, ~/.docker). "+
+				"dbtest verifies the certificate even when the docker context sets SkipTLSVerify", err)
 	}
+	if refusedHandshake(err) {
+		return ConnectionFailed(host, "the daemon refused the TLS handshake ("+RootCause(err).Error()+")",
+			"The daemon probably wants a client certificate signed by a CA it trusts: put cert.pem and key.pem beside ca.pem, in DOCKER_CERT_PATH or in the docker context's TLS files", err)
+	}
+	msg := err.Error()
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return ConnectionFailed(host, "the host name does not resolve ("+dnsErr.Error()+")",
-			"Check the host name in DOCKER_HOST", err)
+			"Check the host name in DOCKER_HOST, or in the docker context's endpoint (`docker context inspect`)", err)
 	}
 	// Match the concrete conditions, never the net.Error interface.
 	// http.Client.Do wraps everything it returns in *url.Error, and
@@ -290,18 +466,29 @@ func WrapConnectionError(host string, err error) error {
 	return err
 }
 
+// refusedHandshake reports whether the daemon sent a TLS alert, which
+// crypto/tls reports as a "remote error". Over TLS 1.3 a refused client
+// certificate arrives this way after the handshake seemed to succeed.
+func refusedHandshake(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "remote error"
+}
+
 // isConnectionProblem reports whether err is a genuine failure to reach the
 // daemon, rather than any error that happened to travel through the
-// transport.
+// transport. A write or read that fails on an open connection, with a broken
+// pipe or a reset, happened after the daemon was reached, so of the network
+// operations only opening the connection counts. A timeout counts wherever
+// it happened.
 func isConnectionProblem(err error) bool {
 	var opErr *net.OpError
-	if errors.As(err, &opErr) {
+	if errors.As(err, &opErr) && (opErr.Op == "dial" || opErr.Op == "proxyconnect") {
 		return true
 	}
 	for _, target := range []error{
-		syscall.ECONNREFUSED, syscall.ECONNRESET, syscall.ECONNABORTED,
+		syscall.ECONNREFUSED, syscall.ECONNABORTED,
 		syscall.EHOSTUNREACH, syscall.ENETUNREACH, syscall.ENETDOWN,
-		syscall.EPIPE, syscall.ETIMEDOUT,
+		syscall.ETIMEDOUT,
 		os.ErrDeadlineExceeded,
 	} {
 		if errors.Is(err, target) {
