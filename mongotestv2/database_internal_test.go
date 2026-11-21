@@ -3,6 +3,7 @@ package mongotestv2
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -18,6 +19,7 @@ func FuzzDatabaseName(f *testing.F) {
 		`TestOrders/a_"quoted"_word`,
 		"TestOrders/café_au_lait",
 		strings.Repeat("TestOrders/", 20),
+		"TestOrders/" + strings.Repeat("é", 40),
 	} {
 		f.Add(test)
 	}
@@ -27,5 +29,6 @@ func FuzzDatabaseName(f *testing.F) {
 		assert.LessOrEqual(t, len(name), 63, "the server refuses a database name longer than 63 bytes")
 		assert.False(t, strings.ContainsAny(name, "/\\. \"$\x00"),
 			"the server refuses a database name with any of / \\ . \" $, a space or a NUL: %q", name)
+		assert.True(t, utf8.ValidString(name), "the server refuses a database name that is not valid UTF-8: %q", name)
 	})
 }

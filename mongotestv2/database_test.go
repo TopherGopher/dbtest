@@ -41,6 +41,7 @@ type recorder struct {
 	name     string
 	cleanups []func()
 	failures []string
+	failed   bool
 	skipped  bool
 }
 
@@ -53,7 +54,7 @@ func (r *recorder) Name() string {
 
 func (r *recorder) Cleanup(f func()) { r.cleanups = append(r.cleanups, f) }
 
-func (r *recorder) Fail() { r.failures = append(r.failures, "Fail") }
+func (r *recorder) Fail() { r.failed = true }
 
 func (r *recorder) Error(args ...any) { r.failures = append(r.failures, fmt.Sprint(args...)) }
 
@@ -67,7 +68,7 @@ func (r *recorder) Fatal(args ...any) { r.Error(args...); runtime.Goexit() }
 
 func (r *recorder) Fatalf(format string, args ...any) { r.Errorf(format, args...); runtime.Goexit() }
 
-func (r *recorder) Failed() bool { return len(r.failures) > 0 }
+func (r *recorder) Failed() bool { return r.failed || len(r.failures) > 0 }
 
 func (r *recorder) SkipNow() { r.skipped = true; runtime.Goexit() }
 
@@ -136,8 +137,12 @@ func TestIntegrationDatabaseForKeepsApartNamesTheServerWouldConfuse(t *testing.T
 		t.Run(reason, func(t *testing.T) {
 			// Two tests whose databases exist at the same time.
 			one, other := &recorder{TB: t, name: names[0]}, &recorder{TB: t, name: names[1]}
-			t.Cleanup(one.end)
-			t.Cleanup(other.end)
+			t.Cleanup(func() {
+				other.end()
+				one.end()
+				assert.Empty(t, one.failures, "the first test's database is dropped without error")
+				assert.Empty(t, other.failures, "and so is the second's")
+			})
 			insertInto(t, inst.DatabaseFor(one))
 			second := inst.DatabaseFor(other)
 			insertInto(t, second)
@@ -196,7 +201,7 @@ func TestIntegrationDatabaseForReportsADropThatFails(t *testing.T) {
 	began := time.Now()
 	test.end()
 
-	assert.Len(t, test.failures, 1, "a drop the server never answered is reported on the test")
+	assert.True(t, test.Failed(), "a drop the server never answered is reported on the test")
 	assert.Less(t, time.Since(began), 25*time.Second,
 		"and gives up before the driver's half minute, which every test would otherwise wait")
 }

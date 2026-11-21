@@ -143,12 +143,17 @@ func TestRunFailsAndDoesNotSkipWhenTheStartFails(t *testing.T) {
 	nowhere, err := dockerapi.New(dockerapi.WithHost("unix:///nonexistent/docker.sock"))
 	require.NoError(t, err, "a client for a daemon that is not there can be made")
 	test := &recorder{TB: t}
+	returned := false
 
-	inGoroutine(func() { mongotestv2.RunWithOptions(test, mongotestv2.DefaultOptions().WithDocker(nowhere)) })
+	inGoroutine(func() {
+		mongotestv2.RunWithOptions(test, mongotestv2.DefaultOptions().WithDocker(nowhere))
+		returned = true
+	})
 	test.end()
 
 	assert.True(t, test.Failed(), "a start that fails fails the test")
 	assert.False(t, test.Skipped(), "and never skips it, so a broken setup cannot pass unnoticed")
+	assert.False(t, returned, "and ends it, so no caller is handed a nil instance")
 }
 
 func TestStoppingANilInstanceDoesNothing(t *testing.T) {
