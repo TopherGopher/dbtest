@@ -56,9 +56,9 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
 
 ## Releasing
 
-Each module is released by its own annotated tag, all with the same version:
-the root as `vX.Y.Z`, and the others with their directory as a prefix, such as
-`mongotest/vX.Y.Z`. A release is one pull request and four tags.
+Each module is released by its own tag, all with the same version: the root
+as `vX.Y.Z`, and the others with their directory as a prefix, such as
+`mongotest/vX.Y.Z`. A release is one pull request and one GitHub release.
 
 Choose a version above v0.2.9. The repository's tags from before the rename,
 up to v0.2.9, are versions of `github.com/tophergopher/dbtest` too, so a lower
@@ -76,25 +76,41 @@ taken back, because the Go module proxy keeps what it has fetched.
 
     The `replace` lines keep this building before `vX.Y.Z` is tagged.
 
-2. Straight after it merges, tag that pull request's merge commit, by its SHA,
-   and push the four tags together. Before the push, check the output: the
-   commit is on `main`, all three modules require `vX.Y.Z`, and all four tags
-   name the commit.
+2. Straight after it merges, publish a GitHub release with a new tag `vX.Y.Z`
+   and, as its target, that pull request's merge commit. The release creates
+   the root module's tag. The Release workflow (`.github/workflows/release.yml`)
+   then checks that the commit is on `main`, that `vX.Y.Z` is the highest
+   version tag, and that all three modules require it. It tags the three
+   modules on the same commit, pushes the tags together, and asks the Go
+   module proxy for all four versions.
 
-    ```sh
-    c=SHA-of-the-merge-commit
-    git fetch origin
-    git merge-base --is-ancestor "$c" origin/main && echo "on main"
-    git grep -l "tophergopher/dbtest vX.Y.Z" "$c" -- '*/go.mod'  # the three modules
-    for t in vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z; do
-      git tag -a "$t" -m "$t" "$c"
-    done
-    git tag --points-at "$c"  # exactly the four tags
-    git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z
-    ```
+If the run fails, its log says which check failed and what to do:
 
-    `--atomic` pushes all four or none. If `git tag` reports that a tag
-    already exists, delete the local one with `git tag -d` and tag again.
+- **A check on the commit failed:** the root tag is public and cannot be
+  reused. Fix the cause, then release the next patch version.
+- **The push failed:** re-run the job from the Actions page.
+- **Only the proxy step failed:** the tags are pushed. Ask the proxy again,
+  for example with
+  `curl https://proxy.golang.org/github.com/tophergopher/dbtest/mongotest/@v/vX.Y.Z.info`.
+
+If the workflow cannot run, for a release whose commit predates it or with
+Actions unavailable, tag the merge commit by hand instead. Before the push,
+check the output: the commit is on `main`, all three modules require `vX.Y.Z`,
+and all four tags name the commit.
+
+```sh
+c=SHA-of-the-merge-commit
+git fetch origin
+git merge-base --is-ancestor "$c" origin/main && echo "on main"
+git grep -l "tophergopher/dbtest vX.Y.Z" "$c" -- '*/go.mod'  # the three modules
+for t in vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z; do
+  git tag -a "$t" -m "$t" "$c"
+done
+git tag --points-at "$c"  # exactly the four tags
+git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z
+```
+
+`--atomic` pushes all four or none.
 
 ## The standard
 
