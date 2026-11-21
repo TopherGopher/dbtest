@@ -1,0 +1,64 @@
+name: Release
+
+# Publishing a GitHub release for vX.Y.Z creates the root module's tag. This
+# workflow then checks the release and tags the other three modules on the same
+# commit. See "Releasing" in docs/project/contributing.md.
+on:
+  release:
+    types: [published]
+
+# Every job reads by default; only tag-modules below may write.
+permissions:
+  contents: read
+
+jobs:
+  tag-modules:
+    name: Tag the other modules
+    # A pre-release is skipped: a module version, once the Go module proxy has
+    # fetched it, is permanent, and "go get ...@latest" ignores GitHub's flag.
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    # Pushing tags needs write access to the repository's contents.
+    permissions:
+      contents: write
+    steps:
+    # main, not the release's commit, so the checks that run are the reviewed
+    # ones. The script finds the release's commit from its tag.
+    - name: Check out main, with every tag
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: main
+        fetch-depth: 0
+        # The token is given to git only in the step that pushes, below.
+        persist-credentials: false
+
+    # The tag name comes in through the environment, not into the script's
+    # text, so no character in it can be run as shell.
+    - name: Check the release, then tag and push the other modules
+      env:
+        VERSION: ${{ github.event.release.tag_name }}
+        TOKEN: ${{ github.token }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        # Git reads this configuration from the environment for this step
+        # only, so the token is never written to .git/config.
+        auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+        echo "::add-mask::$auth"
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+        export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+        .github/scripts/tag-modules.sh "$VERSION"
+
+    # Fetching each version through the Go module proxy makes it available to
+    # "go get" at once, and fails the run if a tag does not give a module Go
+    # can use.
+    - name: Ask the Go module proxy for the four versions
+      env:
+        VERSION: ${{ github.event.release.tag_name }}
+      run: |
+        for path in "" /mongotest /mongotest/exporter /mobyclient; do
+          curl --fail --silent --show-error --retry 5 --retry-delay 15 --retry-all-errors \
+            "https://proxy.golang.org/github.com/tophergopher/dbtest${path}/@v/${VERSION}.info"
+          echo
+        done
