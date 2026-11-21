@@ -20,6 +20,11 @@ network.
 | **Socket proxy** | `tecnativa/docker-socket-proxy` in front of the socket | Wherever the daemon behind the proxy puts it. The proxy may also refuse calls dbtest makes. |
 | **Remote daemon** | `DOCKER_HOST=tcp://build-host:2376` | On `build-host` |
 
+A socket proxy such as `tecnativa/docker-socket-proxy` must allow
+`CONTAINERS`, `IMAGES`, `EXEC` and `POST`. A request it refuses matches
+`dockerclient.ErrUnauthorized` with `StatusError.FromProxy` set, and the
+message names the setting that allows it.
+
 The socket bind-mount is the most common in CI. It is often called
 docker-in-docker, though nothing is nested.
 

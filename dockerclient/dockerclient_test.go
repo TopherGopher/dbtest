@@ -1,12 +1,16 @@
 package dockerclient_test
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -199,4 +203,65 @@ func TestARateLimitMatchesErrRateLimitedHoweverItArrives(t *testing.T) {
 	for name, err := range notLimited {
 		assert.NotErrorIs(t, err, dockerclient.ErrRateLimited, "%s is not a rate limit", name)
 	}
+}
+
+// A docker context saves its daemon's TLS files where `docker context
+// create` puts them. ContextTLSDir finds them for the context discovery
+// uses, and only then.
+func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
+	setup := func(t *testing.T, withTLS bool) (configDir, tlsDir string) {
+		for _, name := range []string{"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY"} {
+			t.Setenv(name, "")
+		}
+		configDir = t.TempDir()
+		t.Setenv("DOCKER_CONFIG", configDir)
+		sum := sha256.Sum256([]byte("remote"))
+		id := hex.EncodeToString(sum[:])
+		meta := filepath.Join(configDir, "contexts", "meta", id)
+		require.NoError(t, os.MkdirAll(meta, 0o755), "creating the context")
+		require.NoError(t, os.WriteFile(filepath.Join(meta, "meta.json"),
+			[]byte(`{"Name":"remote","Endpoints":{"docker":{"Host":"tcp://build-host:2376"}}}`), 0o644), "writing the context")
+		tlsDir = filepath.Join(configDir, "contexts", "tls", id, "docker")
+		if withTLS {
+			require.NoError(t, os.MkdirAll(tlsDir, 0o700), "creating the context's TLS directory")
+			require.NoError(t, os.WriteFile(filepath.Join(tlsDir, "ca.pem"), []byte("ca"), 0o600), "writing ca.pem")
+		}
+		return configDir, tlsDir
+	}
+
+	t.Run("a context with TLS files", func(t *testing.T) {
+		_, want := setup(t, true)
+		t.Setenv("DOCKER_CONTEXT", "remote")
+		dir, err := dockerclient.ContextTLSDir()
+		require.NoError(t, err, "the context can be read")
+		assert.Equal(t, want, dir, "the context's TLS directory is found")
+	})
+	t.Run("the current context in config.json", func(t *testing.T) {
+		configDir, want := setup(t, true)
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"currentContext":"remote"}`), 0o644), "writing config.json")
+		dir, err := dockerclient.ContextTLSDir()
+		require.NoError(t, err, "the context can be read")
+		assert.Equal(t, want, dir, "the current context's TLS directory is found")
+	})
+	t.Run("a context with no TLS files", func(t *testing.T) {
+		setup(t, false)
+		t.Setenv("DOCKER_CONTEXT", "remote")
+		dir, err := dockerclient.ContextTLSDir()
+		require.NoError(t, err, "the context can be read")
+		assert.Empty(t, dir, "a context without TLS files has none to use")
+	})
+	t.Run("DOCKER_HOST overrides the context", func(t *testing.T) {
+		setup(t, true)
+		t.Setenv("DOCKER_CONTEXT", "remote")
+		t.Setenv("DOCKER_HOST", "tcp://other:2376")
+		dir, err := dockerclient.ContextTLSDir()
+		require.NoError(t, err, "nothing needs reading")
+		assert.Empty(t, dir, "the context is not used, so neither are its files")
+	})
+	t.Run("a broken config.json", func(t *testing.T) {
+		configDir, _ := setup(t, true)
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing config.json")
+		_, err := dockerclient.ContextTLSDir()
+		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a configuration that cannot be read is a problem to fix, as it is for ResolveHost")
+	})
 }

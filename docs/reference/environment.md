@@ -15,9 +15,9 @@ Windows, see [Installation](../getting-started/installation.md).
 | Variable | Read by | Effect |
 | --- | --- | --- |
 | `DOCKER_HOST` | `dockerapi`, `mobyclient` | Daemon address: `unix:///path`, `tcp://host:port`, `npipe://` (`mobyclient` only). Overrides every other discovery step. |
-| `DOCKER_CONTEXT` | `dockerapi`, `mobyclient` | The Docker context to use when `DOCKER_HOST` is unset. |
+| `DOCKER_CONTEXT` | `dockerapi`, `mobyclient` | The Docker context to use when `DOCKER_HOST` is unset. If the context was created with TLS files, its daemon is reached over TLS with them, and `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` are ignored, as with the `docker` CLI. The daemon's certificate is always verified, even when the context sets `SkipTLSVerify`. |
 | `DOCKER_CONFIG` | `dockerapi`, `mobyclient` | Directory holding `config.json` and `contexts/`. Defaults to `~/.docker`. The `currentContext` key in `config.json` is honoured. |
-| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set, reach a `tcp://` daemon over TLS and verify its certificate. The certificates come from `DOCKER_CERT_PATH`, or from the Docker config directory (`DOCKER_CONFIG`, default `~/.docker`) when it is unset. |
+| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set, reach a `tcp://` daemon over TLS and verify its certificate. The certificates come from `DOCKER_CERT_PATH`, or from the Docker config directory (`DOCKER_CONFIG`, default `~/.docker`) when it is unset. A docker context's TLS files take its place. |
 | `DOCKER_CERT_PATH` | `dockerapi`, `mobyclient` | Directory with `ca.pem`, and `cert.pem` and `key.pem` if the daemon wants a client certificate. It has no effect without `DOCKER_TLS_VERIFY`. |
 | `DOCKER_API_VERSION` | `dockerapi`, `mobyclient` | Pin the API version. Without it, both negotiate with the daemon. |
 | `XDG_RUNTIME_DIR` | `dockerapi`, `mobyclient` | Where rootless Docker and Podman put their sockets. `/run/user/$UID` is used when unset. |

@@ -91,7 +91,10 @@
 //
 // TLS for tcp hosts follows the docker CLI conventions: DOCKER_TLS_VERIFY
 // enables it and DOCKER_CERT_PATH (default: the config directory) holds
-// ca.pem and, optionally, cert.pem and key.pem.
+// ca.pem and, optionally, cert.pem and key.pem. A docker context created
+// with TLS files is reached over TLS with those files instead, and the two
+// variables are ignored. The daemon's certificate is always verified, even
+// when the context sets SkipTLSVerify.
 //
 // # API versions
 //

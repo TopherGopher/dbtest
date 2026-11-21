@@ -36,6 +36,31 @@ Nothing needs to change in your code or settings.
 If you check for `ErrDaemonResponse` to catch these, check for
 `ErrConnectionFailed` instead.
 
+### A docker context's TLS files are used
+
+- **A daemon chosen through a docker context created with TLS files is now
+  reached over TLS with them,** through either client, as the `docker` CLI
+  does. You no longer need to set `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`
+  for it. When the context has TLS files, those two variables are ignored.
+  The daemon's certificate is always verified, even when the context sets
+  `SkipTLSVerify`.
+
+### Errors say more precisely what went wrong with the daemon
+
+- **Plain HTTP sent to a daemon that only accepts TLS now matches
+  `ErrConnectionFailed`,** through either client, and the message says how
+  to turn TLS on. Before, it matched no sentinel, or `ErrDaemonResponse`,
+  and the message suggested a malformed request or an API version mismatch.
+- **A connection that breaks partway through a request, with a broken pipe
+  or a reset, now matches `ErrDaemonResponse`, not `ErrConnectionFailed`.**
+  The daemon was reached, so the message no longer says to start it. It
+  says to retry and check the daemon's logs.
+- **A 403 from a proxy in front of the daemon, such as
+  `tecnativa/docker-socket-proxy`, sets `StatusError.FromProxy`.** The
+  message names the refused request and the proxy settings that allow it,
+  instead of quoting the proxy's HTML page and suggesting `docker login`.
+  It still matches `ErrUnauthorized`.
+
 ## v0.3.0
 
 ### The modules are renamed to `github.com/tophergopher/dbtest`

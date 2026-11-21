@@ -36,7 +36,7 @@ func (c *Client) ContainerCreate(ctx context.Context, name string, cfg Container
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		if resp.StatusCode >= 400 {
-			return "", nil, newStatusError(resp, http.MethodPost, path)
+			return "", nil, c.statusError(resp, http.MethodPost, path)
 		}
 		return "", nil, unexpectedStatus(http.MethodPost, path, resp.StatusCode)
 	}
@@ -64,7 +64,7 @@ func (c *Client) ContainerStart(ctx context.Context, id string) error {
 	case resp.StatusCode == http.StatusNoContent, resp.StatusCode == http.StatusNotModified:
 		return nil
 	case resp.StatusCode >= 400:
-		return newStatusError(resp, http.MethodPost, path)
+		return c.statusError(resp, http.MethodPost, path)
 	}
 	return unexpectedStatus(http.MethodPost, path, resp.StatusCode)
 }
@@ -93,7 +93,7 @@ func (c *Client) ContainerRemove(ctx context.Context, id string, opts RemoveOpti
 	case resp.StatusCode == http.StatusNoContent:
 		return nil
 	case resp.StatusCode >= 400:
-		return newStatusError(resp, http.MethodDelete, path)
+		return c.statusError(resp, http.MethodDelete, path)
 	}
 	return unexpectedStatus(http.MethodDelete, path, resp.StatusCode)
 }
@@ -132,7 +132,7 @@ func (c *Client) ContainerLogsTo(ctx context.Context, id string, stdout, stderr 
 	switch {
 	case resp.StatusCode == http.StatusOK:
 	case resp.StatusCode >= 400:
-		return newStatusError(resp, http.MethodGet, path)
+		return c.statusError(resp, http.MethodGet, path)
 	default:
 		return unexpectedStatus(http.MethodGet, path, resp.StatusCode)
 	}
@@ -163,7 +163,7 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	switch {
 	case resp.StatusCode == http.StatusOK:
 	case resp.StatusCode >= 400:
-		return newStatusError(resp, http.MethodGet, path)
+		return c.statusError(resp, http.MethodGet, path)
 	default:
 		return unexpectedStatus(http.MethodGet, path, resp.StatusCode)
 	}

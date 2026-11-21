@@ -52,9 +52,10 @@ func mapError(host, method, path string, err error) error {
 	case cerrdefs.IsUnauthorized(err):
 		return statusError(http.StatusUnauthorized, method, path, err)
 	case cerrdefs.IsPermissionDenied(err):
-		return statusError(http.StatusForbidden, method, path, err)
+		return refusal(method, path, err)
 	case cerrdefs.IsInvalidArgument(err):
-		return statusError(http.StatusBadRequest, method, path, err)
+		// Go's answer to plain HTTP on a TLS port is a 400 too.
+		return dockerclient.WrapConnectionError(host, statusError(http.StatusBadRequest, method, path, err))
 	case cerrdefs.IsResourceExhausted(err):
 		return statusError(http.StatusTooManyRequests, method, path, err)
 	case cerrdefs.IsUnavailable(err):
@@ -95,8 +96,28 @@ func mapError(host, method, path string, err error) error {
 		return &dockerclient.StatusError{StatusCode: code, Method: method, Path: path,
 			Message: "the daemon did not upgrade the exec stream to a raw connection"}
 	}
+	if client.IsErrConnectionFailed(err) {
+		// The moby client's name for any request it could not complete,
+		// such as an upload the daemon cut off.
+		return dockerclient.RequestFailed(method, path, host, err)
+	}
 	return &dockerclient.ResponseError{Method: method, Path: path, Err: err,
 		Problem: "the docker daemon returned an error mobyclient could not classify"}
+}
+
+// refusal builds the StatusError for a 403, and says whether a proxy in
+// front of the daemon sent it. The daemon puts its own refusals in its JSON
+// envelope, which the moby client reports as the bare message. A proxy's
+// HTML page is reported as it is, and an empty body or a JSON body with no
+// message gets the moby client's own sentence instead.
+func refusal(method, path string, err error) *dockerclient.StatusError {
+	e := statusError(http.StatusForbidden, method, path, err)
+	for _, mark := range []string{"<", "request returned ", "API returned a "} {
+		if strings.HasPrefix(e.Message, mark) {
+			e.FromProxy = true
+		}
+	}
+	return e
 }
 
 // causeDropped reports whether err is a moby connection failure with no

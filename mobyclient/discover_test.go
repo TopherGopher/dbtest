@@ -47,10 +47,16 @@ func clearDockerEnv(t *testing.T) string {
 // config directory, as `docker context create` does.
 func writeContext(t *testing.T, configDir, name, host string) {
 	t.Helper()
+	writeContextMeta(t, configDir, name, `{"Name":"`+name+`","Endpoints":{"docker":{"Host":"`+host+`"}}}`)
+}
+
+// writeContextMeta saves meta as the meta.json of the docker context named
+// name.
+func writeContextMeta(t *testing.T, configDir, name, meta string) {
+	t.Helper()
 	sum := sha256.Sum256([]byte(name))
 	dir := filepath.Join(configDir, "contexts", "meta", hex.EncodeToString(sum[:]))
 	require.NoError(t, os.MkdirAll(dir, 0o755), "creating the context's directory")
-	meta := `{"Name":"` + name + `","Endpoints":{"docker":{"Host":"` + host + `"}}}`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644), "writing the context")
 }
 
@@ -423,4 +429,156 @@ func TestDockerTLSVerifyAloneUsesTheConfigDirectory(t *testing.T) {
 	t.Setenv("DOCKER_TLS_VERIFY", "1")
 
 	assert.NoError(t, reachesOverTLS(t), "the server is trusted through the ca.pem in the config directory")
+}
+
+// writeContextTLS saves files as the TLS files of the docker context named
+// name, where `docker context create` puts them.
+func writeContextTLS(t *testing.T, configDir, name string, files map[string][]byte) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(name))
+	dir := filepath.Join(configDir, "contexts", "tls", hex.EncodeToString(sum[:]), "docker")
+	require.NoError(t, os.MkdirAll(dir, 0o700), "creating the context's TLS directory")
+	for file, data := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, file), data, 0o600), "writing %s", file)
+	}
+}
+
+// readCerts reads the ca.pem, cert.pem and key.pem in dir.
+func readCerts(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	files := map[string][]byte{}
+	for _, file := range []string{"ca.pem", "cert.pem", "key.pem"} {
+		data, err := os.ReadFile(filepath.Join(dir, file))
+		require.NoError(t, err, "reading %s", file)
+		files[file] = data
+	}
+	return files
+}
+
+// A docker context created with TLS files reaches its daemon over TLS, as
+// the docker CLI does, with no TLS variables set. Its ca.pem decides which
+// daemon is trusted, and its cert.pem and key.pem are the client
+// certificate.
+func TestAContextsTLSFilesAreUsed(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run("a daemon the context's CA signed/"+client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			certs := writeClientCerts(t)
+			host, caPEM := trustedServer(t, certs)
+			files := readCerts(t, certs)
+			files["ca.pem"] = caPEM
+			writeContext(t, configDir, "remote", host)
+			writeContextTLS(t, configDir, "remote", files)
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_API_VERSION", "1.44") // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon accepts the context's client certificate, and the client trusts the daemon through the context's ca.pem")
+		})
+		for name, skip := range map[string]string{"": "false", " even with SkipTLSVerify": "true"} {
+			t.Run("a daemon another CA signed"+name+"/"+client, func(t *testing.T) {
+				configDir := clearDockerEnv(t)
+				host := tlsServer(t)
+				writeContextMeta(t, configDir, "remote",
+					`{"Name":"remote","Endpoints":{"docker":{"Host":"`+host+`","SkipTLSVerify":`+skip+`}}}`)
+				writeContextTLS(t, configDir, "remote", readCerts(t, writeClientCerts(t)))
+				t.Setenv("DOCKER_CONTEXT", "remote")
+				c, err := build()
+				require.NoError(t, err, "a client for the context")
+
+				_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+				assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a daemon the context's CA did not sign is not used")
+				var unknownCA x509.UnknownAuthorityError
+				assert.ErrorAs(t, err, &unknownCA, "the daemon was checked against the context's ca.pem")
+			})
+		}
+		t.Run("no ca.pem/"+client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host := tlsServer(t)
+			files := readCerts(t, writeClientCerts(t))
+			delete(files, "ca.pem")
+			writeContext(t, configDir, "remote", host)
+			writeContextTLS(t, configDir, "remote", files)
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			c, err := build()
+			require.NoError(t, err, "a context's ca.pem is optional")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			var unknownCA x509.UnknownAuthorityError
+			assert.ErrorAs(t, err, &unknownCA, "without ca.pem the daemon is checked against the system's roots, which do not hold the test CA")
+		})
+	}
+}
+
+// As with the docker CLI, a context's TLS files win over DOCKER_TLS_VERIFY
+// and DOCKER_CERT_PATH.
+func TestAContextsTLSFilesWinOverTheEnvironment(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			host, caPEM := trustedServer(t, "")
+			writeContext(t, configDir, "remote", host)
+			writeContextTLS(t, configDir, "remote", map[string][]byte{"ca.pem": caPEM})
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			t.Setenv("DOCKER_TLS_VERIFY", "1")
+			t.Setenv("DOCKER_CERT_PATH", writeClientCerts(t)) // a CA that did not sign the daemon
+			t.Setenv("DOCKER_API_VERSION", "1.44")            // the double does not negotiate
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NoError(t, err, "the daemon is trusted through the context's ca.pem, not DOCKER_CERT_PATH's")
+		})
+	}
+}
+
+// A context with no TLS files is reached as before: without TLS, unless
+// DOCKER_TLS_VERIFY asks for it.
+func TestAContextWithoutTLSFilesIsReachedWithoutTLS(t *testing.T) {
+	for client, build := range clientsFromEnv {
+		t.Run(client, func(t *testing.T) {
+			configDir := clearDockerEnv(t)
+			d := dockermock.NewDaemon(dockermock.OverTCP())
+			t.Cleanup(d.Close)
+			writeContext(t, configDir, "remote", d.Host())
+			t.Setenv("DOCKER_CONTEXT", "remote")
+			c, err := build()
+			require.NoError(t, err, "a client for the context")
+
+			_, _ = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NotEmpty(t, d.Requests(), "the request reaches a plain-HTTP daemon")
+		})
+	}
+}
+
+// A host the caller gives is not the context's, so the context's TLS files
+// are not used for it.
+func TestAContextsTLSFilesAreNotUsedForAGivenHost(t *testing.T) {
+	configDir := clearDockerEnv(t)
+	writeContext(t, configDir, "remote", "tcp://build-host:2376")
+	writeContextTLS(t, configDir, "remote", readCerts(t, writeClientCerts(t)))
+	t.Setenv("DOCKER_CONTEXT", "remote")
+	d := dockermock.NewDaemon(dockermock.OverTCP())
+	t.Cleanup(d.Close)
+	given := map[string]func() (dockerclient.Client, error){
+		"dockerapi":  func() (dockerclient.Client, error) { return dockerapi.New(dockerapi.WithHost(d.Host())) },
+		"mobyclient": func() (dockerclient.Client, error) { return mobyclient.New(mobyclient.WithHost(d.Host())) },
+	}
+	for client, build := range given {
+		t.Run(client, func(t *testing.T) {
+			c, err := build()
+			require.NoError(t, err, "a client for a given host")
+
+			_, _ = c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.NotEmpty(t, d.Requests(), "the given host is reached over plain HTTP")
+		})
+	}
 }

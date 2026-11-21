@@ -63,7 +63,7 @@ func (c *Client) CopyArchiveToContainer(ctx context.Context, id, destDir string,
 	case resp.StatusCode == http.StatusOK:
 		return nil
 	case resp.StatusCode >= 400:
-		return newStatusError(resp, http.MethodPut, p)
+		return c.statusError(resp, http.MethodPut, p)
 	}
 	return unexpectedStatus(http.MethodPut, p, resp.StatusCode)
 }

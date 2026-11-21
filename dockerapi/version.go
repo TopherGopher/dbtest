@@ -158,7 +158,7 @@ func (c *Client) askVersion(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", newStatusError(resp, http.MethodGet, "/version")
+		return "", c.statusError(resp, http.MethodGet, "/version")
 	}
 	var v versionResponse
 	if err := decodeReply(resp.Body, &v); err != nil {

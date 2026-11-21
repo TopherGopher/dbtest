@@ -54,7 +54,7 @@ func (c *Client) ExecCreate(ctx context.Context, containerID string, cfg ExecCon
 	switch {
 	case resp.StatusCode == http.StatusCreated:
 	case resp.StatusCode >= 400:
-		return "", newStatusError(resp, http.MethodPost, path)
+		return "", c.statusError(resp, http.MethodPost, path)
 	default:
 		return "", unexpectedStatus(http.MethodPost, path, resp.StatusCode)
 	}
@@ -134,7 +134,7 @@ func (c *Client) ExecStartTo(ctx context.Context, execID string, stdout, stderr 
 		stream = resp.Body
 	default:
 		defer resp.Body.Close()
-		return newStatusError(resp, http.MethodPost, unversioned)
+		return c.statusError(resp, http.MethodPost, unversioned)
 	}
 	// The Content-Type header is not a reliable signal for the framing:
 	// daemons before API 1.42 always sent application/vnd.docker.raw-stream

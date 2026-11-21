@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -160,5 +161,147 @@ func TestAFailedRequestIsNotAConnectionFailure(t *testing.T) {
 			assert.ErrorIs(t, err, dockerclient.ErrDaemonResponse, "the caller still gets a sentinel to branch on")
 			assert.ErrorIs(t, err, broken, "the cause stays in the chain")
 		})
+	}
+}
+
+// failingClients returns each client with every request failing in the
+// transport with err, and the API version pinned so that no version request
+// fails first.
+func failingClients(t *testing.T, err error) map[string]dockerclient.Client {
+	t.Helper()
+	stdlib, sErr := dockerapi.New(
+		dockerapi.WithHost("unix:///var/run/docker.sock"),
+		dockerapi.WithAPIVersion("1.44"),
+		dockerapi.WithHTTPClient(&http.Client{Transport: failingTransport{err}}),
+	)
+	require.NoError(t, sErr, "a dockerapi client whose requests fail")
+	return map[string]dockerclient.Client{"dockerapi": stdlib, "mobyclient": failingMobyClient(t, err)}
+}
+
+// A connection the daemon closes partway through a request, as it does when
+// it rejects an upload early, was reached: it is not a daemon to start.
+func TestAConnectionThatBreaksDuringARequestIsNotAConnectionFailure(t *testing.T) {
+	for name, cause := range map[string]syscall.Errno{"broken pipe": syscall.EPIPE, "connection reset": syscall.ECONNRESET} {
+		broken := &net.OpError{Op: "write", Net: "unix", Err: os.NewSyscallError("write", cause)}
+		for client, c := range failingClients(t, broken) {
+			t.Run(name+"/"+client, func(t *testing.T) {
+				_, err := c.ImageInspect(t.Context(), "mongo:8")
+
+				assert.NotErrorIs(t, err, dockerclient.ErrConnectionFailed, "the daemon was reached before the connection broke")
+				assert.ErrorIs(t, err, dockerclient.ErrDaemonResponse, "the request reached the daemon and could not be completed")
+				assert.ErrorIs(t, err, cause, "the cause stays in the chain")
+				var resp *dockerclient.ResponseError
+				require.ErrorAs(t, err, &resp, "the failure is a ResponseError")
+				assert.NotEmpty(t, resp.Fix, "it carries its own advice, not the hint about API versions")
+			})
+		}
+	}
+}
+
+// A dial that fails is still a daemon that was never reached.
+func TestAFailedDialIsStillAConnectionFailure(t *testing.T) {
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	for client, c := range failingClients(t, refused) {
+		t.Run(client, func(t *testing.T) {
+			_, err := c.ImageInspect(t.Context(), "mongo:8")
+
+			assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a refused dial never reached the daemon")
+		})
+	}
+}
+
+// tlsAlertServer is a TLS port that is not served by Go's HTTP server: it
+// answers anything with a TLS alert record and hangs up. It returns its
+// address in DOCKER_HOST form.
+func tlsAlertServer(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "listening for the client")
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			// A fatal protocol_version alert, as a TLS server sends to a
+			// client that does not speak TLS.
+			_, _ = conn.Write([]byte{0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x46})
+			_ = conn.Close()
+		}
+	}()
+	return "tcp://" + l.Addr().String()
+}
+
+// Plain HTTP sent to a daemon that only accepts TLS never reaches its API,
+// so it is a connection failure, whichever way the TLS port answers.
+func TestPlainHTTPToATLSDaemonIsAConnectionFailure(t *testing.T) {
+	cases := map[string]func(t *testing.T) string{
+		"Go's HTTP server answers with 400": tlsServer,
+		"the port answers with a TLS alert": tlsAlertServer,
+	}
+	for name, host := range cases {
+		for client, build := range clientsFromEnv {
+			t.Run(name+"/"+client, func(t *testing.T) {
+				clearDockerEnv(t)
+				t.Setenv("DOCKER_HOST", host(t))
+				c, err := build()
+				require.NoError(t, err, "a client with no TLS settings")
+
+				_, err = c.ImageInspect(t.Context(), "mongo:8")
+
+				assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "the daemon only speaks TLS, so no request reached it")
+				assert.NotErrorIs(t, err, dockerclient.ErrDaemonResponse, "no daemon response was misread")
+			})
+		}
+	}
+}
+
+// refusingProxy is a socket proxy that refuses every request with status 403
+// and body. It returns its address in DOCKER_HOST form.
+func refusingProxy(t *testing.T, contentType, body string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if contentType != "" {
+			w.Header().Set("Content-Type", contentType)
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return "tcp://" + srv.Listener.Addr().String()
+}
+
+// A socket proxy that refuses a request is reported as a proxy's refusal of
+// that request, not as the daemon refusing credentials. A 403 the daemon
+// sends itself, as JSON, is still the daemon's.
+func TestARefusalByAProxyIsToldFromTheDaemons(t *testing.T) {
+	cases := []struct {
+		name, contentType, body string
+		fromProxy               bool
+	}{
+		{"an HTML page", "text/html", "<html><body><h1>403 Forbidden</h1>\nRequest forbidden by administrative rules.\n</body></html>\n", true},
+		{"an empty body", "", "", true},
+		{"the daemon's own JSON", "application/json", `{"message":"authorization denied by plugin authz"}`, false},
+	}
+	for _, tc := range cases {
+		for client, build := range clientsFromEnv {
+			t.Run(tc.name+"/"+client, func(t *testing.T) {
+				clearDockerEnv(t)
+				t.Setenv("DOCKER_HOST", refusingProxy(t, tc.contentType, tc.body))
+				t.Setenv("DOCKER_API_VERSION", "1.44")
+				c, err := build()
+				require.NoError(t, err, "a client for the proxy")
+
+				_, _, err = c.ContainerCreate(t.Context(), "mongo", dockerclient.ContainerConfig{Image: "mongo:8"})
+
+				assert.ErrorIs(t, err, dockerclient.ErrUnauthorized, "a refusal still matches ErrUnauthorized")
+				var status *dockerclient.StatusError
+				require.ErrorAs(t, err, &status, "a refusal is a StatusError")
+				assert.Equal(t, tc.fromProxy, status.FromProxy, "the error says whether a proxy or the daemon refused")
+				assert.Equal(t, http.MethodPost, status.Method, "the error names the refused method")
+				assert.Equal(t, "/containers/create", status.Path, "the error names the refused path")
+			})
+		}
 	}
 }

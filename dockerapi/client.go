@@ -12,6 +12,8 @@ import (
 	"os"
 	"reflect"
 	"strings"
+
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 const defaultUserAgent = "dbtest-dockerapi/1"
@@ -96,7 +98,8 @@ func New(opts ...Option) (*Client, error) {
 			}
 		}
 	}
-	if c.host == "" {
+	discovered := c.host == ""
+	if discovered {
 		h, err := resolveHostFromEnv()
 		if err != nil {
 			return nil, err
@@ -109,12 +112,9 @@ func New(opts ...Option) (*Client, error) {
 	}
 	c.endpoint = ep
 	if ep.scheme == "tcp" && c.tlsConfig == nil {
-		cfg, err := tlsConfigFromEnv(os.Getenv)
+		cfg, err := defaultTLSConfig(ep, discovered)
 		if err != nil {
 			return nil, err
-		}
-		if cfg == nil && ep.tls {
-			cfg = &tls.Config{MinVersion: tls.VersionTLS12}
 		}
 		c.tlsConfig = cfg
 	}
@@ -236,7 +236,7 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 		if werr := wrapConnError(c.host, err); werr != err {
 			return nil, werr
 		}
-		return nil, &ResponseError{Method: method, Path: path, Problem: "the request to " + c.host + " could not be completed", Err: err}
+		return nil, dockerclient.RequestFailed(method, path, c.host, err)
 	}
 	c.logger.Debug("docker request", "method", method, "path", path, "status", resp.StatusCode, "duration", since(start))
 	// Podman announces itself on every response, so a client that pinned its

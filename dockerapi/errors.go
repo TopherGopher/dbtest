@@ -63,7 +63,8 @@ func newStatusError(resp *http.Response, method, path string) *StatusError {
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	msg := strings.TrimSpace(string(b))
 	var body errorResponse
-	if json.Unmarshal(b, &body) == nil && body.Message != "" {
+	fromDaemon := json.Unmarshal(b, &body) == nil && body.Message != ""
+	if fromDaemon {
 		msg = body.Message
 	}
 	msg = truncateMessage(msg, maxErrorMessage)
@@ -74,5 +75,14 @@ func newStatusError(resp *http.Response, method, path string) *StatusError {
 			msg = "the daemon gave no message"
 		}
 	}
-	return &StatusError{StatusCode: resp.StatusCode, Message: msg, Method: method, Path: path}
+	// The daemon puts its own refusals in its JSON envelope. A 403 without
+	// one, such as an HTML page or no body at all, came from a proxy.
+	fromProxy := resp.StatusCode == http.StatusForbidden && !fromDaemon
+	return &StatusError{StatusCode: resp.StatusCode, Message: msg, Method: method, Path: path, FromProxy: fromProxy}
+}
+
+// statusError is newStatusError, except that Go's answer to plain HTTP on a
+// TLS port is reported as the connection failure it is.
+func (c *Client) statusError(resp *http.Response, method, path string) error {
+	return wrapConnError(c.host, newStatusError(resp, method, path))
 }

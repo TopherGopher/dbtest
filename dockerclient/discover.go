@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -103,18 +104,72 @@ func resolveHostWith(l lookup, configDir string) (string, error) {
 	if h := l.getenv("DOCKER_HOST"); h != "" {
 		return h, nil
 	}
-	name := l.getenv("DOCKER_CONTEXT")
-	if name == "" {
-		var err error
-		name, err = currentContext(configDir)
-		if err != nil {
-			return "", err
-		}
+	name, err := chosenContext(l.getenv, configDir)
+	if err != nil {
+		return "", err
 	}
-	if name != "" && name != "default" {
+	if name != "" {
 		return hostFromContext(configDir, name)
 	}
 	return defaultHostForLookup(l)
+}
+
+// chosenContext names the docker context discovery takes the daemon from:
+// DOCKER_CONTEXT, else currentContext in config.json. It returns "" when
+// DOCKER_HOST is set or the context is "default", since then no context is
+// used.
+func chosenContext(getenv func(string) string, configDir string) (string, error) {
+	if getenv("DOCKER_HOST") != "" {
+		return "", nil
+	}
+	name := getenv("DOCKER_CONTEXT")
+	if name == "" {
+		var err error
+		if name, err = currentContext(configDir); err != nil {
+			return "", err
+		}
+	}
+	if name == "default" {
+		return "", nil
+	}
+	return name, nil
+}
+
+// ContextTLSDir returns the directory holding the TLS files (ca.pem, cert.pem
+// and key.pem) of the docker context ResolveHost takes the daemon's address
+// from. It returns "" when ResolveHost uses no context, or the context has
+// no TLS files. As with the docker CLI, a context's TLS files are used in
+// place of DOCKER_TLS_VERIFY and DOCKER_CERT_PATH. It returns an
+// InvalidArgumentError when the configuration cannot be read.
+func ContextTLSDir() (string, error) {
+	return contextTLSDir(os.Getenv, configDir(os.Getenv))
+}
+
+// contextTLSDir is ContextTLSDir with the environment passed in.
+func contextTLSDir(getenv func(string) string, configDir string) (string, error) {
+	name, err := chosenContext(getenv, configDir)
+	if err != nil || name == "" {
+		return "", err
+	}
+	dir := filepath.Join(configDir, "contexts", "tls", contextID(name), "docker")
+	_, err = os.Stat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", nil
+	case err != nil:
+		// Going on without TLS would send a remote daemon's requests in the
+		// clear, so a directory that cannot be read is an error.
+		return "", InvalidArgument("docker context", name, "its TLS files in "+dir+" could not be read ("+err.Error()+")",
+			"fix the directory's permissions, or recreate the context with `docker context create`")
+	}
+	return dir, nil
+}
+
+// contextID is the name of a context's directories in the contexts store:
+// the hex SHA-256 of its name.
+func contextID(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return hex.EncodeToString(sum[:])
 }
 
 // defaultUnixSocket is where a Docker daemon listens by default.
@@ -172,8 +227,7 @@ func currentContext(configDir string) (string, error) {
 // hostFromContext resolves a named docker context to its docker endpoint by
 // reading <configDir>/contexts/meta/<sha256(name)>/meta.json.
 func hostFromContext(configDir, name string) (string, error) {
-	sum := sha256.Sum256([]byte(name))
-	path := filepath.Join(configDir, "contexts", "meta", hex.EncodeToString(sum[:]), "meta.json")
+	path := filepath.Join(configDir, "contexts", "meta", contextID(name), "meta.json")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", InvalidArgument("docker context", name, "its metadata file "+path+" could not be read ("+err.Error()+")",

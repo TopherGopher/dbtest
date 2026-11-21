@@ -24,7 +24,8 @@ if err != nil {
 1. `DOCKER_HOST`, if set.
 2. `DOCKER_CONTEXT`, or the `currentContext` recorded in the Docker config
    directory (`DOCKER_CONFIG` or `~/.docker`), resolved through the context's
-   `meta.json`.
+   `meta.json`. If the context was created with TLS files, they are used for
+   TLS, and the daemon's certificate is always verified.
 3. With nothing configured, a probe of the well-known sockets, taking the
    first that answers:
 
@@ -64,7 +65,7 @@ c, err := dockerapi.New(
 | --- | --- |
 | `WithHost(h)` | `unix:///path`, `tcp://host:port`, `http://` or `https://`. A host without a scheme is refused before anything is dialled. Skips discovery. |
 | `WithHTTPClient(hc)` | Supply your own `*http.Client`. Useful for an in-process stub in unit tests. |
-| `WithTLSConfig(cfg)` | Trust a daemon's CA explicitly. Without it, `DOCKER_CERT_PATH` is used when `DOCKER_TLS_VERIFY` is set. |
+| `WithTLSConfig(cfg)` | Trust a daemon's CA explicitly. Without it, the TLS files of the docker context the daemon was found through are used, or else `DOCKER_CERT_PATH` when `DOCKER_TLS_VERIFY` is set. |
 | `WithAPIVersion(v)` | Pin the API version instead of negotiating. |
 | `WithUserAgent(ua)` | Sent on every request. Defaults to `mongotest-dockerapi/1`. |
 | `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies the interface. |

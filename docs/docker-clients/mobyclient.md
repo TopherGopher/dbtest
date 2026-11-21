@@ -42,7 +42,10 @@ named pipe and looks for another endpoint. `FromEnv()` is the same as
 `DOCKER_TLS_VERIFY` turns on TLS for a `tcp://` daemon. The certificates
 come from `DOCKER_CERT_PATH`, or from the Docker config directory when it is
 unset. `DOCKER_API_VERSION` pins the API version. Both apply whether the
-address comes from `WithHost` or is found.
+address comes from `WithHost` or is found. A daemon found through a docker
+context created with TLS files is reached over TLS with those files
+instead, as with the `docker` CLI. The daemon's certificate is always
+verified, even when the context sets `SkipTLSVerify`.
 
 To use the moby client's own discovery instead, which reads `DOCKER_HOST`
 alone with no docker context and no socket search, build the client with
