@@ -77,12 +77,18 @@ jobs:
         go build -v ./...
 
     # mongotestv2 is its own module, so that its callers build driver v2
-    # and no part of driver v1.
+    # and no part of driver v1. The module check guards against a v1 import
+    # pasted in from the files mongotestv2 copies from mongotest.
     - name: Vet and build mongotestv2
       working-directory: ./mongotestv2
       run: |
         go vet -v ./...
         go build -v ./...
+        modules=$(go list -deps -f '{{with .Module}}{{.Path}}{{end}}' ./...)
+        if printf '%s\n' "$modules" | grep -qx 'go.mongodb.org/mongo-driver'; then
+          echo "The mongotestv2 module builds MongoDB's Go driver v1. Import go.mongodb.org/mongo-driver/v2 packages in place of go.mongodb.org/mongo-driver ones."
+          exit 1
+        fi
 
     - name: Vet and build mobyclient
       working-directory: ./mobyclient
