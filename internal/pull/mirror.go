@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
 )
 
-// A Mirror returns another registry's name for an image, if it has one.
-// When Docker Hub's rate limit refuses a pull, the image is pulled by that
-// name instead.
+// A Mirror returns another registry's name for an image, if it has one. A
+// pull that the image's own registry cannot serve tries each mirror's name in
+// turn.
 type Mirror func(ref string) (string, bool)
 
 // OfficialImages finds Docker Hub's official images, such as mongo, on
@@ -35,15 +36,16 @@ func HubMirror(namespace, prefix string) Mirror {
 	}
 }
 
-// firstMirror returns the name the first of mirrors gives ref, or "" if
-// none has one.
-func firstMirror(mirrors []Mirror, ref string) string {
+// sources returns where an image can be pulled from, in the order to try:
+// the image itself, then each mirror's name for it.
+func sources(image string, mirrors ...Mirror) []string {
+	list := []string{image}
 	for _, mirror := range mirrors {
-		if name, ok := mirror(ref); ok {
-			return name
+		if name, ok := mirror(image); ok {
+			list = append(list, name)
 		}
 	}
-	return ""
+	return list
 }
 
 // dockerHubPath returns ref's repository path, tag and digest, if ref names
@@ -92,27 +94,57 @@ func versionSuffix(ref dockerclient.ImageRef) string {
 	return suffix
 }
 
-// MirrorError is a pull that Docker Hub's rate limit refused and whose
-// mirror failed too. errors.Is matches either failure, so it matches
-// dockerclient.ErrRateLimited.
-type MirrorError struct {
-	Image    string // the reference asked for, on Docker Hub
-	Mirror   string // the mirror's name for it
-	Limited  error  // Docker Hub's refusal
-	Mirrored error  // the mirror's failure
+// SourcesError is a pull that failed at every source it tried: the image
+// itself and its mirrors, in that order. errors.Is checks each failure, so
+// it matches dockerclient.ErrRateLimited if any source was refused by a rate
+// limit.
+type SourcesError struct {
+	Image    string          // the reference asked for
+	Failures []SourceFailure // one for each source tried, in order
 }
 
-func (e *MirrorError) Error() string {
-	return fmt.Sprintf("Docker Hub's rate limit refused %s, and its mirror %s failed too: %s",
-		e.Image, e.Mirror, daemonMessage(e.Mirrored))
+// SourceFailure is why one source could not provide an image.
+type SourceFailure struct {
+	Ref string // the reference pulled from that source
+	Err error
 }
 
-func (e *MirrorError) Unwrap() []error { return []error{e.Limited, e.Mirrored} }
+func (e *SourcesError) Error() string {
+	parts := make([]string, len(e.Failures))
+	for i, f := range e.Failures {
+		parts[i] = f.Ref + ": " + daemonMessage(f.Err)
+	}
+	return fmt.Sprintf("no registry could provide %s (%s)", e.Image, strings.Join(parts, "; "))
+}
 
-// daemonMessage returns what the daemon said about a failed pull, without
-// the advice a client adds to it, which is about the image asked for rather
-// than its mirror.
+func (e *SourcesError) Unwrap() []error {
+	errs := make([]error, len(e.Failures))
+	for i, f := range e.Failures {
+		errs[i] = f.Err
+	}
+	return errs
+}
+
+// failedAt returns nil for no failures, the failure itself for one, and a
+// *SourcesError for more.
+func failedAt(image string, failures []SourceFailure) error {
+	switch len(failures) {
+	case 0:
+		return nil
+	case 1:
+		return failures[0].Err
+	}
+	return &SourcesError{Image: image, Failures: failures}
+}
+
+// daemonMessage returns the daemon's own message for a failed pull. It
+// leaves out the advice the client adds, because that advice is about the
+// image asked for, not the source that failed.
 func daemonMessage(err error) string {
+	var spent *spentLimitError
+	if errors.As(err, &spent) {
+		return daemonMessage(spent.err) + ", so it is not asked again until " + spent.until.Format(time.TimeOnly)
+	}
 	var pull *dockerclient.PullError
 	if errors.As(err, &pull) {
 		return pull.Message

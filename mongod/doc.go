@@ -53,20 +53,26 @@
 // that fails because a registry is briefly down is tried again for about a
 // minute.
 //
-// When Docker Hub's rate limit refuses a pull, a Docker official image such
-// as mongo is pulled from Amazon ECR Public instead. An image under
-// mongodb/, such as mongodb/mongodb-community-server, is pulled from
-// quay.io/mongodb. For the next five minutes, pulls of that image in this
-// process go straight to the mirror. The container runs the image under the
-// mirror's name, which [Container.Image] returns. Name an image by digest to
-// be sure a mirror serves exactly that content. There is no option to turn
-// this off; an image on any other registry is pulled from there alone.
+// When Docker Hub's rate limit refuses a pull, or Docker Hub is still down
+// after those retries, the pull tries a mirror that serves the same image:
+// Amazon ECR Public for a Docker official image such as mongo, and
+// quay.io/mongodb for an image under mongodb/, such as
+// mongodb/mongodb-community-server. Other images have no mirror, and an image
+// named on another registry is pulled from there alone. A pull stops at
+// Docker Hub, without trying the mirror, when the image is missing or private
+// there. The mirrors cannot be turned off.
 //
-// A Docker Hub image with no mirror is tried again for about a minute. If
-// the limit still refuses it, the error matches
-// [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited], and later
-// pulls of that image in this process fail at once for five minutes. So does
-// an image whose mirror fails too, and that error names both failures.
+// An image pulled from a mirror keeps the mirror's name, such as
+// public.ecr.aws/docker/library/mongo:8.0. The container runs under that
+// name, and [Container.Image] returns it. To be sure a mirror serves exactly
+// the content you expect, name the image by digest.
+//
+// After a rate limit refuses a pull from Docker Hub or a mirror, that
+// registry is skipped for five minutes; a pull with nowhere else to go fails
+// at once until then. If Docker Hub and the mirror both fail, the error says
+// why each one failed. It matches
+// [github.com/tophergopher/dbtest/dockerclient.ErrRateLimited] if either was
+// a rate limit.
 //
 // Call PullImage in TestMain, so the download happens before any test
 // starts. A pull may take up to ten minutes, which

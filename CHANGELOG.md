@@ -3,6 +3,22 @@
 What changed in each release, for someone upgrading: what is different, and
 what to do if it affects you.
 
+## Unreleased
+
+### A pull tries a mirror when Docker Hub stays down
+
+Nothing needs to change in your code or settings.
+
+- **A pull now tries the image's mirror when Docker Hub is still down after
+  about a minute of retries.** Before, only Docker Hub's rate limit sent it
+  there. The mirrors have not changed: Amazon ECR Public for a Docker official
+  image, and `quay.io/mongodb` for an image under `mongodb/`.
+- **A pull that ECR Public refuses with "Data limit exceeded" now matches
+  `dockerclient.ErrRateLimited`,** like other registries' rate limits.
+- **A registry is skipped for five minutes only after its rate limit refuses
+  a pull.** Before, a mirror that failed for any reason was skipped for five
+  minutes, so a mirror that was briefly down could not be used again.
+
 ## v0.3.0
 
 ### The modules are renamed to `github.com/tophergopher/dbtest`

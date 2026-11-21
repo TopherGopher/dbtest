@@ -23,7 +23,13 @@ func TestWhereAMirrorServesAnImage(t *testing.T) {
 	}
 	mirrors := []Mirror{OfficialImages, HubMirror("mongodb", "quay.io")}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, firstMirror(mirrors, tc.ref), "%s is the same image on the mirror, at the same tag or digest", tc.ref)
+		var found []string
+		for _, mirror := range mirrors {
+			if name, ok := mirror(tc.ref); ok {
+				found = append(found, name)
+			}
+		}
+		assert.Equal(t, []string{tc.want}, found, "%s is the same image on one mirror, at the same tag or digest", tc.ref)
 	}
 }
 

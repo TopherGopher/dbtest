@@ -13,8 +13,9 @@ import (
 // on quay.io, where MongoDB publishes the same images as on Docker Hub.
 var mongoDBImages = pull.HubMirror("mongodb", "quay.io")
 
-// pullShared pulls image through the shared pulls, from a mirror if Docker
-// Hub's rate limit refuses it, and returns the reference it was pulled as.
+// pullShared pulls image through the shared pulls, from its mirrors in turn
+// if its registry cannot serve it, and returns the reference it was pulled
+// as.
 // inStart says the pull is part of Start rather than PullImage, which
 // decides what a timed-out pull advises.
 func pullShared(ctx context.Context, docker dockerclient.Client, image string, timeout time.Duration, inStart bool) (string, error) {
@@ -23,32 +24,34 @@ func pullShared(ctx context.Context, docker dockerclient.Client, image string, t
 	if errors.As(err, &timedOut) {
 		return "", &pullTimeoutError{err: timedOut, inStart: inStart}
 	}
-	var bothFailed *pull.MirrorError
-	if errors.As(err, &bothFailed) {
-		return "", &mirrorFailedError{err: err, image: image}
+	// A caller that gave up is not told to log in to Docker Hub.
+	var everyFailed *pull.SourcesError
+	if errors.As(err, &everyFailed) && ctx.Err() == nil {
+		return "", &sourcesFailedError{err: err, image: image}
 	}
 	return ref, err
 }
 
-// announceMirror logs that an image is used under its mirror's name, which
-// a caller reading the log would otherwise not expect.
+// announceMirror logs that an image is used under a mirror's name, which a
+// caller reading the log would otherwise not expect.
 func announceMirror(logger dockerclient.Logger, image, pulled string) {
 	if pulled != image {
-		logger.Info("Using the mirror's copy of the image, because Docker Hub's rate limit refused it.", "image", image, "mirror", pulled)
+		logger.Info("Using a mirror's copy of the image, because its own registry could not provide it.", "image", image, "mirror", pulled)
 	}
 }
 
-// mirrorFailedError is a pull that Docker Hub's rate limit refused and whose
-// mirror failed too, with what a caller of this package can do about it. It
-// matches both failures, and so dockerclient.ErrRateLimited.
-type mirrorFailedError struct {
+// sourcesFailedError is a pull that failed at the image's registry and at
+// every mirror, with what a caller of this package can do about it. It
+// matches each failure, so it matches dockerclient.ErrRateLimited when a
+// rate limit was among them.
+type sourcesFailedError struct {
 	err   error
 	image string
 }
 
-func (e *mirrorFailedError) Error() string {
+func (e *sourcesFailedError) Error() string {
 	return e.err.Error() + ". Pull it with a Docker CLI that is logged in to Docker Hub (docker login, then docker pull " +
 		e.image + "), or set " + EnvImage + " to an image on a registry this host can reach"
 }
 
-func (e *mirrorFailedError) Unwrap() error { return e.err }
+func (e *sourcesFailedError) Unwrap() error { return e.err }
