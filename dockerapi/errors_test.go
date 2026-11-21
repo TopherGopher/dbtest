@@ -23,7 +23,9 @@ func TestStatusErrorMapping(t *testing.T) {
 	assert.ErrorIs(t, e, ErrNotFound, "404 must match ErrNotFound")
 	assert.True(t, IsNotFound(e), "IsNotFound is the convenience for 404")
 	assert.NotErrorIs(t, e, ErrConflict, "404 must not match ErrConflict")
-	assert.Contains(t, e.Error(), "rejected GET /containers/x/json with status 404: No such container: x", "the message must tell what was asked and what the daemon said")
+	assert.Equal(t, StatusError{StatusCode: 404, Message: "No such container: x", Method: "GET", Path: "/containers/x/json"}, *e,
+		"the error carries what was asked and what the daemon said")
+	assert.Contains(t, e.Error(), e.Message, "the message carries what the daemon said")
 	assert.NotEmpty(t, e.Hint(), "a 404 must carry a hint about what to check")
 
 	c := mk(409, `{"message":"in use"}`)
@@ -40,6 +42,8 @@ func TestStatusErrorMapping(t *testing.T) {
 	assert.Equal(t, "<html>oops</html>", raw.Message, "a non-JSON body is kept verbatim as the message")
 	assert.Contains(t, raw.Error(), "500", "the status code must appear in the message")
 	assert.NotEmpty(t, raw.Hint(), "a 500 must tell the user where to look")
+	hints := map[string]bool{e.Hint(): true, c.Hint(): true, u.Hint(): true, raw.Hint(): true}
+	assert.Len(t, hints, 4, "a 404, 409, 401 and 500 each get their own hint")
 
 	assert.Equal(t, "Bad Gateway", mk(502, "").Message, "an empty body falls back to the status text")
 	assert.Equal(t, "the daemon gave no message", mk(368, "").Message, "an unregistered status code with no body still gets a message")

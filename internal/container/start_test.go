@@ -197,15 +197,16 @@ func TestWithNoPullAMissingImageFailsTheCreate(t *testing.T) {
 }
 
 // The advice an image's package gives is about the last failure the start
-// saw, and ends the error a caller reads.
-func TestTheAdviceIsGivenTheLastFailureAndEndsTheError(t *testing.T) {
+// saw, and reaches the error a caller reads.
+func TestTheAdviceIsGivenTheLastFailureAndReachesTheError(t *testing.T) {
+	const advice = "Try the image package's own option."
 	stillStarting := errors.New("the server is still starting")
 	var givenLastErr error
 	s := spec(150 * time.Millisecond)
 	s.Ready = func(context.Context, string, int, func(context.Context) error) error { return stillStarting }
 	s.Advice = func(lastErr error, _ bool) string {
 		givenLastErr = lastErr
-		return "Try the image package's own option."
+		return advice
 	}
 	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return inspected(""), nil })
 
@@ -213,7 +214,7 @@ func TestTheAdviceIsGivenTheLastFailureAndEndsTheError(t *testing.T) {
 
 	require.ErrorIs(t, err, container.ErrNotReady, "the start runs out of time")
 	assert.ErrorIs(t, givenLastErr, stillStarting, "the advice is asked about the last failure")
-	assert.Contains(t, err.Error(), "Try the image package's own option.", "and the error a caller reads ends with it")
+	assert.Contains(t, err.Error(), advice, "and the error a caller reads carries it")
 }
 
 // A container removed between start and its first inspect, by a reap or by

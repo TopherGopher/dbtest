@@ -440,8 +440,8 @@ func wrapTransportError(host string, err error) error {
 	if errors.As(err, &certErr) {
 		return ConnectionFailed(host, "the daemon's certificate is not trusted ("+certErr.Error()+")",
 			"Check that ca.pem holds the CA certificate that signed the daemon's certificate, and that the daemon's certificate names the host it was reached at and has not expired. "+
-				"The client reads ca.pem from the docker context's TLS files if it has them, else from DOCKER_CERT_PATH (by default the Docker config directory, ~/.docker). "+
-				"It verifies the certificate even when the docker context sets SkipTLSVerify", err)
+				"The ca.pem used is the one in the docker context's TLS files, if the context has them, else the one in DOCKER_CERT_PATH (by default ~/.docker). "+
+				"The certificate is verified even when the context sets SkipTLSVerify", err)
 	}
 	if refusedHandshake(err) {
 		return ConnectionFailed(host, "the daemon refused the TLS handshake ("+RootCause(err).Error()+")",

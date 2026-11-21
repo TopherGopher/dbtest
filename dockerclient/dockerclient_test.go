@@ -60,6 +60,8 @@ func TestParseImageRef(t *testing.T) {
 		assert.NotEmpty(t, invalid.Fix, "%q: the error must explain the reference grammar", ref)
 	}
 	_, err := dockerclient.ParseImageRef("Mongo:8")
+	// This checks wording on purpose: the problem repeats the daemon's own
+	// message, so a user who searches for it finds the same answers.
 	assert.Contains(t, err.Error(), "lowercase", "an uppercase repository gets the daemon's familiar wording")
 }
 
@@ -142,6 +144,9 @@ func TestConnectionErrorWrapping(t *testing.T) {
 	assert.ErrorIs(t, err, fs.ErrNotExist, "the cause is kept")
 	require.True(t, errors.As(err, &ce), "callers can extract the typed error")
 	assert.NotEmpty(t, ce.Fix, "the fix must say to start the daemon")
+	var denied *dockerclient.ConnectionError
+	require.ErrorAs(t, dockerclient.WrapConnectionError("unix:///x.sock", fs.ErrPermission), &denied, "a denied socket is a connection error")
+	assert.NotEqual(t, denied.Fix, ce.Fix, "a denied socket and a missing one each get their own fix")
 
 	assert.Nil(t, dockerclient.WrapConnectionError("h", nil), "nil stays nil")
 	plain := errors.New("something else")

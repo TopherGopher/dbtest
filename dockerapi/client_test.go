@@ -24,6 +24,7 @@ import (
 )
 
 func TestNewRequiresValidHost(t *testing.T) {
+	fixes := map[string]bool{}
 	for _, host := range []string{"bogus", "npipe:////./pipe/docker_engine"} {
 		_, err := New(WithHost(host))
 		require.ErrorIs(t, err, ErrInvalidArgument, "%s must be rejected as an invalid argument", host)
@@ -31,7 +32,9 @@ func TestNewRequiresValidHost(t *testing.T) {
 		require.ErrorAs(t, err, &invalid, "%s: the error says what was refused", host)
 		assert.Equal(t, host, invalid.Value, "the error quotes the host it refused")
 		assert.NotEmpty(t, invalid.Fix, "%s: the error says what to use instead", host)
+		fixes[invalid.Fix] = true
 	}
+	assert.Len(t, fixes, 2, "a named pipe gets its own fix, not the one for a host with no scheme")
 }
 
 func TestNewUsesDiscoveryWhenNoHostOption(t *testing.T) {

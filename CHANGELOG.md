@@ -19,12 +19,14 @@ Nothing needs to change in your code.
   connection. Only images that declare a health check wait; the official
   `mongo` image and MongoDB's community and enterprise images declare none.
 
-### The fix in an invalid-argument error starts with a capital
+### Invalid-argument errors capitalise their advice
 
 - **The sentence that says what to do in a `dockerclient.InvalidArgumentError`
   now starts with a capital letter,** as it already did in every other
-  error. If you compare an error's message text, use `errors.Is` or the
-  error's fields, such as `InvalidArgumentError.Fix`, instead.
+  error. For example, `… the image is required. set Image …` is now
+  `… the image is required. Set Image …`.
+- If you compare an error's message text, use `errors.Is` or the error's
+  fields, such as `InvalidArgumentError.Fix`, instead.
 
 ### Starts beyond a limit wait their turn
 
