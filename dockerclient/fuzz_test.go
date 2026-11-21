@@ -228,3 +228,32 @@ func FuzzCheckDestDir(f *testing.F) {
 		}
 	})
 }
+
+// A bind that the daemon would read as a host path mounts a directory of the
+// daemon's machine into the container, so none may get through.
+func FuzzValidateBinds(f *testing.F) {
+	for _, seed := range []string{
+		"cart-tests:/data/db", "cart-tests:/data/db:ro", "/srv/data:/data/db", "./data:/data/db",
+		"cart-tests", ":/data/db", "cart-tests:data/db", `C:\data:/data/db`, "a:/b:c:d", "x:/",
+		"~/data:/data/db", "cart tests:/data/db",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, bind string) {
+		cfg := dockerclient.ContainerConfig{Image: "mongo:8", HostConfig: &dockerclient.HostConfig{Binds: []string{bind}}}
+		err := cfg.Validate()
+		if err != nil {
+			if !errors.Is(err, dockerclient.ErrInvalidArgument) {
+				t.Fatalf("validating the bind %q failed with %v, which does not match dockerclient.ErrInvalidArgument", bind, err)
+			}
+			return
+		}
+		source, target, found := strings.Cut(bind, ":")
+		if !found || !strings.HasPrefix(target, "/") {
+			t.Fatalf("the bind %q was accepted without an absolute path in the container", bind)
+		}
+		if source == "" || strings.ContainsAny(source, `/\~ `) || strings.HasPrefix(source, ".") {
+			t.Fatalf("the bind %q was accepted with %q, which the daemon could read as a host path", bind, source)
+		}
+	})
+}

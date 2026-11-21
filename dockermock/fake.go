@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,9 +89,10 @@ func (s ContainerState) clone() ContainerState {
 
 type fakeContainer struct {
 	state ContainerState
-	// networkMode is copied at create, so that a caller who changes its
-	// request afterwards does not move the container.
+	// networkMode and mounts are copied at create, so that a caller who
+	// changes its request afterwards does not change the container.
 	networkMode string
+	mounts      []dockerclient.Mount
 }
 
 type fakeExec struct {
@@ -229,11 +231,11 @@ func (f *Fake) ContainerCreate(ctx context.Context, name string, cfg dockerclien
 			}
 		}
 	}
-	mode := ""
+	mode, mounts := "", []dockerclient.Mount(nil)
 	if cfg.HostConfig != nil {
-		mode = cfg.HostConfig.NetworkMode
+		mode, mounts = cfg.HostConfig.NetworkMode, mountsOf(cfg.HostConfig.Binds)
 	}
-	f.containers[id] = &fakeContainer{networkMode: mode, state: ContainerState{
+	f.containers[id] = &fakeContainer{networkMode: mode, mounts: mounts, state: ContainerState{
 		ID: id, Name: "/" + name, Config: cfg, Ports: ports, Files: map[string][]byte{},
 	}}
 	return id, nil, nil
@@ -297,7 +299,20 @@ func (f *Fake) ContainerInspect(ctx context.Context, id string) (dockerclient.Co
 		State:           state,
 		Config:          dockerclient.InspectedConfig{Image: c.state.Config.Image, Labels: c.state.Config.Labels},
 		NetworkSettings: dockerclient.NetworkSettings{Ports: c.state.Ports, Networks: c.networks()},
+		Mounts:          slices.Clone(c.mounts),
 	}, nil
+}
+
+// mountsOf returns the mounts a daemon reports for binds that Validate has
+// accepted, each of them "name:/path" with an optional mode.
+func mountsOf(binds []string) []dockerclient.Mount {
+	var mounts []dockerclient.Mount
+	for _, bind := range binds {
+		name, rest, _ := strings.Cut(bind, ":")
+		destination, _, _ := strings.Cut(rest, ":")
+		mounts = append(mounts, dockerclient.Mount{Type: "volume", Name: name, Destination: destination})
+	}
+	return mounts
 }
 
 // networks reports the networks a container's NetworkMode puts it on, as a

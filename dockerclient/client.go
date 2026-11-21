@@ -119,6 +119,11 @@ type HostConfig struct {
 	// "none", "container:<id>", or the name of a network. Empty means the
 	// default bridge.
 	NetworkMode string `json:"NetworkMode,omitempty"`
+	// Binds mounts named volumes, each written "name:/path/in/container",
+	// with ":ro" after it for read-only. Docker creates a volume that does
+	// not exist yet, and removing the container does not remove it. A host
+	// directory is refused, because it would not exist on a remote daemon.
+	Binds []string `json:"Binds,omitempty"`
 }
 
 // PortBinding is one published host address for a container port.
@@ -149,6 +154,18 @@ type ContainerInspect struct {
 	State           ContainerState  `json:"State"`
 	Config          InspectedConfig `json:"Config"`
 	NetworkSettings NetworkSettings `json:"NetworkSettings"`
+	// Mounts lists the volumes mounted in the container.
+	Mounts []Mount `json:"Mounts"`
+}
+
+// Mount is one volume mounted in a container.
+type Mount struct {
+	// Type is "volume" for a named or anonymous volume.
+	Type string `json:"Type"`
+	// Name is the volume's name. An anonymous volume's is a long hex id.
+	Name string `json:"Name"`
+	// Destination is where the volume is mounted inside the container.
+	Destination string `json:"Destination"`
 }
 
 // ContainerState is the runtime state of a container.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
 	"testing"
 
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -66,6 +67,39 @@ func Conformance(t *testing.T, newClient Factory) {
 	t.Run("puts a container on the network it names", func(t *testing.T) {
 		conformanceNetwork(t, newClient(t))
 	})
+	t.Run("mounts the named volume it is given", func(t *testing.T) {
+		conformanceVolume(t, newClient(t))
+	})
+}
+
+// TestVolume is the named volume the conformance suite mounts. A double
+// keeps nothing in it; a real daemon would create it and keep it.
+const TestVolume = "dbtest-conformance"
+
+// conformanceVolume checks that HostConfig.Binds reaches the daemon and that
+// inspect reports the mount, which is how mongod keeps its data between
+// containers.
+func conformanceVolume(t *testing.T, c dockerclient.Client) {
+	ctx := context.Background()
+	if err := c.ImagePull(ctx, TestImage); err != nil {
+		t.Fatalf("pulling %s: %v", TestImage, err)
+	}
+	id, _, err := c.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
+		Image:      TestImage,
+		HostConfig: &dockerclient.HostConfig{Binds: []string{TestVolume + ":/data/db"}},
+	})
+	if err != nil {
+		t.Fatalf("creating a container with the volume %s: %v", TestVolume, err)
+	}
+	info, err := c.ContainerInspect(ctx, id)
+	if err != nil {
+		t.Fatalf("inspecting %s: %v", id, err)
+	}
+	want := dockerclient.Mount{Type: "volume", Name: TestVolume, Destination: "/data/db"}
+	if !slices.Contains(info.Mounts, want) {
+		t.Errorf("a container created with the bind %q must report the mount %+v, got %+v. "+
+			"Send HostConfig.Binds on create and read Mounts on inspect", TestVolume+":/data/db", want, info.Mounts)
+	}
 }
 
 // TestNetwork is the network the conformance suite puts a container on. A

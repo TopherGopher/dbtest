@@ -91,9 +91,10 @@ func TestValidateContainerConfig(t *testing.T) {
 		HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
 			"27017/tcp": {{HostIP: "127.0.0.1", HostPort: "34819"}, {HostIP: "", HostPort: ""}, {HostPort: "40000-40010"}},
 			"53/udp":    {{HostIP: "::1", HostPort: "5353"}},
-		}},
+		},
+			Binds: []string{"cart-tests:/data/db", "cache_1.v2:/data/cache:ro"}},
 	}
-	require.NoError(t, ok.Validate(), "a config with valid ports, bindings and labels must pass")
+	require.NoError(t, ok.Validate(), "a config with valid ports, bindings, volumes and labels must pass")
 	bad := map[string]dockerclient.ContainerConfig{
 		"no image":          {},
 		"bad image":         {Image: "Mongo"},
@@ -107,6 +108,12 @@ func TestValidateContainerConfig(t *testing.T) {
 		"binding host port": {Image: "mongo", HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{"27017/tcp": {{HostPort: "abc"}}}}},
 		"binding range":     {Image: "mongo", HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{"27017/tcp": {{HostPort: "40010-40000"}}}}},
 		"empty cmd element": {Image: "mongo", Cmd: []string{"--replSet", ""}},
+		"host directory":    {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"/srv/data:/data/db"}}},
+		"relative path":     {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"./data:/data/db"}}},
+		"no destination":    {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"cart-tests"}}},
+		"relative target":   {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{"cart-tests:data/db"}}},
+		"empty volume name": {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{":/data/db"}}},
+		"windows path":      {Image: "mongo", HostConfig: &dockerclient.HostConfig{Binds: []string{`C:\data:/data/db`}}},
 	}
 	for name, cfg := range bad {
 		err := cfg.Validate()

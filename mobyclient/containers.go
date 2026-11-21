@@ -144,6 +144,7 @@ func toMobyConfig(cfg dockerclient.ContainerConfig) (*container.Config, *contain
 	hostCfg := &container.HostConfig{
 		AutoRemove:  cfg.HostConfig.AutoRemove,
 		NetworkMode: container.NetworkMode(cfg.HostConfig.NetworkMode),
+		Binds:       cfg.HostConfig.Binds,
 	}
 	if len(cfg.HostConfig.PortBindings) > 0 {
 		pm := make(network.PortMap, len(cfg.HostConfig.PortBindings))
@@ -194,6 +195,9 @@ func toDockerclientInspect(ci container.InspectResponse) dockerclient.ContainerI
 			Ports:    toDockerclientPorts(ci.NetworkSettings.Ports),
 			Networks: toDockerclientNetworks(ci.NetworkSettings.Networks),
 		}
+	}
+	for _, m := range ci.Mounts {
+		out.Mounts = append(out.Mounts, dockerclient.Mount{Type: string(m.Type), Name: m.Name, Destination: m.Destination})
 	}
 	return out
 }

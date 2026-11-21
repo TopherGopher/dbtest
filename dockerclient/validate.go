@@ -23,6 +23,9 @@ var (
 	idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 	// containerNamePattern is the daemon's rule for user-chosen names.
 	containerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
+	// volumeNamePattern is the daemon's rule for volume names. No host path
+	// matches it, so a bind that passes cannot mount a host directory.
+	volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 	// imageIDPattern matches a content digest or a (possibly truncated) hex
 	// image id, both accepted by image inspect.
 	imageIDPattern = regexp.MustCompile(`^(sha256:)?[0-9a-fA-F]{12,64}$`)
@@ -165,6 +168,24 @@ func CheckHostPort(field, hp string) error {
 	return nil
 }
 
+// checkBind validates one HostConfig.Binds entry: a volume name, an absolute
+// path in the container, and optionally "ro" or "rw".
+func checkBind(bind string) error {
+	const fix = `Write "name:/path/in/container", such as "cart-tests:/data/db"`
+	name, rest, _ := strings.Cut(bind, ":")
+	target, mode, _ := strings.Cut(rest, ":")
+	switch {
+	case !volumeNamePattern.MatchString(name):
+		return InvalidArgument("HostConfig.Binds entry", bind,
+			"it must start with a volume name of at least two characters from [a-zA-Z0-9][a-zA-Z0-9_.-]; a host directory is not allowed", fix)
+	case !strings.HasPrefix(target, "/"):
+		return InvalidArgument("HostConfig.Binds entry", bind, "the path in the container must be absolute", fix)
+	case mode != "" && mode != "ro" && mode != "rw":
+		return InvalidArgument("HostConfig.Binds entry", bind, `the mode after the path must be "ro" or "rw"`, fix)
+	}
+	return nil
+}
+
 // Validate checks a ContainerConfig before it is sent to a daemon.
 func (cfg ContainerConfig) Validate() error {
 	if strings.TrimSpace(cfg.Image) == "" {
@@ -201,6 +222,11 @@ func (cfg ContainerConfig) Validate() error {
 				if err := CheckHostPort(field+".HostPort", b.HostPort); err != nil {
 					return err
 				}
+			}
+		}
+		for _, bind := range cfg.HostConfig.Binds {
+			if err := checkBind(bind); err != nil {
+				return err
 			}
 		}
 	}
