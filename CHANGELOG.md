@@ -5,6 +5,24 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Tests in a container reach mongod on their own network
+
+- **When your tests run in a container on the same Docker daemon, a start
+  now puts mongod on the test container's network and publishes no port.**
+  `Container.Host()` is mongod's address on that network, and
+  `Container.Port()` is 27017. Before, the port was published on every
+  interface of the Docker host and reached through the default gateway.
+- **On a user-defined network, such as the one a GitHub Actions `container:`
+  job runs on, mongod no longer gets a generated password,** because only
+  containers on that network can connect. On the default bridge it still
+  does.
+- `WithHostIP`, `DBTEST_HOST_IP`, `WithPort` and `WithTLS` keep the published
+  port. If containers on your bridge cannot talk to each other (`icc=false`),
+  set `WithHostIP`.
+- `dockerclient.HostConfig` gains `NetworkMode`, and
+  `dockerclient.NetworkSettings` gains `Networks`. `dockerapi`, `mobyclient`
+  and the `dockermock` fake fill them.
+
 ### A pull tries a mirror when Docker Hub stays down
 
 Nothing needs to change in your code or settings.

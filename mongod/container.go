@@ -80,11 +80,13 @@ func (c *Container) Username() string { return c.username }
 // already includes it.
 func (c *Container) Password() string { return c.password }
 
-// Port returns the host port mongod is published on. A connection string
-// built from Host and Port by hand carries no credentials and no TLS, so use
-// URI.
+// Port returns the port mongod is reachable at: the host port it is
+// published on, or 27017 when it shares a network with this process's
+// container. A connection string built from Host and Port by hand carries
+// no credentials and no TLS, so use URI.
 //
-//	32768
+//	32768   // published
+//	27017   // on a shared network
 func (c *Container) Port() int { return c.port }
 
 // Host returns the address mongod is reachable at from this process. It is
@@ -92,7 +94,7 @@ func (c *Container) Port() int { return c.port }
 // and Port by hand carries no credentials and no TLS, so use URI.
 //
 //	127.0.0.1    // local daemon
-//	172.17.0.1   // this process is in a sibling container
+//	172.18.0.3   // this process is in a container on the same daemon
 //	build-host   // DOCKER_HOST=tcp://build-host:2376
 func (c *Container) Host() string { return c.host }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -21,6 +22,10 @@ type Spec struct {
 	// chose it. Both appear in a NotReadyError.
 	Host       string
 	HostSource string
+	// Network, when set, is a network the caller shares with the container.
+	// The container is then dialled at its address there, on Port itself,
+	// and Host is ignored.
+	Network string
 	// GeneratedName says the name was generated for this start, so if
 	// creating the container is cut short, a container of that name may be
 	// removed.
@@ -37,10 +42,10 @@ type Spec struct {
 	// the container was created from. Its error is returned as it is, or as
 	// the LastErr of a NotReadyError if the start timeout has passed.
 	BeforeStart func(ctx context.Context, id, ref string) error
-	// Ready checks once whether the container is usable at port. Its error
-	// means not ready yet: the start asks again until the start timeout, and
-	// the last error becomes the LastErr of the NotReadyError.
-	Ready func(ctx context.Context, port int) error
+	// Ready checks once whether the container is usable at host and port.
+	// Its error means not ready yet: the start asks again until the start
+	// timeout, and the last error becomes the LastErr of the NotReadyError.
+	Ready func(ctx context.Context, host string, port int) error
 	// AfterReady runs once the container is ready, within the same start
 	// timeout, for example to initiate a replica set. Its error is returned
 	// as BeforeStart's is.
@@ -50,20 +55,26 @@ type Spec struct {
 	Advice func(lastErr error) string
 }
 
+// Endpoint is where a started container is reached.
+type Endpoint struct {
+	Host string
+	Port int
+}
+
 // Start creates the container, pulling its image if the daemon does not
-// have it, starts it, reads its published port and waits until it is ready.
-// It returns the host port. A start that fails removes the container.
-func (c *Container) Start(ctx context.Context, spec Spec) (port int, err error) {
-	s := &start{c: c, spec: spec, ref: spec.Request.Image}
+// have it, starts it, finds where it is reached and waits until it is ready.
+// A start that fails removes the container.
+func (c *Container) Start(ctx context.Context, spec Spec) (Endpoint, error) {
+	s := &start{c: c, spec: spec, ref: spec.Request.Image, host: spec.Host}
 	deadline, err := s.create(ctx)
 	if err != nil {
-		return 0, err
+		return Endpoint{}, err
 	}
 	if err := s.finish(ctx, deadline); err != nil {
 		c.removeAfterFailedStart(ctx)
-		return 0, err
+		return Endpoint{}, err
 	}
-	return s.port, nil
+	return Endpoint{Host: s.host, Port: s.port}, nil
 }
 
 // start is one start's progress.
@@ -71,6 +82,8 @@ type start struct {
 	c    *Container
 	spec Spec
 	ref  string
+	// host and port are where the container is reached, once known.
+	host string
 	port int
 }
 
@@ -162,7 +175,7 @@ func (s *start) unlessCutShort(caller, bounded context.Context, err error) error
 // to Start. If it has ended, the caller stopped the start, not the timeout.
 func (s *start) notReady(caller context.Context, cause, lastErr error) error {
 	err := &NotReadyError{
-		Name: s.c.name, ID: s.c.id, Host: s.spec.Host, Port: s.port, HostSource: s.spec.HostSource,
+		Name: s.c.name, ID: s.c.id, Host: s.host, Port: s.port, HostSource: s.spec.HostSource,
 		Timeout: s.spec.StartTimeout, ContextEnded: caller.Err() != nil, Cause: cause, LastErr: lastErr,
 	}
 	if s.spec.Advice != nil {
@@ -195,8 +208,7 @@ func (s *start) finish(ctx context.Context, deadline time.Time) error {
 	return nil
 }
 
-// run starts the created container and records the port it is published
-// on.
+// run starts the created container and records where it is reached.
 func (s *start) run(ctx context.Context) (dockerclient.ContainerInspect, error) {
 	if s.spec.BeforeStart != nil {
 		if err := s.spec.BeforeStart(ctx, s.c.id, s.ref); err != nil {
@@ -220,12 +232,36 @@ func (s *start) run(ctx context.Context) (dockerclient.ContainerInspect, error) 
 	if hasExited(info.State) {
 		return dockerclient.ContainerInspect{}, s.c.exitedError(ctx, info.State, nil)
 	}
+	if err := s.locate(info); err != nil {
+		return dockerclient.ContainerInspect{}, err
+	}
+	return info, nil
+}
+
+// locate records where the running container is reached: at its address on
+// the shared network, or at the host port it is published on.
+func (s *start) locate(info dockerclient.ContainerInspect) error {
+	if s.spec.Network != "" {
+		return s.locateOnNetwork(info)
+	}
 	port, published := hostPort(info, s.spec.Port)
 	if !published {
-		return dockerclient.ContainerInspect{}, &UnpublishedPortError{Port: s.spec.Port, Name: s.c.name, ID: s.c.id}
+		return &UnpublishedPortError{Port: s.spec.Port, Name: s.c.name, ID: s.c.id}
 	}
 	s.port = port
-	return info, nil
+	return nil
+}
+
+// locateOnNetwork records the container's address on the shared network.
+// The daemon assigns it at start, so it is read from this inspect.
+func (s *start) locateOnNetwork(info dockerclient.ContainerInspect) error {
+	address := info.NetworkSettings.Networks[s.spec.Network].IPAddress
+	port, err := strconv.Atoi(strings.TrimSuffix(s.spec.Port, "/tcp"))
+	if address == "" || err != nil {
+		return &UnpublishedPortError{Port: s.spec.Port, Network: s.spec.Network, Name: s.c.name, ID: s.c.id}
+	}
+	s.host, s.port = address, port
+	return nil
 }
 
 // stepError reports which step of the start failed.
@@ -303,7 +339,7 @@ func (s *start) ready(ctx context.Context) error {
 	if s.spec.Ready == nil {
 		return nil
 	}
-	return s.spec.Ready(ctx, s.port)
+	return s.spec.Ready(ctx, s.host, s.port)
 }
 
 // Why the health check did not pass, inside the NotReadyError a caller sees.
