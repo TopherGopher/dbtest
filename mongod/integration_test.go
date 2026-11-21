@@ -200,6 +200,9 @@ func TestIntegrationAContainerNameInUseIsAConflict(t *testing.T) {
 	t.Cleanup(func() { _ = second.Stop(context.Background()) })
 
 	assert.ErrorIs(t, err, dockerclient.ErrConflict, "a name already in use is a conflict")
+	info, err := docker.ContainerInspect(ctx, first.ID())
+	require.NoError(t, err, "the first container is still there after the conflict")
+	assert.True(t, info.State.Running, "a start that conflicts leaves the other container running")
 }
 
 func TestIntegrationStartFailsWhenTheImageDoesNotExist(t *testing.T) {
