@@ -1,6 +1,7 @@
 package mongod
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/internal/hostaddr"
 )
 
 // Environment variables that configure a whole suite without editing code.
@@ -75,6 +77,9 @@ type Options struct {
 	labels       map[string]string
 	logger       dockerclient.Logger
 	docker       dockerclient.Client
+	// findNetwork replaces hostaddr.FindSharedNetwork, for a test that
+	// describes a start made inside a container.
+	findNetwork func(context.Context, dockerclient.Client) (hostaddr.SharedNetwork, error)
 	// err is the first value a With method could not accept. A With method
 	// has nowhere to return an error, so StartWithOptions reports it.
 	err error
@@ -139,10 +144,17 @@ func (o Options) WithName(name string) Options {
 // a network the detection gets wrong. Without it the first of these is used:
 //
 //  1. the DBTEST_HOST_IP environment variable;
-//  2. the daemon's own host, when the daemon is remote (tcp, http, https, ssh);
-//  3. loopback, when this process shares the daemon host's network;
-//  4. the default gateway, when this process is in a container with a network
+//  2. the container's address on a network this process's container is on,
+//     when both are on the same daemon. Nothing is published then. WithPort
+//     and WithTLS skip this rule;
+//  3. the daemon's own host, when the daemon is remote (tcp, http, https, ssh);
+//  4. loopback, when this process shares the daemon host's network;
+//  5. the default gateway, when this process is in a container with a network
 //     of its own, because the port is published on the host outside it.
+//
+// Rule 2 may fail where containers on a network cannot talk to each other,
+// as on a bridge with inter-container traffic turned off. Set WithHostIP
+// there to publish the port instead.
 func (o Options) WithHostIP(host string) Options {
 	if host == "" {
 		return o.refused(ErrEmptyHostIP)

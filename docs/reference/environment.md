@@ -17,8 +17,21 @@ Windows, see [Installation](../getting-started/installation.md).
 | `DOCKER_HOST` | `dockerapi`, `mobyclient` | Daemon address: `unix:///path`, `tcp://host:port`, `npipe://` (`mobyclient` only). Overrides every other discovery step. |
 | `DOCKER_CONTEXT` | `dockerapi`, `mobyclient` | The Docker context to use when `DOCKER_HOST` is unset. |
 | `DOCKER_CONFIG` | `dockerapi`, `mobyclient` | Directory holding `config.json` and `contexts/`. Defaults to `~/.docker`. The `currentContext` key in `config.json` is honoured. |
-| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set, reach a `tcp://` daemon over TLS and verify its certificate. The certificates come from `DOCKER_CERT_PATH`, or from the Docker config directory (`DOCKER_CONFIG`, default `~/.docker`) when it is unset. |
-| `DOCKER_CERT_PATH` | `dockerapi`, `mobyclient` | Directory with `ca.pem`, and `cert.pem` and `key.pem` if the daemon wants a client certificate. It has no effect without `DOCKER_TLS_VERIFY`. |
+
+However the context is chosen, if it has TLS files, its daemon is reached
+over TLS with them, as with the `docker` CLI, and `DOCKER_TLS_VERIFY` and
+`DOCKER_CERT_PATH` are ignored. A context has TLS files when it was made
+with, for example, `docker context create --docker "host=…,ca=…,cert=…,key=…"`.
+The daemon's certificate is always verified, even when the context was
+made with `skip-tls-verify=true`. A context made that way, with a `tcp://`
+address and no TLS files, is refused rather than sent plain HTTP, unless
+`DOCKER_TLS_VERIFY` is set. A client given an address with
+`WithHost` uses no context.
+
+| Variable | Read by | Effect |
+| --- | --- | --- |
+| `DOCKER_TLS_VERIFY` | `dockerapi`, `mobyclient` | When set, reach a `tcp://` daemon over TLS and verify its certificate. The certificates come from `DOCKER_CERT_PATH`, or from the Docker config directory (`DOCKER_CONFIG`, default `~/.docker`) when it is unset. Ignored when the docker context in use has TLS files. |
+| `DOCKER_CERT_PATH` | `dockerapi`, `mobyclient` | Directory with `ca.pem`, and `cert.pem` and `key.pem` if the daemon wants a client certificate. It has no effect without `DOCKER_TLS_VERIFY`. Ignored when the docker context in use has TLS files. |
 | `DOCKER_API_VERSION` | `dockerapi`, `mobyclient` | Pin the API version. Without it, both negotiate with the daemon. |
 | `XDG_RUNTIME_DIR` | `dockerapi`, `mobyclient` | Where rootless Docker and Podman put their sockets. `/run/user/$UID` is used when unset. |
 | `TEMP`, `LOCALAPPDATA` | `dockerapi` on Windows | Where `podman machine` puts its socket on Windows: `TEMP`, or `LOCALAPPDATA\Temp`. Only `dockerapi` reads them, since `mobyclient` opens the named pipe. |

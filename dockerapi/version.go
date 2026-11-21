@@ -113,7 +113,8 @@ func (c *Client) Negotiate(ctx context.Context) error {
 		case <-inFlight:
 		case <-ctx.Done():
 			return &ResponseError{Method: http.MethodGet, Path: "/version", Err: ctx.Err(),
-				Problem: "the daemon at " + c.host + " had not reported its API version when this call's context ended"}
+				Problem: "the daemon at " + c.host + " had not reported its API version when this call's context ended",
+				Fix:     "Give the call more time, or check that the daemon is answering (`docker version`)"}
 		}
 	}
 }
@@ -158,7 +159,7 @@ func (c *Client) askVersion(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", newStatusError(resp, http.MethodGet, "/version")
+		return "", c.statusError(resp, http.MethodGet, "/version")
 	}
 	var v versionResponse
 	if err := decodeReply(resp.Body, &v); err != nil {
@@ -181,7 +182,8 @@ func (c *Client) productName() string {
 // is the daemon's own description of itself, for the error message.
 func chooseVersion(serverMax, serverMin, product string) (string, error) {
 	if !versionRe.MatchString(serverMax) {
-		return "", &ResponseError{Method: http.MethodGet, Path: "/version", Problem: "the daemon reported an unusable ApiVersion " + strconv.Quote(serverMax)}
+		return "", &ResponseError{Method: http.MethodGet, Path: "/version", Problem: "the daemon reported an unusable ApiVersion " + strconv.Quote(serverMax),
+			Fix: "Check that DOCKER_HOST points at a Docker or Podman daemon, and what `docker version` reports"}
 	}
 	chosen := PreferredAPIVersion
 	if compareVersions(serverMax, chosen) < 0 {

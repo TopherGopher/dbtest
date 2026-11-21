@@ -2,7 +2,7 @@
 title: Remote and nested daemons
 description: How the address to dial is worked out when the Docker daemon is not on loopback, and what is still open.
 status: current
-tracks: ["#52"]
+tracks: ["#52", "#81"]
 ---
 
 # Remote and nested daemons
@@ -15,7 +15,7 @@ network.
 
 | Setup | How it looks | Where the port really is |
 | --- | --- | --- |
-| **Socket bind-mount** (sibling containers) | Tests run in a container started with `-v /var/run/docker.sock:/var/run/docker.sock` | On the host's loopback, which the test container cannot reach |
+| **Socket bind-mount** (sibling containers) | Tests run in a container started with `-v /var/run/docker.sock:/var/run/docker.sock` | Nowhere: mongod joins the test container's network and is reached at its address there |
 | **True docker-in-docker** | A `docker:dind` service, `DOCKER_HOST=tcp://docker:2375` | On the dind container, reachable as `docker:<port>` |
 | **Socket proxy** | `tecnativa/docker-socket-proxy` in front of the socket | Wherever the daemon behind the proxy puts it. The proxy may also refuse calls dbtest makes. |
 | **Remote daemon** | `DOCKER_HOST=tcp://build-host:2376` | On `build-host` |
@@ -33,23 +33,40 @@ the first of these that applies. A process counts as containerised when
 | --- | --- | --- |
 | 1 | `Options.WithHostIP` was given | that value |
 | 2 | `DBTEST_HOST_IP` is set | that value |
-| 3 | The daemon is `tcp://`, `http://`, `https://` or `ssh://` | the daemon's hostname |
-| 4 | Unix socket or named pipe, and this process is not containerised | `127.0.0.1` |
-| 5 | Unix socket, this process is containerised but shares the host network (`--network host`, `hostNetwork` pods) | `127.0.0.1` |
-| 6 | Unix socket, this process is containerised on a network of its own | the default route's gateway, from `/proc/net/route` |
+| 3 | This process is in a container on the same daemon, on a network of its own, and neither `WithPort` nor `WithTLS` was given | mongod's address on that network, port 27017 |
+| 4 | The daemon is `tcp://`, `http://`, `https://` or `ssh://` | the daemon's hostname |
+| 5 | Unix socket or named pipe, and this process is not containerised | `127.0.0.1` |
+| 6 | Unix socket, this process is containerised but shares the host network (`--network host`, `hostNetwork` pods) | `127.0.0.1` |
+| 7 | Unix socket, this process is containerised on a network of its own | the default route's gateway, from `/proc/net/route` |
 
 Use the first two when the detection is wrong. `DBTEST_HOST_IP` is for CI
 configuration that cannot pass an option.
 
-When the address is loopback, the port is published on `127.0.0.1` only.
-Otherwise it is published on every interface, and the container gets a root
-user and a random password, which `URI()` includes; see
-[Who can connect](../reference/mongod.md#who-can-connect).
+Rule 3 publishes no port: mongod is created on the test container's own
+network. A start finds its container from the `/etc/hostname` mount in
+`/proc/self/mountinfo`, and checks that the daemon reports an address of
+this process for it. A container on a daemon that does not know it, such as
+a `docker:dind` service, moves on to the next rule. If the test container is
+on several networks, the user-defined network whose name sorts first is
+used. Rule 3 may fail where a bridge drops traffic between its containers
+(`icc=false`). Set `WithHostIP` there.
+
+When the address is loopback, the port is published on `127.0.0.1` only. On
+a user-defined network nothing is published and mongod has no password,
+because only containers on that network can connect. Otherwise the port is
+published on every interface, or mongod is on the default bridge that every
+container joins, so it gets a root user and a random password, which `URI()`
+includes; see [Who can connect](../reference/mongod.md#who-can-connect).
 
 ## Using it
 
 With `mongotest.Run` or `mongod.Start` these setups need no configuration, apart from a socket
-proxy that refuses a call. If the address is wrong, set it:
+proxy that refuses a call. Start the proxy with `CONTAINERS=1`, `IMAGES=1`,
+`EXEC=1` and `POST=1`. A request it refuses matches
+`dockerclient.ErrUnauthorized` with `StatusError.FromProxy` true, and the
+message names the settings that allow it.
+
+If the address is wrong, set it:
 
 ```sh
 DBTEST_HOST_IP=172.17.0.1 go test ./...
@@ -60,5 +77,4 @@ or in code, `mongotest.DefaultOptions().WithHostIP("172.17.0.1")`.
 ## Still open
 
 The rest of [#52](https://github.com/TopherGopher/dbtest/issues/52) is
-open: a CI matrix for the four setups, and clearer errors behind a socket
-proxy ([#72](https://github.com/TopherGopher/dbtest/issues/72)).
+open: a CI matrix for the four setups.

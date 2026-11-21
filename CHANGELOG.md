@@ -5,6 +5,24 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Tests in a container reach mongod on their own network
+
+- **When your tests run in a container on the same Docker daemon, a start
+  now puts mongod on the test container's network and publishes no port.**
+  `Container.Host()` is mongod's address on that network, and
+  `Container.Port()` is 27017. Before, the port was published on every
+  interface of the Docker host and reached through the default gateway.
+- **On a user-defined network, such as the one a GitHub Actions `container:`
+  job runs on, mongod no longer gets a generated password,** because only
+  containers on that network can connect. On the default bridge it still
+  does.
+- `WithHostIP`, `DBTEST_HOST_IP`, `WithPort` and `WithTLS` keep the published
+  port. If containers on your bridge cannot talk to each other (`icc=false`),
+  set `WithHostIP`.
+- `dockerclient.HostConfig` gains `NetworkMode`, and
+  `dockerclient.NetworkSettings` gains `Networks`. `dockerapi`, `mobyclient`
+  and the `dockermock` fake fill them.
+
 ### A pull tries a mirror when Docker Hub stays down
 
 Nothing needs to change in your code or settings.
@@ -18,6 +36,72 @@ Nothing needs to change in your code or settings.
 - **A registry is skipped for five minutes only after its rate limit refuses
   a pull.** Before, a mirror that failed for any reason was skipped for five
   minutes, so a mirror that was briefly down could not be used again.
+
+### A daemon that cannot be reached or trusted is a connection failure through either client
+
+- **Through `mobyclient`, a refused or timed-out connection, a socket with no
+  daemon behind it, or a socket you do not have permission to use now
+  matches `dockerclient.ErrConnectionFailed`,** as it already did through
+  `dockerapi`. Before, it matched `ErrDaemonResponse`. A socket you do not
+  have permission to use also matches `fs.ErrPermission`, and its message
+  gives the same fix as `dockerapi`'s.
+- **A daemon certificate the client does not trust now matches
+  `ErrConnectionFailed` through either client.** Examples are a certificate
+  not signed by the CA in `DOCKER_CERT_PATH`, or one that names another
+  host. Before, it matched `ErrDaemonResponse`. The message says what to
+  check, and `errors.As` still finds the `x509` error.
+
+If you check for `ErrDaemonResponse` to catch these, check for
+`ErrConnectionFailed` instead.
+
+### A docker context's TLS files are used
+
+- **When the daemon is found through a docker context that has TLS files,
+  either client now reaches it over TLS with them,** as the `docker` CLI
+  does. A context has TLS files when it was made with, for example,
+  `docker context create remote --docker "host=tcp://build-host:2376,ca=ca.pem,cert=cert.pem,key=key.pem"`.
+  You no longer need `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` for it, and
+  they are ignored when the context has TLS files.
+- **The daemon's certificate is always verified, even when the context was
+  made with `skip-tls-verify=true`,** which the `docker` CLI honours.
+  Skipping it would let anyone on the network pose as the daemon. A context
+  made with `skip-tls-verify=true`, a `tcp://` address and no TLS files is
+  refused with `ErrInvalidArgument` before anything is sent, rather than
+  sent plain HTTP, unless `DOCKER_TLS_VERIFY` turns TLS on.
+
+If you set `DOCKER_CERT_PATH` to files other than the context's, the
+context's files are now used: fix the context, or set `DOCKER_HOST` so that
+no context is used. If your context relies on `skip-tls-verify`, the
+client now fails, with `ErrConnectionFailed` or, when the context has no TLS
+files, `ErrInvalidArgument`: add the daemon's CA to the context as `ca=`.
+
+### Errors say more precisely what went wrong with the daemon
+
+- **Plain HTTP sent to a daemon that accepts only TLS now matches
+  `ErrConnectionFailed` through either client,** and the message says how
+  to turn TLS on. This happens with, for example, `DOCKER_HOST=tcp://host:2376`
+  and no `DOCKER_TLS_VERIFY`. Before, it matched no sentinel, or
+  `ErrDaemonResponse` when the port answered with TLS rather than HTTP, and
+  the message suggested a malformed request or an API version mismatch.
+- **TLS sent to a daemon that speaks plain HTTP now matches
+  `ErrConnectionFailed` through either client,** and the message says how
+  to turn TLS off or use the daemon's TLS port. Before, it matched
+  `ErrDaemonResponse` or no sentinel.
+- **A connection that breaks partway through a request, with a broken pipe
+  or a reset, now matches `ErrDaemonResponse`, not `ErrConnectionFailed`.**
+  Something answered, so the message no longer says to start the daemon. It
+  says to check that the daemon is still running and retry.
+- **A 403 from a proxy in front of the daemon, such as
+  `tecnativa/docker-socket-proxy`, sets the new `StatusError.FromProxy`
+  field.** The message names the refused request and the proxy settings
+  that allow it, instead of quoting the proxy's HTML page and suggesting
+  `docker login`. It still matches `ErrUnauthorized`. A refusal with an
+  HTML page, an empty body or JSON counts; one in plain text cannot be told
+  from the daemon's own message, so it does not.
+
+If you branch on `ErrConnectionFailed` to tell the user to start Docker, a
+connection broken partway through a request now arrives as
+`ErrDaemonResponse` instead.
 
 ## v0.3.0
 

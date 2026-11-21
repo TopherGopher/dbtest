@@ -11,7 +11,8 @@ import (
 // Sentinels for a start that failed. Image packages re-export them under
 // their own names, so their text is public API.
 var (
-	// ErrNoPublishedPort: the container port has no host port to connect to.
+	// ErrNoPublishedPort: the container port has no host port to connect to,
+	// or, on a network shared with the caller, the container has no address.
 	ErrNoPublishedPort = errors.New("container port is not published on the host")
 	// ErrNotReady: the container was not ready before the start timeout
 	// passed or the context ended. An error that matches it also matches
@@ -47,15 +48,22 @@ func (e *StartError) Error() string {
 
 func (e *StartError) Unwrap() error { return e.Err }
 
-// UnpublishedPortError names a container port with no host port. It matches
-// ErrNoPublishedPort.
+// UnpublishedPortError names a container port with no host port, or a
+// network the container has no address on. It matches ErrNoPublishedPort.
 type UnpublishedPortError struct {
 	Port string // the container port, such as "27017/tcp"
-	Name string
-	ID   string
+	// Network is the shared network the container was to be reached on, or
+	// "" when its port was to be published.
+	Network string
+	Name    string
+	ID      string
 }
 
 func (e *UnpublishedPortError) Error() string {
+	if e.Network != "" {
+		return fmt.Sprintf("container %s (%s) has no address on network %s, which this process shares with it. "+
+			"Set WithHostIP to publish its port instead", e.Name, ShortID(e.ID), e.Network)
+	}
 	return fmt.Sprintf("container %s (%s) has no host port for %s: the daemon did not publish it. "+
 		"Check that the daemon allows publishing ports, as a rootless or locked-down daemon may not",
 		e.Name, ShortID(e.ID), e.Port)

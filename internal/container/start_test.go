@@ -67,10 +67,50 @@ func newContainer(m *dockermock.Mock) *container.Container {
 func TestAStartNeedsNoHooks(t *testing.T) {
 	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return inspected(""), nil })
 
-	port, err := newContainer(m).Start(t.Context(), spec(time.Second))
+	reached, err := newContainer(m).Start(t.Context(), spec(time.Second))
 
 	require.NoError(t, err, "with no hooks the container is ready once it runs and its port is published")
-	assert.Equal(t, hostPort, port, "the start returns the published port")
+	assert.Equal(t, container.Endpoint{Host: "127.0.0.1", Port: hostPort}, reached, "the start returns the host and the published port")
+}
+
+// onNetwork is what the daemon reports for a running container on network,
+// with nothing published.
+func onNetwork(network, address string) dockerclient.ContainerInspect {
+	return dockerclient.ContainerInspect{
+		ID:    containerID,
+		State: dockerclient.ContainerState{Status: "running", Running: true},
+		NetworkSettings: dockerclient.NetworkSettings{Networks: map[string]dockerclient.NetworkEndpoint{
+			network: {IPAddress: address},
+		}},
+	}
+}
+
+func TestAContainerOnASharedNetworkIsReachedAtItsAddressThere(t *testing.T) {
+	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return onNetwork("ci-net", "172.18.0.5"), nil })
+	s := spec(time.Second)
+	s.Network, s.Host = "ci-net", ""
+	var asked container.Endpoint
+	s.Ready = func(_ context.Context, host string, port int) error {
+		asked = container.Endpoint{Host: host, Port: port}
+		return nil
+	}
+
+	reached, err := newContainer(m).Start(t.Context(), s)
+
+	require.NoError(t, err, "a container on the shared network needs no published port")
+	want := container.Endpoint{Host: "172.18.0.5", Port: 5432}
+	assert.Equal(t, want, reached, "the container is reached at its address on the network, on the container port")
+	assert.Equal(t, want, asked, "readiness is asked where the caller will connect")
+}
+
+func TestAContainerWithNoAddressOnTheNetworkCannotBeReached(t *testing.T) {
+	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return onNetwork("other-net", "172.19.0.5"), nil })
+	s := spec(time.Second)
+	s.Network = "ci-net"
+
+	_, err := newContainer(m).Start(t.Context(), s)
+
+	assert.ErrorIs(t, err, container.ErrNoPublishedPort, "with no address on the network there is nothing to connect to")
 }
 
 func TestAStartWaitsForADeclaredHealthCheck(t *testing.T) {
@@ -133,7 +173,7 @@ func TestTheAdviceIsGivenTheLastFailureAndEndsTheError(t *testing.T) {
 	stillStarting := errors.New("the server is still starting")
 	var givenLastErr error
 	s := spec(150 * time.Millisecond)
-	s.Ready = func(context.Context, int) error { return stillStarting }
+	s.Ready = func(context.Context, string, int) error { return stillStarting }
 	s.Advice = func(lastErr error) string {
 		givenLastErr = lastErr
 		return "Try the image package's own option."

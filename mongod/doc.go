@@ -97,17 +97,19 @@
 // # Where to connect
 //
 // The published port is on the machine the daemon runs on, which is not
-// always this one. A start works the address out: a remote daemon's host,
-// loopback for a local one, or the gateway when this process is itself in a
-// container. [Options.WithHostIP] lists the order, and overrides it for a
-// network the detection gets wrong.
+// always this one. A start works the address out: the container's address
+// on a network it shares with this process's own container, a remote
+// daemon's host, loopback for a local one, or the gateway. [Options.WithHostIP]
+// lists the order, and overrides it for a network the detection gets wrong.
 //
 // # Who can connect
 //
 // A local container is published on 127.0.0.1 only, and mongod runs without
-// authentication. Any other address needs the port published on every
-// interface, so the start creates a root user, "mongotest", with a random
-// password. [Container.URI] includes the credentials when there are any, so
+// authentication. So does one on a user-defined network shared with this
+// process's container, where it publishes nothing. Any other address needs
+// the port published on every interface, and the default bridge lets every
+// container connect, so there the start creates a root user, "mongotest",
+// with a random password. [Container.URI] includes the credentials when there are any, so
 // a test that takes its URI from the container runs unchanged in both places.
 //
 //	mongod.DefaultOptions().WithAuth("admin", "secret")   // always these

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"testing"
 
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -62,6 +63,49 @@ func Conformance(t *testing.T, newClient Factory) {
 	t.Run("reads what a container wrote", func(t *testing.T) {
 		conformanceLogs(t, newClient(t))
 	})
+	t.Run("puts a container on the network it names", func(t *testing.T) {
+		conformanceNetwork(t, newClient(t))
+	})
+}
+
+// TestNetwork is the network the conformance suite puts a container on. A
+// double accepts any name; a real daemon would need it created first.
+const TestNetwork = "dbtest-conformance"
+
+// conformanceNetwork checks that NetworkMode reaches the daemon and that
+// inspect reports the container's address on that network, which is how a
+// container started next to the caller is reached with no published port.
+func conformanceNetwork(t *testing.T, c dockerclient.Client) {
+	ctx := context.Background()
+	if err := c.ImagePull(ctx, TestImage); err != nil {
+		t.Fatalf("pulling %s: %v", TestImage, err)
+	}
+	id, _, err := c.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
+		Image:      TestImage,
+		HostConfig: &dockerclient.HostConfig{NetworkMode: TestNetwork},
+	})
+	if err != nil {
+		t.Fatalf("creating a container on %s: %v", TestNetwork, err)
+	}
+	if err := c.ContainerStart(ctx, id); err != nil {
+		t.Fatalf("starting %s: %v", id, err)
+	}
+	info, err := c.ContainerInspect(ctx, id)
+	if err != nil {
+		t.Fatalf("inspecting %s: %v", id, err)
+	}
+	endpoint, ok := info.NetworkSettings.Networks[TestNetwork]
+	if !ok {
+		t.Fatalf("a container created with NetworkMode %q must be on that network, got networks %+v. "+
+			"Send HostConfig.NetworkMode on create and read NetworkSettings.Networks on inspect",
+			TestNetwork, info.NetworkSettings.Networks)
+	}
+	if net.ParseIP(endpoint.IPAddress) == nil {
+		t.Errorf("a running container must report its address on %s, got %q", TestNetwork, endpoint.IPAddress)
+	}
+	if len(info.NetworkSettings.Ports) != 0 {
+		t.Errorf("a container that publishes nothing must report no published ports, got %+v", info.NetworkSettings.Ports)
+	}
 }
 
 // conformanceLogs checks ContainerLogsTo returns what the container wrote,

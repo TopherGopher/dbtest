@@ -193,10 +193,12 @@ starts wait their turn.
 
 A `mongod` with no users accepts anyone who can reach its port.
 
-A container published on loopback gets no credentials. A container published
-on every interface gets a root user, `mongotest`, with a random password.
-That happens with a remote daemon, when the tests run in a container, or when
-`WithHostIP` is not loopback. `URI()` includes the credentials, so a test that
+A container published on loopback gets no credentials, and neither does one
+on a user-defined network it shares with the tests' own container. A
+container published on every interface, or on Docker's default bridge, gets
+a root user, `mongotest`, with a random password. That happens with a remote
+daemon, when the tests run in a container and share no user-defined network
+with mongod, or when `WithHostIP` is not loopback. `URI()` includes the credentials, so a test that
 takes its connection string from the container runs unchanged whether or not
 the container has them.
 
