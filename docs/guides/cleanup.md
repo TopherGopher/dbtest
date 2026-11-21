@@ -47,11 +47,10 @@ not remove:
 
 ```go
 func TestMain(m *testing.M) {
-    code := m.Run()
+    m.Run()
     if err := mongod.ReapRunningContainers(context.Background()); err != nil {
         log.Print(err)
     }
-    os.Exit(code)
 }
 ```
 

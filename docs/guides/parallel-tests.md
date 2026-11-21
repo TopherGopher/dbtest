@@ -1,6 +1,6 @@
 ---
 title: Table-driven and parallel tests
-description: Choosing between a container per case and a container per table, and running tests in parallel without collisions.
+description: Choosing between a container per test, per table and per package, and running tests in parallel without collisions.
 status: current
 ---
 
@@ -51,13 +51,8 @@ func TestRosterQueries(t *testing.T) {
     for _, tc := range cases {
         t.Run(tc.name, func(t *testing.T) {
             t.Parallel()
-            // A database name derived from the subtest name is unique and
-            // readable in the server logs. Replace characters mongo rejects.
-            db := inst.Database(dbNameFor(t))
-            // t.Context() has ended by the time cleanups run.
-            t.Cleanup(func() { _ = db.Drop(context.Background()) })
-
-            coll := db.Collection("roster")
+            // A database for this case alone, dropped when the case ends.
+            coll := inst.DatabaseFor(t).Collection("roster")
             for _, h := range tc.seed {
                 _, err := coll.InsertOne(t.Context(), h)
                 require.NoError(t, err, "seeding %q must succeed", tc.name)
@@ -69,25 +64,53 @@ func TestRosterQueries(t *testing.T) {
         })
     }
 }
-
-func dbNameFor(t *testing.T) string {
-    return strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-}
 ```
+
+`DatabaseFor` names the database after the case, in a form the server
+accepts whatever the case is called, and never gives two cases the same one.
 
 !!! note "Why cleanup order matters here"
     `Run` registered the container's removal on the outer test, so it runs
-    after every subtest, and its `Drop`, has finished.
+    after every subtest has finished and its database has been dropped.
+
+## A container per package
+
+When a package has many small tests, start one container for all of them in
+`TestMain`, and give each test its own database.
+
+```go
+var server *mongotest.Instance
+
+func TestMain(m *testing.M) {
+    ctx := context.Background()
+    var err error
+    if server, err = mongotest.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer server.Stop(ctx)
+    m.Run()
+}
+
+func TestFindByCity(t *testing.T) {
+    t.Parallel()
+    roster := server.DatabaseFor(t).Collection("roster")
+    // ...
+}
+```
+
+Let `TestMain` return, as here. The testing package then exits with the
+result of `m.Run`. Calling `os.Exit` yourself would skip the deferred `Stop`
+and leave the container running.
 
 ## Choosing
 
-| | Container per test | Container per table |
-| --- | --- | --- |
-| Isolation | Complete, including server state such as indexes and server parameters | Per database. Server-wide state is shared across cases |
-| Start-up cost | One container per test | One container per table |
-| `t.Parallel` | Safe at every level | Safe for subtests; the container outlives them |
-| A crashed `mongod` | Affects one test | Fails the whole table |
-| Good for | Integration tests of a feature | Many small query or codec cases |
+| | Container per test | Container per table | Container per package |
+| --- | --- | --- | --- |
+| Isolation | Complete, including server state such as indexes and server parameters | Per database. Server-wide state is shared across cases | Per database. Server-wide state is shared across the package |
+| Start-up cost | One container per test | One container per table | One container per package |
+| `t.Parallel` | Safe at every level | Safe for subtests; the container outlives them | Safe at every level; the container outlives every test |
+| A crashed `mongod` | Affects one test | Fails the whole table | Fails every test after it |
+| Good for | Integration tests of a feature | Many small query or codec cases | A package of many small tests |
 
 ## Running packages in parallel
 

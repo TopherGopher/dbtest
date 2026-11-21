@@ -29,16 +29,27 @@ func ExampleRunWithOptions() {
 	defer session.EndSession(t.Context())
 }
 
-// Outside a test, such as in TestMain, Start returns an instance its caller
-// stops.
+// One server can serve every test in a package. This is the body of the
+// TestMain that starts it. It returns after m.Run and does not call os.Exit,
+// which would skip the deferred Stop and leave the container running.
 func ExampleStart() {
+	var m *testing.M // TestMain's own m
 	ctx := context.Background()
-	inst, err := mongotest.Start(ctx)
+	server, err := mongotest.Start(ctx) // kept in a package variable, for the tests
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer inst.Stop(ctx)
-	_ = inst.Database("shop")
+	defer server.Stop(ctx)
+	m.Run()
+}
+
+// Tests that share a server each take a database of their own, which is
+// dropped when the test ends.
+func ExampleInstance_DatabaseFor() {
+	var t *testing.T               // the test's own t
+	var server *mongotest.Instance // the server the package's tests share
+	orders := server.DatabaseFor(t).Collection("orders")
+	_, _ = orders.InsertOne(t.Context(), bson.M{"item": "book"})
 }
 
 // Attach connects to a server that is already running, such as a CI service
