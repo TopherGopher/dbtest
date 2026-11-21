@@ -85,7 +85,7 @@ jobs:
       run: |
         go vet -v ./...
         go build -v ./...
-        modules=$(go list -deps -f '{{with .Module}}{{.Path}}{{end}}' ./...)
+        modules=$(go list -test -deps -f '{{with .Module}}{{.Path}}{{end}}' ./...)
         if printf '%s\n' "$modules" | grep -qx 'go.mongodb.org/mongo-driver'; then
           echo "The mongotestv2 module builds MongoDB's Go driver v1. Import go.mongodb.org/mongo-driver/v2 packages in place of go.mongodb.org/mongo-driver ones."
           exit 1
