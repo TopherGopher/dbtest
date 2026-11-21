@@ -28,7 +28,8 @@ client, err := mongo.Connect(options.Client().ApplyURI(c.URI())) // driver v2 he
 
 `Start` runs `docker.io/library/mongo:8.0`, publishes `mongod` on a host port
 the daemon picks, labels the container `mongotest=regression`, and waits up
-to a minute.
+to a minute. When the tests run in a container on the same daemon, nothing
+is published: `mongod` joins the network of the tests' container instead.
 
 ## Options
 
@@ -193,18 +194,18 @@ starts wait their turn.
 
 A `mongod` with no users accepts anyone who can reach its port.
 
-A container published on loopback gets no credentials, and neither does one
-on a user-defined network it shares with the tests' own container. A
-container published on every interface, or on Docker's default bridge, gets
-a root user, `mongotest`, with a random password. That happens with a remote
-daemon, when the tests run in a container and share no user-defined network
-with mongod, or when `WithHostIP` is not loopback. `URI()` includes the credentials, so a test that
-takes its connection string from the container runs unchanged whether or not
-the container has them.
+A container published on loopback gets no credentials. A container
+published on every interface, or on a network shared with the tests' own
+container, gets a root user, `mongotest`, with a random password. That
+happens with a remote daemon, when `WithHostIP` is not loopback, and when
+the tests run in a container that is not on the host network. `URI()` includes the credentials, so a test that takes
+its connection string from the container runs unchanged whether or not the
+container has them.
 
 `WithAuth` sets credentials of your own. Use `WithoutAuth` to skip the user on
 a network you trust. Creating the user makes a start a few seconds slower,
-which is why a loopback container gets none unless you ask.
+which is why a container only this machine can reach gets none unless you
+ask.
 
 If `mongod` still answers a client that gives no credentials when the start
 timeout ends, the start removes the container and returns an error matching
