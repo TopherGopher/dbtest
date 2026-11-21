@@ -140,8 +140,8 @@ func TestIntegrationDatabaseForKeepsApartNamesTheServerWouldConfuse(t *testing.T
 			t.Cleanup(func() {
 				other.end()
 				one.end()
-				assert.Empty(t, one.failures, "the first test's database is dropped without error")
-				assert.Empty(t, other.failures, "and so is the second's")
+				assert.False(t, one.Failed(), "the first test's database is dropped without error: %v", one.failures)
+				assert.False(t, other.Failed(), "and so is the second's: %v", other.failures)
 			})
 			insertInto(t, inst.DatabaseFor(one))
 			second := inst.DatabaseFor(other)
@@ -179,7 +179,7 @@ func TestIntegrationDatabaseForReportsNothingOnceTheInstanceIsStopped(t *testing
 	require.NoError(t, inst.Stop(context.Background()), "the instance stops")
 	test.end()
 
-	assert.Empty(t, test.failures, "a database that went with its server is not a failed drop")
+	assert.False(t, test.Failed(), "a database that went with its server is not a failed drop: %v", test.failures)
 }
 
 func TestIntegrationDatabaseForReportsADropThatFails(t *testing.T) {
