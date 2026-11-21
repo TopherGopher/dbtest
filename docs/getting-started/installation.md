@@ -9,10 +9,11 @@ status: current
 ## Add the module
 
 Most tests need only `mongotest`, which gives a test a connected client of
-MongoDB's Go driver:
+MongoDB's Go driver v1, or `mongotestv2`, which gives the same for driver v2:
 
 ```sh
-go get github.com/tophergopher/dbtest/mongotest
+go get github.com/tophergopher/dbtest/mongotest    # driver v1
+go get github.com/tophergopher/dbtest/mongotestv2  # driver v2
 ```
 
 The other modules are for particular needs, so that you download only what you
@@ -21,7 +22,8 @@ use:
 | Module | Use it for |
 | --- | --- |
 | `github.com/tophergopher/dbtest/mongotest` | Tests that use MongoDB's Go driver, v1. `mongotest.Run(t)` returns a connected client. |
-| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) package, which starts MongoDB without importing a driver, and the Docker client packages. `mongotest` requires it, so you rarely add it yourself. |
+| `github.com/tophergopher/dbtest/mongotestv2` | Tests that use MongoDB's Go driver, v2. It has the same API as `mongotest`: `mongotestv2.Run(t)` returns a connected v2 client. |
+| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) package, which starts MongoDB without importing a driver, and the Docker client packages. `mongotest` and `mongotestv2` require it, so you rarely add it yourself. |
 | `github.com/tophergopher/dbtest/mobyclient` | Code that already uses Docker's Go client, moby, and wants dbtest to share it. See [`mobyclient`](../docker-clients/mobyclient.md). |
 | `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. See [Exporting data](../guides/exporting-data.md). |
 

@@ -1,3 +1,6 @@
+// mongotest/errors.go and mongotestv2/errors.go differ only in the
+// driver version they use. A change to one belongs in the other too.
+
 package mongotest
 
 import "errors"

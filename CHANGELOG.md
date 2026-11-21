@@ -5,6 +5,17 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Tests on driver v2 get a package of their own
+
+Nothing changes for code on driver v1.
+
+- **`github.com/tophergopher/dbtest/mongotestv2` gives a test a connected
+  client of MongoDB's Go driver v2.** It has the same API as `mongotest`:
+  `mongotestv2.Run(t)`, `Start`, `Attach`, `Instance.DatabaseFor` and
+  `ErrNotConnected`. It is its own module, so a caller on driver v2 builds no
+  part of driver v1. Its tags are `mongotestv2/vX.Y.Z`, with the same version
+  as the other modules.
+
 ### Data can be kept between runs
 
 Nothing changes unless you use the new option, or read the replica set

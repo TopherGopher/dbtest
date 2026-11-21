@@ -1,3 +1,6 @@
+// mongotest/mongotest.go and mongotestv2/mongotest.go differ only in the
+// driver version they use. A change to one belongs in the other too.
+
 // Package mongotest gives a test a MongoDB server in a Docker container and a
 // connected client for it, using the official driver v1:
 //
@@ -12,6 +15,8 @@
 //
 // To share one server across a package, call Start in TestMain, and
 // Instance.DatabaseFor in each test for a database of its own.
+//
+// For driver v2, use the mongotestv2 package, which has the same API.
 package mongotest
 
 import (

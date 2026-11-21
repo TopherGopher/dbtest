@@ -5,11 +5,12 @@
 [![Coverage](https://coveralls.io/repos/github/TopherGopher/dbtest/badge.svg?branch=main)](https://coveralls.io/github/TopherGopher/dbtest?branch=main)
 
 dbtest starts a real MongoDB server in a Docker container for a Go test,
-hands the test a connected client of the official MongoDB Go driver (v1), and
+hands the test a connected client of the official MongoDB Go driver, and
 removes the container when the test ends.
 
 ```sh
-go get github.com/tophergopher/dbtest/mongotest
+go get github.com/tophergopher/dbtest/mongotest    # driver v1
+go get github.com/tophergopher/dbtest/mongotestv2  # driver v2
 ```
 
 It needs Go 1.26 or newer, and a running Docker or Podman daemon. Without a
@@ -23,6 +24,9 @@ func TestOrders(t *testing.T) {
     require.NoError(t, err)
 }
 ```
+
+With driver v2, the test is the same with `mongotestv2` in place of
+`mongotest`.
 
 Upgrading from `github.com/tophergopher/mongotest`? Import
 `github.com/tophergopher/dbtest/mongotest` instead. Its exported names from

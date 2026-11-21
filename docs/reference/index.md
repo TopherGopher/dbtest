@@ -12,12 +12,11 @@ explained, and links out for signatures.
 
 <div class="grid cards" markdown>
 
--   :fontawesome-brands-golang:{ .lg .middle } **[dbtest on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/dbtest)**
+-   :fontawesome-brands-golang:{ .lg .middle } **[mongotest](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotest)** · **[mongotestv2](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotestv2)**
 
     ---
 
-    The root package: `Run`, `Start`, `Attach`, `Instance`, and the earlier
-    names kept as wrappers.
+    `Run`, `Start`, `Attach` and `Instance`, for driver v1 and driver v2.
 
 -   :material-database-export:{ .lg .middle } **[exporter on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotest/exporter)**
 
@@ -34,7 +33,9 @@ explained, and links out for signatures.
 
 </div>
 
-## Root package surface
+## mongotest and mongotestv2 surface
+
+The two packages export the same names. Only the driver behind them differs.
 
 ### Entry points
 
