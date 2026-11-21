@@ -64,8 +64,8 @@
 //
 // An image pulled from a mirror keeps the mirror's name, such as
 // public.ecr.aws/docker/library/mongo:8.0. The container runs under that
-// name, and [Container.Image] returns it. To be sure a mirror serves exactly
-// the content you expect, name the image by digest.
+// name, and [Container.Image] returns it. The mirrors serve the same image
+// as Docker Hub, so the tag is enough.
 //
 // After a rate limit refuses a pull from Docker Hub or a mirror, that
 // registry is skipped for five minutes; a pull with nowhere else to go fails
