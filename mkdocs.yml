@@ -91,7 +91,7 @@ extra:
       link: https://pkg.go.dev/github.com/tophergopher/dbtest
       name: API reference on pkg.go.dev
   # Page status, set per page in front matter. The nav shows an icon; the
-  # page shows a banner (see overrides/main.html). Keep these four.
+  # page shows a banner (see overrides/main.html). Keep these three.
   status:
     current: Describes what is on main today
     changing: Works today, but is about to change
@@ -124,9 +124,12 @@ markdown_extensions:
   - pymdownx.smartsymbols
   # Pages include their Go from the repository's examples and tests, so CI
   # compiles what the site shows. A missing file or section fails the build.
+  # Includes come only from files inside the repository, never from a URL.
   - pymdownx.snippets:
       check_paths: true
       dedent_subsections: true
+      restrict_base_path: true
+      url_download: false
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
