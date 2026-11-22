@@ -26,10 +26,10 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-`Run` starts the container with the [postgres package](postgres.md), its
-defaults included: `docker.io/library/postgres:18` on a port the daemon
-picks. Any failure fails the test, an unreachable Docker daemon included.
-The test is never skipped.
+`Run` starts the container through the [postgres package](postgres.md),
+with its defaults: the `docker.io/library/postgres:18` image, on a port the
+daemon picks. Any failure fails the test, including an unreachable Docker
+daemon. The test is never skipped.
 
 Use `Pool` for pgx's own API:
 
@@ -39,34 +39,44 @@ func TestSum(t *testing.T) {
 }
 ```
 
+To use both clients, keep the instance: `inst := pgtest.Run(t)`, then
+`inst.DB` and `inst.Pool`. Each call to `Run` starts another container.
+
 `RunWithOptions` takes the same [options](postgres.md#options) as the
 postgres package. Start from `DefaultOptions()` and chain the ones you need,
 such as `pgtest.DefaultOptions().WithImage("17")`.
 
 ## What an instance gives you
 
+`inst` is the `*Instance` that `Run`, `Start` or `Attach` returns.
+
 | Field or method | Use |
 | --- | --- |
 | `inst.Pool` | pgx's `*pgxpool.Pool`. |
 | `inst.DB` | A `*sql.DB` that uses pgx's `database/sql` driver, not lib/pq. To test with lib/pq, open your own with `sql.Open("postgres", inst.URI())`. |
 | `inst.Container` | The [`*postgres.Container`](postgres.md#the-container). It is nil for an instance from `Attach`. |
-| `inst.DatabaseFor(t)` | A new database that only this test uses, dropped when the test ends. Use it when tests share a server. |
+| `inst.DatabaseFor(t)` | A `*Database`, with its own `Pool` and `DB`, that only this test uses. It is dropped when the test ends. |
 | `inst.URI()` | The connection string. It includes the password, so keep it out of logs. |
 | `inst.Stop(ctx)` | Closes both clients, then removes the container. Safe to call more than once. `Run` calls it for you. |
 
-`DB` and `Pool` share one pool of connections, capped at pgxpool's default:
-4, or the number of CPUs if that is more. For more, open a pool of your own
-from `inst.URI()` with `pool_max_conns` added, such as
-`pgxpool.New(ctx, inst.URI()+"&pool_max_conns=20")`.
+`DB` and `Pool` reach the server's default database, which every test on
+the instance shares. When tests share an instance, give each its own
+database with `DatabaseFor`.
+
+`DB` and `Pool` also share one pool of connections, capped at pgxpool's
+default: 4, or the number of CPUs if that is more. For more, parse
+`inst.URI()` with `pgxpool.ParseConfig`, set `MaxConns`, and open your own
+pool with `pgxpool.NewWithConfig`.
 
 ## A connection still in use
 
-When the test ends, or `Stop` is called, every connection should have come
-back to the pool. If one has not, the test fails with an error that matches
-`ErrConnectionsHeld` and gives the count. The usual causes are a `Rows`
-never closed, a `QueryRow` never scanned, and a `Tx` never committed or
-rolled back. The container is removed all the same, and `Stop` does not wait
-for the connection. `mongotest`'s `Stop` differs here: it does not check.
+When the clients close, every connection should have come back to the
+pool. If one has not, `Stop` returns an error that matches
+`ErrConnectionsHeld` and gives the count. Under `Run` or `DatabaseFor`, the
+test fails with it. The usual causes are a `Rows` never closed, a
+`QueryRow` never scanned, a `Tx` never committed or rolled back, and a
+`Conn` never released. `Stop` does not wait for the connection, and removes
+the container all the same.
 
 ## Outside a test
 
@@ -89,11 +99,12 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-`DatabaseFor` runs `CREATE DATABASE`, named after the test with a random
-ending, and connects a new `Pool` and `DB` to it. `Name()` returns the name.
-When the test ends it closes them, checking for connections still in use as
-above, and drops the database. Creating a database is much quicker than
-starting a container.
+`DatabaseFor` runs `CREATE DATABASE` and returns a `*Database` whose `Pool`
+and `DB` are connected to the new database. The database is named after the
+test, with a random ending, and its `Name()` returns the name. Each call
+creates another database, so call it once per test and keep what it
+returns. When the test ends, `DatabaseFor` closes the clients, checking for
+connections still in use as above, and drops the database.
 
 ## A server you already run
 
@@ -105,19 +116,25 @@ CI service container, and starts nothing. Its instance has no container, and
 --8<-- "pgtest/example_test.go:attach"
 ```
 
-An empty URI is refused with `ErrEmptyURI`. pgx would otherwise fill it in
-from the `PG*` environment variables, so an unset `DATABASE_URL` would point
-the tests at whatever server those name. For `DatabaseFor`, the role in the
-URI needs the `CREATEDB` privilege.
+An empty URI, or one pgx cannot read, is refused with `ErrInvalidURI`. pgx
+would otherwise fill an empty one in from the `PG*` environment variables,
+so an unset `DATABASE_URL` would point the tests at whatever server those
+name. pgx still fills in anything a URI leaves out, such as the password,
+from those variables, `~/.pgpass` and `pg_service.conf`, as libpq does.
+
+For `DatabaseFor`, the role in the URI needs the `CREATEDB` privilege, and
+the server must be PostgreSQL 13 or later.
 
 ## Errors
 
 | Identifier | Meaning |
 | --- | --- |
 | `ErrNotConnected` | A client could not connect to the server. |
-| `ErrEmptyURI` | `Attach` was given an empty connection string. |
+| `ErrInvalidURI` | `Attach` was given a URI that is empty or that pgx cannot read. |
 | `ErrConnectionsHeld` | Connections were still in use when the clients were closed. |
 
-`Run` and `Start` also return the [postgres package's errors](postgres.md#when-a-start-returns),
-such as `postgres.ErrNotReady`, and the Docker client's, such as
-`dockerclient.ErrConnectionFailed`. Match them all with `errors.Is`.
+`Start` and `StartWithOptions` also return the
+[postgres package's errors](postgres.md#when-a-start-returns), such as
+`postgres.ErrNotReady`, and the Docker client's, such as
+`dockerclient.ErrConnectionFailed`. Under `Run` they fail the test. Match
+them all with `errors.Is`.

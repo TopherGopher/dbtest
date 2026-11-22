@@ -65,8 +65,10 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-`Run(t).Pool` is pgx's own pool, and draws on the same connections. For
-another driver, such as lib/pq, the `postgres` package in the root module
+To use both clients, keep the instance: `inst := pgtest.Run(t)`, then
+`inst.DB` and `inst.Pool`, which is pgx's own pool. They share one pool of
+connections. Each call to `Run` starts another container. For another
+driver, such as lib/pq, the `postgres` package in the root module
 starts the server and returns its connection string, with no driver
 imported. See
 [The pgtest package](https://tophergopher.github.io/dbtest/reference/pgtest/)

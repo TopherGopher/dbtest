@@ -7,12 +7,13 @@ what to do if it affects you.
 
 ### PostgreSQL containers
 
-Nothing changes for code that starts only MongoDB.
+Nothing changes for code that starts only MongoDB, except the two Docker
+error messages at the end of this section.
 
 - **`github.com/tophergopher/dbtest/pgtest` gives a test a PostgreSQL
-  server and two clients, already connected:** `pgtest.Run(t).DB`, a
-  `*sql.DB` through pgx's driver, and `pgtest.Run(t).Pool`, pgx's own pool.
-  The two share one pool of connections. `Start`, `Attach` and
+  server and two clients, already connected:** `pgtest.Run(t)` returns an
+  instance whose `DB` is a `*sql.DB` through pgx's driver and whose `Pool`
+  is pgx's own pool. The two share one pool of connections. `Start`, `Attach` and
   `DatabaseFor` work as in `mongotest`. `DatabaseFor` creates a database
   for each test and drops it at the end. It is its own module, so only its
   callers download pgx (`github.com/jackc/pgx/v5`, v5.13.0 or later). Its

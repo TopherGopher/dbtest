@@ -98,9 +98,9 @@ what it has fetched.
     ```
 
     The `replace` lines keep this building before `vX.Y.Z` is tagged.
-    Never release a module on its own. `pgtest` needs the `postgres`
-    package, which no root version up to v0.3.0 has, so a `pgtest` tag
-    whose `go.mod` requires an older root does not build for its users.
+    Never tag a module on its own. `pgtest` uses the `postgres` package,
+    which no root version up to v0.3.0 has, so a `pgtest` tag must require
+    the root version released with it.
 
 2. Publish a full GitHub release, not a pre-release, with a new tag `vX.Y.Z`
    on that pull request's merge commit. The release creates the root module's
@@ -110,6 +110,12 @@ what it has fetched.
    modules require it. It then tags the five modules on the same commit,
    pushes the tags together, and asks the Go module proxy for all six
    versions. It does nothing for a pre-release.
+
+Publish the release as soon as a new module reaches `main`. Until it is
+tagged, `go get` gives its users a pseudo-version of `main`, which requires
+the last root release and may not build against it. Today that holds for
+`pgtest` and `mongotestv2`. `pgtest` cannot build against v0.3.0, which
+has no `postgres` package.
 
 If the run fails, its log says which step failed and what to do:
 

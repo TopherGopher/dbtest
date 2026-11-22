@@ -26,8 +26,8 @@ go get github.com/tophergopher/dbtest/pgtest
 ```
 
 To use another driver, such as lib/pq, add the root module and import its
-[`postgres`](../reference/postgres.md) package instead. It returns a
-connection string and adds no dependency:
+[`postgres`](../reference/postgres.md) package instead. Its `Start` returns
+a connection string, and it adds no driver to your module:
 
 ```sh
 go get github.com/tophergopher/dbtest
@@ -104,7 +104,7 @@ Windows; see the Docker Desktop tab.
 ## Pull the image once
 
 This step is optional. The first test run on a machine downloads the
-MongoDB image. Tests wait for the download, which does not count against
+database image. Tests wait for the download, which does not count against
 their start timeout, and fail if it fails. Pulling it first means one
 download, before any test starts, rather than a first test that waits for
 it. To do that, call `mongod.PullImage` from `TestMain`. The package to import
@@ -118,9 +118,13 @@ func TestMain(m *testing.M) {
 
 It pulls the image the tests would use, including one set by
 `MONGOTEST_IMAGE`, and does nothing if the daemon already has it; see
-[Which image](../reference/mongod.md#which-image). For PostgreSQL, call
-`postgres.PullImage` the same way; see
-[The postgres package](../reference/postgres.md#which-image).
+[Which image](../reference/mongod.md#which-image).
+
+For PostgreSQL, call `postgres.PullImage(ctx, postgres.DefaultOptions())`
+the same way. The package to import is
+`github.com/tophergopher/dbtest/postgres`, and the image it pulls includes
+one set by `DBTEST_POSTGRES_IMAGE`; see
+[Which image](../reference/postgres.md#which-image).
 
 ## Check the installation
 
@@ -139,10 +143,14 @@ Run the [quickstart](quickstart.md) test.
     export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')
     ```
 
-??? failure "The container starts, but `mongod` exits or is not ready in time"
+??? failure "The container starts, but the server exits or is not ready in time"
     The error names the step that failed and says what to do. Test for it
     with `errors.Is` against a sentinel from the `mongod` package, such as
     `mongod.ErrNotReady` or `mongod.ErrContainerExited`. When the container
     exits, the error ends with the server's last log lines, which usually say
     why. On a slow machine, a longer start timeout is the usual fix: set
     `MONGOTEST_START_TIMEOUT` to a Go duration such as `120s`.
+
+    For PostgreSQL, the sentinels are in the `postgres` package, such as
+    `postgres.ErrNotReady`, and the variable is
+    `DBTEST_POSTGRES_START_TIMEOUT`.
