@@ -20,7 +20,7 @@ in maintenance.
 
 For PostgreSQL, add the root module and import its
 [`postgres`](../reference/postgres.md) package. It returns a connection
-string for pgx, lib/pq or `database/sql`, and adds no dependency:
+string for any driver, such as pgx or lib/pq, and adds no dependency:
 
 ```sh
 go get github.com/tophergopher/dbtest

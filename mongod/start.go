@@ -111,8 +111,8 @@ func PullImage(ctx context.Context, opts Options) error {
 }
 
 // ReapRunningContainers removes every container this module started in this
-// process that has not been stopped, PostgreSQL's from the postgres package
-// included. Call it after m.Run in TestMain so a run leaves nothing behind. After [DisableSignalHandler], it is the only
+// process that has not been stopped, PostgreSQL's included. Call it after
+// m.Run in TestMain so a run leaves nothing behind. After [DisableSignalHandler], it is the only
 // thing that removes a container nobody stopped.
 //
 // Every removal is attempted, all at the same time, even if one fails. The

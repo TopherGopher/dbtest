@@ -6,9 +6,9 @@ status: current
 
 # Environment variables
 
-The `mongod` and `postgres` packages each read variables of their own. The Docker clients
-read the same ones the `docker` CLI does, so they find the same daemon; on
-Windows, see [Installation](../getting-started/installation.md).
+The `mongod` and `postgres` packages read the variables below. The Docker
+clients read the same ones the `docker` CLI does, so they find the same
+daemon; on Windows, see [Installation](../getting-started/installation.md).
 
 ## Read by the Docker clients
 
@@ -57,11 +57,11 @@ An option beats the variable, and the variable beats the default. See
 | --- | --- | --- |
 | `DBTEST_POSTGRES_IMAGE` | The image: a version, or a reference used as written, such as `postgres:17-alpine`. Read only when no option names an image. | `docker.io/library/postgres:18` |
 | `DBTEST_POSTGRES_START_TIMEOUT` | The start timeout, as a Go duration | `60s` |
-| `DBTEST_HOST_IP` | The address containers are reachable at, shared with `mongod` | see [Remote and nested daemons](../guides/remote-daemons.md) |
+| `DBTEST_HOST_IP` | The address the tests reach containers at, for a remote or nested daemon; shared with `mongod` | see [Remote and nested daemons](../guides/remote-daemons.md) |
 
 ## Not read
 
 dbtest does not read `MONGO_URI`, `MONGODB_URI` or similar. To point tests at another server, pass its URI to `mongotest.Attach(ctx, uri)`.
-Nor does it read libpq's `PGHOST`, `PGPASSWORD` and the rest, and the URI
-`postgres` returns spells out every part, so a driver that reads them
-cannot change where it connects.
+Nor does it read `PGHOST`, `PGPASSWORD` and the like. Your driver may, but
+the URI from `postgres` names every part, so pgx and lib/pq cannot let them
+change where it connects.

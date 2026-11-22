@@ -37,7 +37,7 @@ func (c *Container) ID() string { return c.ctr.ID() }
 
 // Name returns the container name: the one WithName gave, or a generated one.
 //
-//	pgtest-1a2b3c4d
+//	dbtest-postgres-1a2b3c4d
 func (c *Container) Name() string { return c.ctr.Name() }
 
 // Image returns the reference of the image the container runs. When the
@@ -48,8 +48,7 @@ func (c *Container) Name() string { return c.ctr.Name() }
 func (c *Container) Image() string { return c.ref }
 
 // Host returns the address the server is reachable at from this process. It
-// is not always loopback; see [Options.WithHostIP]. A connection string
-// built from Host and Port by hand has no password, so use URI.
+// is not always loopback; see [Options.WithHostIP].
 //
 //	127.0.0.1    // local daemon
 //	172.18.0.3   // this process is in a container on the same daemon
@@ -58,8 +57,7 @@ func (c *Container) Host() string { return c.host }
 
 // Port returns the port the server is reachable at: the host port it is
 // published on, or 5432 when it shares a network with this process's
-// container. A connection string built from Host and Port by hand has no
-// password, so use URI.
+// container.
 //
 //	32768   // published
 //	5432    // on a shared network
@@ -82,8 +80,9 @@ func (c *Container) Database() string { return database }
 //	postgres://postgres:3f9a…@127.0.0.1:32768/postgres?sslmode=disable
 //
 // It spells out every part, so PGHOST, PGPASSWORD and the other variables
-// libpq and pgx read cannot change where it connects. sslmode=disable is
-// there because the image serves no TLS.
+// pgx and lib/pq read cannot change where it connects. sslmode=disable is
+// there because the image serves no TLS: the connection is not encrypted,
+// so with a remote daemon, data crosses the network in clear.
 func (c *Container) URI() string { return c.uri(c.password) }
 
 // redactedPassword replaces the password in a URI written for a person.

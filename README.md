@@ -4,10 +4,11 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tophergopher/dbtest.svg)](https://pkg.go.dev/github.com/tophergopher/dbtest)
 [![Coverage](https://coveralls.io/repos/github/TopherGopher/dbtest/badge.svg?branch=main)](https://coveralls.io/github/TopherGopher/dbtest?branch=main)
 
-dbtest starts a real database server in a Docker container for a Go test,
-and removes the container when the test ends. For MongoDB it hands the
-test a connected client of the official MongoDB Go driver. For PostgreSQL,
-the `postgres` package hands it a connection string, for now.
+dbtest starts a real database server in a Docker container for a Go test.
+For MongoDB it hands the test a connected client of the official MongoDB Go
+driver, and removes the container when the test ends. For PostgreSQL, the
+`postgres` package hands it a connection string. A connected client is
+planned.
 
 ```sh
 go get github.com/tophergopher/dbtest/mongotest    # if you use go.mongodb.org/mongo-driver
@@ -53,11 +54,17 @@ lists what replaces each. If you set `MONGOTEST_HOST_IP`, rename it to
 
 ## PostgreSQL
 
-The `postgres` package, in the root module, starts PostgreSQL and returns a
-connection string for any driver. It adds no dependency to your module.
+The `postgres` package starts PostgreSQL and returns a connection string
+for any driver. It adds no dependency to your module. Install it with:
+
+```sh
+go get github.com/tophergopher/dbtest
+```
+
+`Start` does not take `t`, so stop the container yourself, as below.
 
 ```go
-c, err := postgres.Start(ctx) // import "github.com/tophergopher/dbtest/postgres"
+c, err := postgres.Start(t.Context()) // import "github.com/tophergopher/dbtest/postgres"
 require.NoError(t, err)
 t.Cleanup(func() { c.Stop(context.Background()) })
 

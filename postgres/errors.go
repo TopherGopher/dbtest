@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -64,7 +63,7 @@ func invalidImage(source, ref string) error {
 }
 
 func invalidPort(port int) error {
-	return &optionError{option: "WithPort", problem: strconv.Itoa(port) + " is outside the range 0 to 65535",
+	return &optionError{option: "WithPort", problem: strconv.Itoa(port) + " is not a port number",
 		fix: "Pass a port from 1 to 65535, or leave the option out to let the daemon choose"}
 }
 
@@ -78,10 +77,11 @@ func invalidPullTimeout(d time.Duration) error {
 		fix: "Pass a positive duration such as WithPullTimeout(20*time.Minute), or leave the option out"}
 }
 
-// environmentError reports an unusable value in an environment variable.
-func environmentError(name, value, problem string) error {
-	return &optionError{option: name, problem: fmt.Sprintf("%q cannot be used: %s", value, problem),
-		fix: "Correct the variable, or unset it to use the default"}
+// invalidStartTimeoutVariable reports an EnvStartTimeout value that is not
+// a positive duration.
+func invalidStartTimeoutVariable(value string) error {
+	return &optionError{option: EnvStartTimeout, problem: strconv.Quote(value) + " is not a positive duration",
+		fix: "Set it to a Go duration such as 90s, or unset it to use the default"}
 }
 
 // The steps of a start, as StartError.Op names them.

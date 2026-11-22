@@ -17,25 +17,31 @@ module and imports no driver, so it adds no dependency to yours.
 ```
 
 `Start` runs `docker.io/library/postgres:18`, publishes the server on a host
-port the daemon picks, labels the container `mongotest=regression`, and
-waits up to a minute. Each start gets a fresh, empty database. When the
-tests run in a container on the same daemon, nothing is published: the
-server joins the network of the tests' container instead.
+port the daemon picks, and waits up to a minute. It labels the container
+`mongotest=regression`, the label every dbtest container carries so strays
+can be found (see [Cleaning up](#cleaning-up)). Each start gets a fresh,
+empty database.
+
+If your tests themselves run in a container on the same Docker daemon, the
+server joins that container's network instead of taking a host port.
+`URI()` is correct either way.
 
 ## Connecting
 
 Hand `URI()` to any driver:
 
 ```go title="Illustration, not compiled"
-db, err := sql.Open("pgx", c.URI())   // database/sql, with github.com/jackc/pgx/v5/stdlib imported
-pool, err := pgxpool.New(ctx, c.URI()) // pgx's own pool
+db, err := sql.Open("pgx", c.URI())      // database/sql, with github.com/jackc/pgx/v5/stdlib imported
+pool, err := pgxpool.New(ctx, c.URI())   // pgx's own pool
 db, err := sql.Open("postgres", c.URI()) // lib/pq
 ```
 
 The URI is `postgres://postgres:<password>@<host>:<port>/postgres?sslmode=disable`.
-It spells out every part, so `PGHOST`, `PGPASSWORD`, `PGSSLMODE` and the
-other variables libpq and pgx read cannot send a test somewhere else.
-`sslmode=disable` is there because the image serves no TLS.
+Because it sets every part, the `PGHOST`, `PGPASSWORD`, `PGSSLMODE` and
+other variables that pgx and lib/pq read cannot point a test at another
+server. `sslmode=disable` is there because the image serves no TLS, so the
+connection is not encrypted: with a remote daemon, data crosses the network
+in clear.
 
 ## Options
 
@@ -46,12 +52,12 @@ between tests.
 | Method on `Options` | Effect |
 | --- | --- |
 | `WithImage(ref)` | The image; see [Which image](#which-image). |
-| `WithPort(port)` | A fixed host port. Prefer the default: a port found free can be taken before the container binds it. |
-| `WithHostIP(host)` | The address containers are reachable at; see [Remote and nested daemons](../guides/remote-daemons.md). |
-| `WithStartTimeout(d)` | How long a start waits. The default is one minute. |
+| `WithPort(port)` | A fixed host port. Prefer the default: another process can take a port you found free before the container binds it. |
+| `WithHostIP(host)` | The address the tests reach containers at, for a remote or nested daemon; see [Remote and nested daemons](../guides/remote-daemons.md). |
+| `WithStartTimeout(d)` | How long a start waits. The default is one minute, and zero means the default. |
 | `WithPullTimeout(d)` | How long a pull of a missing image may take. The default is ten minutes, and it does not count against the start timeout. |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
-| `WithLogger(l)` | Logs the steps of a start. `*slog.Logger` works. By default nothing is logged. |
+| `WithLogger(l)` | Logs the steps of a start. `*slog.Logger` works. By default nothing is logged, so a first pull, which can take minutes, is silent. |
 | `WithDocker(client)` | A specific Docker client, such as a [double](../docker-clients/dockermock.md). |
 
 Three settings can come from the environment, so CI can set them for a whole
@@ -61,10 +67,7 @@ suite. An option beats the variable, and the variable beats the default.
 | --- | --- |
 | `DBTEST_POSTGRES_IMAGE` | The image, in any shape `WithImage` accepts. |
 | `DBTEST_POSTGRES_START_TIMEOUT` | The start timeout, as a Go duration such as `90s`. |
-| `DBTEST_HOST_IP` | The address containers are reachable at. |
-
-Unlike `MONGOTEST_IMAGE`, `DBTEST_POSTGRES_IMAGE` is read only when no option
-names an image; it never combines with one.
+| `DBTEST_HOST_IP` | The address the tests reach containers at, for a remote or nested daemon. |
 
 ## Which image
 
@@ -76,16 +79,16 @@ names an image; it never combines with one.
   a name with no tag means `latest`: `"postgres:17-alpine"`,
   `"pgvector/pgvector:pg18"`, `"postgis/postgis:18-3.6"`.
 
-Nothing carries over from an earlier call. Only images built on the official
+A second `WithImage` replaces the first. Only images built on the official
 one work, such as PostGIS and pgvector, because the start sets the password
-the way the official image reads it. Bitnami's image, for one, exits at
-start.
+through the official image's `POSTGRES_PASSWORD` variable. Other images,
+such as Bitnami's, exit at start.
 
 A start pulls an image the daemon does not have. When Docker Hub cannot
 serve an official image, because of its rate limit or an outage, the pull
 tries Amazon ECR Public's copy, and the container runs under that name.
-Pull the image in `TestMain`, so the download happens before any test
-starts, and remove what the tests left running afterwards:
+Call `PullImage` in `TestMain`, so the download happens before any test
+starts, and `ReapRunningContainers` after `m.Run`:
 
 ```go
 func TestMain(m *testing.M) {
@@ -107,23 +110,28 @@ Printing a `Container` hides the password.
 
 ## When a start returns
 
-A start returns once the server, at the address in the URI, asks for a
-login. The image first runs a temporary server to create the database, but
-that one listens on no TCP port, so whatever answers is the final server.
-A start that fails removes the container it created. The error says which
-step failed, and matches a sentinel such as `ErrNotReady` or
-`ErrContainerExited` with `errors.Is`. When the container exits, the error
-ends with the server's last log lines.
+A start returns once the server at the URI's address answers a login with
+anything other than "starting up", so your first query does not race the
+image's setup. A start that fails removes the container it created. The
+error says which step failed, and matches a sentinel such as `ErrNotReady`
+or `ErrContainerExited` with `errors.Is`. When the container exits, the
+error ends with the server's last log lines.
 
 ## Cleaning up
 
 `Stop` removes the container, even when the context it is given has already
 ended. Containers that are never stopped are removed when the process gets
-`SIGINT` or `SIGTERM`. `ReapRunningContainers`, `DisableSignalHandler` and
-`SetMaxConcurrentStarts` act on every container dbtest starts in the
-process, MongoDB's included, and match the functions of the same names in
-[`mongod`](mongod.md#cleaning-up). Anything that escapes carries the label,
-so one command removes it:
+`SIGINT` or `SIGTERM`. Three functions act on every container dbtest starts
+in the process, MongoDB's and PostgreSQL's alike:
+
+- `ReapRunningContainers` removes those still running: call it after
+  `m.Run`.
+- `DisableSignalHandler` stops dbtest from removing containers on `SIGINT`
+  and `SIGTERM`, for a program with its own shutdown.
+- `SetMaxConcurrentStarts` limits how many containers start at once.
+
+A container left behind, for example after `SIGKILL`, carries the label, so
+one command removes it:
 
 ```sh
 docker rm -fv $(docker ps -aq --filter label=mongotest=regression)

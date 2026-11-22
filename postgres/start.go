@@ -54,8 +54,9 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	return c, nil
 }
 
-// pullingMessage is logged before a pull, at a level a first-time user sees:
-// a pull can take minutes, and without it a first run looks like a hang.
+// pullingMessage is logged at info before a pull, because a pull can take
+// minutes. Nothing is logged without WithLogger, so a first run can be
+// silent for that long.
 const pullingMessage = "The Docker daemon does not have this image yet, so it is being pulled. That happens once and can take a few minutes."
 
 // PullImage makes sure the daemon has the image a start with these options
@@ -91,7 +92,7 @@ func PullImage(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// ReapRunningContainers removes every container this module started in this
+// ReapRunningContainers removes every container dbtest started in this
 // process that has not been stopped, MongoDB's included. Call it after m.Run
 // in TestMain so a run leaves nothing behind. After [DisableSignalHandler],
 // it is the only thing that removes a container nobody stopped.
@@ -100,14 +101,14 @@ func PullImage(ctx context.Context, opts Options) error {
 // and is a [ReapError] with an entry for each container that is still there.
 func ReapRunningContainers(ctx context.Context) error { return reaper.Reap(ctx) }
 
-// DisableSignalHandler stops this module from removing containers on SIGINT
-// or SIGTERM and then ending the process, which would skip a program's own
+// DisableSignalHandler stops dbtest from removing containers on SIGINT or
+// SIGTERM and then ending the process, which would skip a program's own
 // shutdown. Call it before the first start. It applies to every container
-// this module starts, MongoDB's included, for the rest of the process, so
-// call [ReapRunningContainers] from your own shutdown.
+// dbtest starts, MongoDB's included, for the rest of the process, so call
+// [ReapRunningContainers] from your own shutdown.
 func DisableSignalHandler() { reaper.Disable() }
 
-// SetMaxConcurrentStarts sets how many containers this process may be
+// SetMaxConcurrentStarts limits how many containers this process may be
 // starting at once, MongoDB's included, and returns the previous limit. A
 // value below 1 restores the default, 8 per CPU. A start beyond the limit
 // waits for another to return, and the wait counts against the context
@@ -173,9 +174,8 @@ func (c *Container) spec(cfg config, docker dockerclient.Client, r hostaddr.Reac
 		Host: r.Host, HostSource: r.Source, GeneratedName: cfg.generatedName,
 		StartTimeout: cfg.startTimeout,
 		Pull:         c.pullFor(cfg, docker),
-		// The official image declares no health check, and the readiness
-		// check needs no second look: the temporary server listens on no
-		// TCP port, so whatever answers is the final one.
+		// The official image declares no health check, and probe needs no
+		// second look.
 		Ready: func(ctx context.Context, host string, port int, _ func(context.Context) error) error {
 			return probe(ctx, host, port, username, database)
 		},

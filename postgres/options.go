@@ -16,8 +16,7 @@ import (
 // An option overrides each one; each one overrides the default.
 const (
 	// EnvImage is the image to run, in any shape WithImage accepts. It is
-	// read only when no option names an image. Unlike mongod's, it does not
-	// combine with a version an option names.
+	// read only when no option names an image.
 	EnvImage = "DBTEST_POSTGRES_IMAGE"
 	// EnvStartTimeout is how long to wait for the server, as a Go duration:
 	// "90s".
@@ -81,16 +80,16 @@ func DefaultOptions() Options { return Options{} }
 
 // WithImage sets the image. A lone version, one that starts with a digit,
 // means the official image at that tag. Anything with a name is used exactly
-// as written, so a name with no tag means "latest", and nothing carries over
-// from an earlier call:
+// as written, so a name with no tag means "latest". A second call replaces
+// the first:
 //
 //	"17"                       docker.io/library/postgres:17
 //	"postgres:17-alpine"       as written
 //	"pgvector/pgvector:pg18"   as written
 //
 // Only images built on the official one work, such as PostGIS and pgvector,
-// because the start sets the password the way that image reads it. Bitnami's
-// image, for one, exits at start.
+// because the start sets the password through that image's
+// POSTGRES_PASSWORD variable. Other images, such as Bitnami's, exit at start.
 func (o Options) WithImage(ref string) Options {
 	image, err := parseImage("WithImage", ref)
 	if err != nil {
@@ -101,8 +100,8 @@ func (o Options) WithImage(ref string) Options {
 }
 
 // WithPort publishes the server on a fixed host port. Prefer the default,
-// where the daemon chooses: a port found free can be taken before the
-// container binds it, which parallel tests hit regularly.
+// where the daemon chooses: another process can take a port you found free
+// before the container binds it.
 func (o Options) WithPort(port int) Options {
 	o.port = port
 	return o
@@ -134,7 +133,8 @@ func (o Options) WithHostIP(host string) Options {
 	return o
 }
 
-// WithStartTimeout sets how long a start waits for the server. A pull of a
+// WithStartTimeout sets how long a start waits for the server. Zero means
+// [EnvStartTimeout], or [DefaultStartTimeout] if that is unset. A pull of a
 // missing image is not counted: the wait begins again once the image is
 // there.
 func (o Options) WithStartTimeout(d time.Duration) Options {
@@ -221,7 +221,7 @@ func newConfig(opts Options) (config, error) {
 	return c, c.validate()
 }
 
-// resolveImage takes the image from the option, then PGTEST_IMAGE, then the
+// resolveImage takes the image from the option, then [EnvImage], then the
 // default.
 func resolveImage(fromOption string) (string, error) {
 	if fromOption != "" {
@@ -235,7 +235,7 @@ func resolveImage(fromOption string) (string, error) {
 }
 
 // resolveStartTimeout takes the timeout from the option, then
-// PGTEST_START_TIMEOUT, then the default.
+// [EnvStartTimeout], then the default.
 func resolveStartTimeout(fromOption time.Duration) (time.Duration, error) {
 	if fromOption != 0 {
 		return fromOption, nil
@@ -246,7 +246,7 @@ func resolveStartTimeout(fromOption time.Duration) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil || d <= 0 {
-		return 0, environmentError(EnvStartTimeout, raw, `it is not a positive duration such as "90s" or "2m"`)
+		return 0, invalidStartTimeoutVariable(raw)
 	}
 	return d, nil
 }

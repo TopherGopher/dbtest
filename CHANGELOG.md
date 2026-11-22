@@ -7,17 +7,22 @@ what to do if it affects you.
 
 ### PostgreSQL containers
 
-Nothing changes for MongoDB users.
+Nothing changes for code that starts only MongoDB.
 
 - **`github.com/tophergopher/dbtest/postgres` starts PostgreSQL** and
   returns its connection string: `postgres.Start(ctx)`, then
   `sql.Open("pgx", c.URI())` or `pgxpool.New(ctx, c.URI())`. It runs
-  `docker.io/library/postgres:18`, carries the label
-  `mongotest=regression`, and is in the root module, which gains no
-  dependency.
-- **`mongod.ReapRunningContainers`, `DisableSignalHandler` and
-  `SetMaxConcurrentStarts` also act on PostgreSQL containers,** as the
-  functions of the same names in `postgres` act on MongoDB's.
+  `docker.io/library/postgres:18`. The container carries the label
+  `mongotest=regression`, like every dbtest container. The package is in
+  the root module, so your module gains no dependency.
+- **The process-wide controls cover both databases.**
+  `mongod.ReapRunningContainers` also removes PostgreSQL containers,
+  `mongod.DisableSignalHandler` also covers them, and
+  `mongod.SetMaxConcurrentStarts` counts them toward the same limit. The
+  functions of the same names in `postgres` do the same.
+- **Two Docker errors give better advice.** A pull that finds no such image
+  or tag says to check the image's name and tags. A create whose container
+  name is taken says to remove the old container with `docker rm -f`.
 
 ### Tests on driver v2 get a package of their own
 

@@ -10,8 +10,8 @@
 //   - [github.com/tophergopher/dbtest/mongod] starts MongoDB with no driver
 //     imported, and gives its connection string.
 //   - [github.com/tophergopher/dbtest/postgres] starts PostgreSQL with no
-//     driver imported, and gives its connection string for pgx, lib/pq or
-//     database/sql: c, err := postgres.Start(ctx).
+//     driver imported, and gives its connection string for any driver, such
+//     as pgx or lib/pq: c, err := postgres.Start(ctx).
 //   - [github.com/tophergopher/dbtest/dockerclient] is the Docker client
 //     interface. Its implementations are
 //     [github.com/tophergopher/dbtest/dockerapi], the default, and
