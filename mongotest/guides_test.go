@@ -68,19 +68,24 @@ func TestIntegrationAScriptReturnsItsLastValue(t *testing.T) /* --8<-- [start:sc
 func TestIntegrationMongoimportSeedsACollection(t *testing.T) /* --8<-- [start:mongoimport] */ {
 	inst := mongotest.Run(t)
 	docs := `{"name":"Diana","city":"Themyscira"}
-	{"name":"Bruce","city":"Gotham"}`
+	{"name":"J'onn J'onzz","city":"Mars"}`
 
-	result, err := inst.Container.Exec(t.Context(),
-		"sh", "-c", "printf '%s' '"+docs+"' | mongoimport --quiet --db app --collection roster")
+	// The documents reach the shell as its $1, so no quoting can break.
+	result, err := inst.Container.Exec(t.Context(), "sh", "-c",
+		`printf '%s' "$1" | mongoimport --quiet --db app --collection roster`, "sh", docs)
 	require.NoError(t, err, "the command runs")
 	require.Zero(t, result.ExitCode, "mongoimport succeeds: %s", result.Stderr)
 
-	n, err := inst.Database("app").Collection("roster").CountDocuments(t.Context(), bson.M{})
+	roster := inst.Database("app").Collection("roster")
+	n, err := roster.CountDocuments(t.Context(), bson.M{})
 	require.NoError(t, err, "the collection can be counted")
 	assert.EqualValues(t, 2, n, "every line is imported")
+	n, err = roster.CountDocuments(t.Context(), bson.M{"name": "J'onn J'onzz"})
+	require.NoError(t, err, "the collection can be queried")
+	assert.EqualValues(t, 1, n, "a document is imported as written, apostrophes and all")
 } // --8<-- [end:mongoimport]
 
-func TestIntegrationEachParallelCaseHasADatabaseOfItsOwn(t *testing.T) /* --8<-- [start:table] */ {
+func TestIntegrationParallelTableCasesEachUseDatabaseFor(t *testing.T) /* --8<-- [start:table] */ {
 	inst := mongotest.Run(t)
 
 	cases := []struct {
@@ -124,6 +129,7 @@ func TestIntegrationAClientOfYourOwnConnectsWithURI(t *testing.T) /* --8<-- [sta
 } // --8<-- [end:own-client]
 
 // --8<-- [start:ci-helper]
+
 // startMongo connects to the server MONGODB_URI names, such as a CI service
 // container, and starts one in a container when the variable is unset.
 func startMongo(t *testing.T) *mongotest.Instance {

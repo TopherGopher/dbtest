@@ -315,7 +315,7 @@ func ExampleContainer_RunScript() {
 	if err != nil {
 		// A *ScriptError's fields hold all the shell wrote; the message
 		// quotes the start of it.
-		log.Fatal(err)
+		panic(err)
 	}
 	fmt.Println("ping ok:", ok)
 	// Output: ping ok: 1

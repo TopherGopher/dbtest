@@ -55,8 +55,9 @@ with `Stdout`, `Stderr` and `ExitCode`. A non-zero exit is reported in
 
 ## Seeding a few documents with mongoimport
 
-`Exec` cannot feed a file to a command's standard input, so write the data
-inline. The shell quoting means the data must not contain a single quote:
+`Exec` cannot feed a file to a command's standard input, so pass the data
+as an argument. The shell reads it as `$1`, so quotes in the data need no
+escaping:
 
 ```go
 func TestSeedWithMongoimport(t *testing.T) {
@@ -64,5 +65,5 @@ func TestSeedWithMongoimport(t *testing.T) {
 }
 ```
 
-For anything larger than a few lines, insert through the driver instead; it
-is faster and avoids quoting.
+For anything larger than a few lines, insert through the driver instead. It
+is faster, and the data does not pass through a shell.

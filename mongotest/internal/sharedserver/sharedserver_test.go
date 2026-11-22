@@ -13,6 +13,7 @@ import (
 )
 
 // --8<-- [start:test-main]
+
 var server *mongotest.Instance
 
 func TestMain(m *testing.M) {
@@ -21,7 +22,11 @@ func TestMain(m *testing.M) {
 	if server, err = mongotest.Start(ctx); err != nil {
 		log.Fatal(err)
 	}
-	defer server.Stop(ctx)
+	defer func() {
+		if err := server.Stop(ctx); err != nil {
+			log.Print(err)
+		}
+	}()
 	m.Run()
 }
 
