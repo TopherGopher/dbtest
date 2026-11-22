@@ -65,9 +65,10 @@ func isTopLevelKey(line string) bool {
 // the block.
 var fence = regexp.MustCompile("^\\s*(`{3,}|~{3,})\\s*(.*?)\\s*$")
 
-// goInfo is what follows the fence on a line that opens a block of Go: go,
-// or an attribute list whose first class is .go.
-var goInfo = regexp.MustCompile(`^(?:go|\{\s*\.go)\b(.*)$`)
+// goInfo is what follows the fence on a line that opens a block of Go: go or
+// golang in any case, or an attribute list whose first class is one of them,
+// as Pygments reads them.
+var goInfo = regexp.MustCompile(`^(?i:go(?:lang)?|\{\s*\.go(?:lang)?)(?:[\s}]|$)(.*)$`)
 
 // include is a line the site replaces with Go from a file: the whole file,
 // or the lines between its --8<-- [start:name] and [end:name] markers.
@@ -82,13 +83,13 @@ var wrapper = regexp.MustCompile(`^\s*(func Test\w*\((t \*testing\.T|m \*testing
 const illustration = `title="Illustration, not compiled"`
 
 // errUnclosedFence is a fenced block that is still open at the end of a page.
-var errUnclosedFence = errors.New("a fenced block is never closed; close it with the fence that opened it")
+var errUnclosedFence = errors.New("a fenced block is never closed. Close it with the fence that opened it")
 
 // errNotCompiled is an include of a file that go test does not compile.
-var errNotCompiled = errors.New("the site includes Go only from a _test.go file that go test compiles")
+var errNotCompiled = errors.New("go test does not compile the file. Include Go from a _test.go file whose path has no testdata and no name starting with _ or a dot")
 
 // errNoSection is an include of a section its file does not mark.
-var errNoSection = errors.New("the file must mark where the section starts and ends")
+var errNoSection = errors.New("the file does not mark the section. Put the start and end markers around it")
 
 // goBlock is a fenced block of Go code on a page.
 type goBlock struct {
@@ -140,24 +141,26 @@ func checkInclude(path, section string) error {
 }
 
 // compiledByGoTest reports whether go test compiles the file at path: a
-// _test.go file in no directory that the go command ignores.
+// _test.go file that the go command does not ignore, by its name or by the
+// name of a directory above it.
 func compiledByGoTest(path string) bool {
 	if !strings.HasSuffix(path, "_test.go") {
 		return false
 	}
-	dirs := strings.Split(filepath.ToSlash(filepath.Dir(filepath.Clean(path))), "/")
-	return !slices.ContainsFunc(dirs, ignoredByGo)
+	names := strings.Split(filepath.ToSlash(filepath.Clean(path)), "/")
+	return !slices.ContainsFunc(names, ignoredByGo)
 }
 
-// ignoredByGo reports whether the go command skips a directory of this name.
-func ignoredByGo(dir string) bool {
+// ignoredByGo reports whether the go command skips a file or directory of
+// this name.
+func ignoredByGo(name string) bool {
 	switch {
-	case dir == "testdata", strings.HasPrefix(dir, "_"):
+	case name == "testdata", strings.HasPrefix(name, "_"):
 		return true
-	case dir == ".":
+	case name == ".":
 		return false
 	default:
-		return strings.HasPrefix(dir, ".")
+		return strings.HasPrefix(name, ".")
 	}
 }
 
@@ -275,6 +278,9 @@ func TestGoBlocksFindsEveryFenceThatRendersAsGo(t *testing.T) {
 		"a space before go":   "``` go\nx\n```\n",
 		"tildes":              "~~~go\nx\n~~~\n",
 		"an attribute list":   "```{.go title=\"t\"}\nx\n```\n",
+		"a bare class":        "```{.go}\nx\n```\n",
+		"golang":              "```golang\nx\n```\n",
+		"a capital":           "```Go\nx\n```\n",
 		"four backticks":      "````go\nx\n````\n",
 		"indented in a tab":   "=== \"v1\"\n\n    ```go\n    x\n    ```\n",
 		"after a shell block": "```sh\ngo test\n```\n\n```go\nx\n```\n",
@@ -298,6 +304,15 @@ func TestGoBlocksSkipsGoThatAPageShowsAsMarkdown(t *testing.T) {
 	assert.Empty(t, blocks, "a fence quoted inside a Markdown block is text, not Go")
 }
 
+func TestGoBlocksSkipsLanguagesNamedLikeGo(t *testing.T) {
+	page := "```go-html-template\nx\n```\n\n```gomod\nx\n```\n"
+
+	blocks, err := goBlocks(strings.NewReader(page), "page.md")
+
+	require.NoError(t, err, "a page whose fences all close must read")
+	assert.Empty(t, blocks, "a language whose name only starts with go is not Go")
+}
+
 func TestAnUnclosedFenceIsAnError(t *testing.T) {
 	for name, page := range map[string]string{
 		"go":            "```go\nx\n",
@@ -315,7 +330,7 @@ func TestAnUnclosedFenceIsAnError(t *testing.T) {
 func TestCheckIncludeAcceptsOnlyWhatGoTestCompiles(t *testing.T) {
 	t.Chdir(t.TempDir())
 	marked := "package p\n\n// --8<-- [start:s]\nvar x = 1\n\n// --8<-- [end:s]\n"
-	for _, path := range []string{"p/a_test.go", "p/a.go", "p/testdata/a_test.go", "_p/a_test.go", ".p/a_test.go"} {
+	for _, path := range []string{"p/a_test.go", "p/a.go", "p/testdata/a_test.go", "_p/a_test.go", ".p/a_test.go", "p/_a_test.go", "p/.a_test.go"} {
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755), "the fixture's directory must be created")
 		require.NoError(t, os.WriteFile(path, []byte(marked), 0o644), "the fixture must be written")
 	}
@@ -324,7 +339,7 @@ func TestCheckIncludeAcceptsOnlyWhatGoTestCompiles(t *testing.T) {
 	assert.NoError(t, checkInclude("p/a_test.go", ""), "and so is the whole file")
 	assert.ErrorIs(t, checkInclude("p/a_test.go", "t"), errNoSection, "a section must be marked")
 	assert.ErrorIs(t, checkInclude("p/gone_test.go", ""), fs.ErrNotExist, "the file must exist")
-	for _, path := range []string{"p/a.go", "p/testdata/a_test.go", "_p/a_test.go", ".p/a_test.go"} {
+	for _, path := range []string{"p/a.go", "p/testdata/a_test.go", "_p/a_test.go", ".p/a_test.go", "p/_a_test.go", "p/.a_test.go"} {
 		assert.ErrorIs(t, checkInclude(path, "s"), errNotCompiled, "%s is not compiled by go test, so its code is not checked", path)
 	}
 }
