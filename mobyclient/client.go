@@ -1,8 +1,10 @@
 package mobyclient
 
 import (
+	"context"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -211,8 +213,19 @@ func loggingHook(logger dockerclient.Logger) client.ResponseHook {
 		if resp == nil || resp.Request == nil {
 			return
 		}
+		if !debugEnabled(resp.Request.Context(), logger) {
+			return
+		}
 		logger.Debug("docker request", "method", resp.Request.Method, "path", resp.Request.URL.Path, "status", resp.StatusCode)
 	}
+}
+
+// debugEnabled reports whether a logger keeps Debug records. Building a
+// record allocates on every request, so it is skipped for an *slog.Logger
+// that would drop it, such as the default. Any other Logger is always called.
+func debugEnabled(ctx context.Context, logger dockerclient.Logger) bool {
+	l, ok := logger.(*slog.Logger)
+	return !ok || l.Enabled(ctx, slog.LevelDebug)
 }
 
 // constructError reports which setting client.New refused, as an

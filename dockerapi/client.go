@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -202,6 +203,14 @@ func (c *Client) doRaw(ctx context.Context, method, path string, query url.Value
 	return c.request(ctx, method, path, query, body, hasBody, contentType, true)
 }
 
+// debugEnabled reports whether the logger keeps Debug records. Building a
+// record allocates on every request, so it is skipped for an *slog.Logger
+// that would drop it, such as the default. Any other Logger is always called.
+func (c *Client) debugEnabled(ctx context.Context) bool {
+	l, ok := c.logger.(*slog.Logger)
+	return !ok || l.Enabled(ctx, slog.LevelDebug)
+}
+
 // request builds and sends one HTTP request. When versioned is true the path
 // is prefixed with /v<apiVersion>; Negotiate itself passes false.
 func (c *Client) request(ctx context.Context, method, path string, query url.Values, body io.Reader, hasBody bool, contentType string, versioned bool) (*http.Response, error) {
@@ -227,7 +236,9 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	start := now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logger.Debug("docker request failed", "method", method, "path", path, "error", err)
+		if c.debugEnabled(ctx) {
+			c.logger.Debug("docker request failed", "method", method, "path", path, "error", err)
+		}
 		// A cancellation or deadline is the caller's own doing. It is not a
 		// bad response, and it must keep matching context.Canceled and
 		// context.DeadlineExceeded, so it is returned untouched rather than
@@ -240,7 +251,9 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 		}
 		return nil, dockerclient.RequestFailed(method, path, c.host, err)
 	}
-	c.logger.Debug("docker request", "method", method, "path", path, "status", resp.StatusCode, "duration", since(start))
+	if c.debugEnabled(ctx) {
+		c.logger.Debug("docker request", "method", method, "path", path, "status", resp.StatusCode, "duration", since(start))
+	}
 	// Podman announces itself on every response, so a client that pinned its
 	// API version and never negotiates can still name the daemon in an error.
 	c.noteRuntime(runtimeFromHeader(resp.Header))
