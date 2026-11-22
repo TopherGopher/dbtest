@@ -51,7 +51,7 @@ tests. `Start(ctx)` is `StartWithOptions(ctx, mongod.DefaultOptions())`.
 | `WithTLS()` | Accept only TLS connections; see [TLS](#tls). |
 | `WithNamedVolume(name)` | Keep the data in a Docker volume that a later start finds again; see [Keeping data between runs](#keeping-data-between-runs). |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
-| `WithLogger(l)` | Receives what a start does, at Info and Warn. `*slog.Logger` works, as do [zap, zerolog and logrus](#logging-with-zap-zerolog-or-logrus). By default nothing is logged. It does not log the Docker client's requests; give the client its own logger for those. |
+| `WithLogger(l)` | Logs the steps of a start, at Info and Warn. `*slog.Logger` works; for zap, zerolog or logrus, [wrap it in one](#logging-with-zap-zerolog-or-logrus). By default nothing is logged. Docker requests are not logged here: to see them, build a client with [`dockerapi.WithLogger`](../docker-clients/dockerapi.md#options) and pass it to `WithDocker`. |
 | `WithDocker(client)` | A specific Docker client, such as a [double](#testing-code-that-starts-containers). |
 
 Three settings can come from the environment, so CI can set them for a whole
@@ -93,7 +93,7 @@ opts := mongod.DefaultOptions().WithLogger(logger)
 // another name.
 import logrusslog "github.com/sirupsen/logrus/hooks/slog"
 
-logger := slog.New(logrusslog.NewHandler(logrusLogger, nil))
+logger := slog.New(logrusslog.NewHandler(logrusLogger, nil)) // nil: default options
 opts := mongod.DefaultOptions().WithLogger(logger)
 ```
 
