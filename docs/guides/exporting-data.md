@@ -16,11 +16,14 @@ go get github.com/tophergopher/dbtest/mongotest/exporter
 ```
 
 Pass `New` a connection string, a database and a collection, choose which
-documents to export, then call `WriteJSON` or `WriteCSV`. Here `c` is a
-container from `mongod.Start`, and `c.URI()` its connection string:
+documents to export, then call `WriteJSON` or `WriteCSV`. Here `uri` is the
+server's connection string, such as `c.URI()` for a container `c` from
+`mongod.Start`:
 
 ```go
---8<-- "mongotest/exporter/example_test.go:file"
+func TestExportFixture(t *testing.T) {
+	--8<-- "mongotest/exporter/guides_test.go:file"
+}
 ```
 
 `n` is how many documents were written. Each method returns a new exporter
@@ -74,7 +77,9 @@ The exporter writes to any `io.Writer`, so you choose where the output goes.
 To write a compressed temporary file, wrap the file in a gzip writer:
 
 ```go
---8<-- "mongotest/exporter/example_test.go:gzip"
+func TestExportCompressed(t *testing.T) {
+	--8<-- "mongotest/exporter/guides_test.go:gzip"
+}
 ```
 
 Close the gzip writer before the file, or the file is incomplete.
