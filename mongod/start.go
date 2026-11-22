@@ -9,6 +9,7 @@ import (
 	"github.com/tophergopher/dbtest/dockerapi"
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/internal/container"
+	"github.com/tophergopher/dbtest/internal/hostaddr"
 	"github.com/tophergopher/dbtest/internal/reaper"
 )
 
@@ -41,14 +42,14 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 		return nil, err
 	}
 	cfg = cfg.withCredentialsIfExposed(r)
-	cfg.hostSource, cfg.network, cfg.publishHost = r.source, r.network, r.publishHost
+	cfg.hostSource, cfg.network, cfg.publishHost = r.Source, r.Network, r.PublishHost
 	cfg.announceExposure(r)
 
-	certs, err := cfg.certificatesFor(r.host)
+	certs, err := cfg.certificatesFor(r.Host)
 	if err != nil {
 		return nil, err
 	}
-	c := newContainer(r.host, cfg, docker, certs)
+	c := newContainer(r.Host, cfg, docker, certs)
 	reached, err := c.ctr.Start(ctx, c.spec(cfg, r))
 	if err != nil {
 		return nil, err
@@ -185,9 +186,9 @@ func (c *Container) startError(op string, err error) error {
 }
 
 // spec fills in the generic start for mongod.
-func (c *Container) spec(cfg config, r reach) container.Spec {
+func (c *Container) spec(cfg config, r hostaddr.Reach) container.Spec {
 	return container.Spec{
-		Request: cfg.containerConfig(r), Port: mongoPort, Network: r.network, NetworkPort: cfg.portOnNetwork(),
+		Request: cfg.containerConfig(r), Port: mongoPort, Network: r.Network, NetworkPort: cfg.portOnNetwork(),
 		Host: c.host, HostSource: cfg.hostSource, GeneratedName: cfg.generatedName,
 		StartTimeout: cfg.startTimeout,
 		Pull:         c.pullFor(cfg),

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/internal/container"
 	"github.com/tophergopher/dbtest/internal/hostaddr"
 )
 
@@ -39,8 +40,8 @@ const (
 	// package starts, so a stray one can be found and removed:
 	//
 	//	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
-	RequiredLabelKey   = "mongotest"
-	RequiredLabelValue = "regression"
+	RequiredLabelKey   = container.LabelKey
+	RequiredLabelValue = container.LabelValue
 
 	// mongoPort is the port mongod listens on inside the container.
 	mongoPort = "27017/tcp"

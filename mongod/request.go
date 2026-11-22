@@ -10,7 +10,7 @@ import (
 
 // containerConfig builds the create request for how mongod will be
 // reached.
-func (c config) containerConfig(r reach) dockerclient.ContainerConfig {
+func (c config) containerConfig(r hostaddr.Reach) dockerclient.ContainerConfig {
 	return dockerclient.ContainerConfig{
 		Image:        c.image.Reference(),
 		Cmd:          c.command(),
@@ -23,7 +23,7 @@ func (c config) containerConfig(r reach) dockerclient.ContainerConfig {
 
 // hostConfig says how the container is reached, and mounts the volume that
 // keeps the data, if there is one.
-func (c config) hostConfig(r reach) *dockerclient.HostConfig {
+func (c config) hostConfig(r hostaddr.Reach) *dockerclient.HostConfig {
 	hc := c.reachConfig(r)
 	if c.volume != "" {
 		hc.Volumes = []dockerclient.VolumeMount{{Name: c.volume, Path: dataDir}}
@@ -33,16 +33,16 @@ func (c config) hostConfig(r reach) *dockerclient.HostConfig {
 
 // reachConfig puts the container on the shared network, or publishes its
 // port on the interface that the address to dial needs.
-func (c config) reachConfig(r reach) *dockerclient.HostConfig {
-	if r.shared() {
-		return &dockerclient.HostConfig{NetworkMode: r.network}
+func (c config) reachConfig(r hostaddr.Reach) *dockerclient.HostConfig {
+	if r.Shared() {
+		return &dockerclient.HostConfig{NetworkMode: r.Network}
 	}
 	publishOn := "" // empty asks the daemon to choose the port
 	if c.port != 0 {
 		publishOn = strconv.Itoa(c.port)
 	}
 	return &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
-		mongoPort: {{HostIP: hostaddr.BindIP(r.host), HostPort: publishOn}},
+		mongoPort: {{HostIP: hostaddr.BindIP(r.Host), HostPort: publishOn}},
 	}}
 }
 
@@ -93,7 +93,7 @@ func (c config) credentialEnv() []string {
 
 // withCredentialsIfExposed generates a root user when the caller chose none
 // and more than this process will be able to connect.
-func (c config) withCredentialsIfExposed(r reach) config {
+func (c config) withCredentialsIfExposed(r hostaddr.Reach) config {
 	if !c.needsGeneratedCredentials(r) {
 		return c
 	}
@@ -104,9 +104,9 @@ func (c config) withCredentialsIfExposed(r reach) config {
 // checkVolumeCredentials refuses a volume where credentials would be
 // generated: the volume keeps the first start's password, and the next
 // start would generate another.
-func (c config) checkVolumeCredentials(r reach) error {
+func (c config) checkVolumeCredentials(r hostaddr.Reach) error {
 	if c.volume != "" && c.needsGeneratedCredentials(r) {
-		return &VolumeNeedsCredentialsError{Volume: c.volume, Reach: r.where()}
+		return &VolumeNeedsCredentialsError{Volume: c.volume, Reach: r.Where()}
 	}
 	return nil
 }
@@ -114,29 +114,29 @@ func (c config) checkVolumeCredentials(r reach) error {
 // announceExposure logs that more than this process will be able to reach
 // mongod. The same call is loopback-only on a laptop, so the change is worth
 // saying.
-func (c config) announceExposure(r reach) {
-	if !r.exposed() {
+func (c config) announceExposure(r hostaddr.Reach) {
+	if !r.Exposed() {
 		return
 	}
 	attrs := []any{"container", c.name}
-	if r.shared() {
-		attrs = append(attrs, "network", r.network)
+	if r.Shared() {
+		attrs = append(attrs, "network", r.Network)
 	}
 	if c.noAuth {
-		c.logger.Warn("This mongod has no password, and "+r.where()+". "+
+		c.logger.Warn("This mongod has no password, and "+r.Where()+". "+
 			"Anyone who can reach it can read and change its data. Leave out WithoutAuth unless you trust the network.",
 			attrs...)
 		return
 	}
-	c.logger.Info("This mongod asks for a username and password because "+r.where()+". Container.URI() includes them.",
+	c.logger.Info("This mongod asks for a username and password because "+r.Where()+". Container.URI() includes them.",
 		append(attrs, "username", c.username)...)
 }
 
 // needsGeneratedCredentials reports whether the caller chose neither
 // credentials nor WithoutAuth, and more than this process can connect.
-func (c config) needsGeneratedCredentials(r reach) bool {
+func (c config) needsGeneratedCredentials(r hostaddr.Reach) bool {
 	chosen := c.noAuth || c.username != ""
-	return !chosen && r.exposed()
+	return !chosen && r.Exposed()
 }
 
 // needsKeyFile reports whether mongod must be given a key file: a replica

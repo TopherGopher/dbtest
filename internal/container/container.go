@@ -10,6 +10,15 @@ import (
 	"github.com/tophergopher/dbtest/internal/reaper"
 )
 
+// LabelKey and LabelValue mark every container this module starts, whatever
+// its image, so that one command finds them all:
+//
+//	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
+const (
+	LabelKey   = "mongotest"
+	LabelValue = "regression"
+)
+
 // cleanupTimeout bounds a removal whose caller set no deadline, or whose
 // context has already ended.
 const cleanupTimeout = 30 * time.Second
