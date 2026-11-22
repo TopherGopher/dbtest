@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -98,41 +99,34 @@ func TestWithLoggerReceivesRequestRecords(t *testing.T) {
 func TestAnSlogLoggerAtDebugReceivesRequestRecords(t *testing.T) {
 	fd, _ := newTestDaemon(t)
 	var out strings.Builder
-	debug := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	debug := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	c, err := New(WithHost(fd.Host()), WithLogger(debug))
 	require.NoError(t, err, "client construction with a logger")
 
 	_, err = c.ImageInspect(context.Background(), "mongo:8")
 	require.ErrorIs(t, err, dockerclient.ErrNotFound, "the fake daemon starts empty, so this image is not found")
-	assert.Contains(t, out.String(), "/images/mongo:8/json", "the inspect has its record")
+	inspected := false
+	for line := range strings.Lines(out.String()) {
+		var record struct{ Path string }
+		require.NoError(t, json.Unmarshal([]byte(line), &record), "each record is one JSON object")
+		inspected = inspected || strings.HasSuffix(record.Path, "/images/mongo:8/json")
+	}
+	assert.True(t, inspected, "the inspect has its record")
 }
-
-// ignoreLogger drops every record but is not an *slog.Logger, so the client
-// cannot know that and builds each record for it.
-type ignoreLogger struct{}
-
-func (ignoreLogger) Debug(string, ...any) {}
-func (ignoreLogger) Info(string, ...any)  {}
-func (ignoreLogger) Warn(string, ...any)  {}
-func (ignoreLogger) Error(string, ...any) {}
 
 // A logger that drops Debug records, such as the default or an slog logger
 // at Info, must not cost every request the allocations of building one.
 func TestADroppedRequestRecordIsNotBuilt(t *testing.T) {
-	fd, _ := newTestDaemon(t)
-	allocs := func(l dockerclient.Logger) float64 {
-		c, err := New(WithHost(fd.Host()), WithLogger(l))
-		require.NoError(t, err, "client construction with a logger")
-		inspect := func() {
-			_, err := c.ImageInspect(context.Background(), "mongo:8")
-			require.ErrorIs(t, err, dockerclient.ErrNotFound, "the fake daemon starts empty")
-		}
-		inspect() // negotiates, which only the first request does
-		return testing.AllocsPerRun(200, inspect)
+	req, err := http.NewRequest(http.MethodGet, "http://docker/v1.44/_ping", nil)
+	require.NoError(t, err, "building a canned request")
+	resp := &http.Response{StatusCode: http.StatusOK, Request: req}
+	for name, l := range map[string]dockerclient.Logger{
+		"the default logger":     dockerclient.NopLogger(),
+		"an slog logger at Info": slog.New(slog.NewTextHandler(io.Discard, nil)),
+	} {
+		hook := loggingHook(l)
+		assert.Zero(t, testing.AllocsPerRun(100, func() { hook(resp) }), name)
 	}
-	built := allocs(ignoreLogger{})
-	assert.Less(t, allocs(dockerclient.NopLogger()), built, "the default logger")
-	assert.Less(t, allocs(slog.New(slog.NewTextHandler(io.Discard, nil))), built, "an slog logger at Info")
 }
 
 func TestWithLoggerDefaultsToNopLogger(t *testing.T) {

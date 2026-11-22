@@ -148,27 +148,58 @@ func TestWithLoggerReceivesRequestRecords(t *testing.T) {
 	assert.Equal(t, 200, last.kv["status"], "the record must carry the status code")
 }
 
+// debugRecords returns a logger at Debug that writes JSON, and a function
+// that decodes what it has written so far, one map per record.
+func debugRecords(t *testing.T) (*slog.Logger, func() []map[string]any) {
+	t.Helper()
+	var out strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return logger, func() []map[string]any {
+		var records []map[string]any
+		for line := range strings.Lines(out.String()) {
+			var record map[string]any
+			require.NoError(t, json.Unmarshal([]byte(line), &record), "each record is one JSON object")
+			records = append(records, record)
+		}
+		return records
+	}
+}
+
 // An slog logger at Debug, as the dockerapi page shows, gets a record for
 // each request.
 func TestAnSlogLoggerAtDebugReceivesRequestRecords(t *testing.T) {
 	fd := newDaemon(t)
 	fd.ServeVersion("1.54", "1.40")
 	fd.Handle("GET", "/_ping", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
-	var out strings.Builder
-	debug := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	debug, records := debugRecords(t)
 	c, err := New(WithHost(fd.Host()), WithLogger(debug))
 	require.NoError(t, err, "client construction with a logger")
 	resp, err := c.do(context.Background(), http.MethodGet, "/_ping", nil, nil)
 	require.NoError(t, err, "ping")
 	resp.Body.Close()
 
-	var paths []any
-	for line := range strings.Lines(out.String()) {
-		var record map[string]any
-		require.NoError(t, json.Unmarshal([]byte(line), &record), "each record is one JSON object")
-		paths = append(paths, record["path"])
+	pinged := false
+	for _, record := range records() {
+		path, _ := record["path"].(string)
+		pinged = pinged || strings.HasSuffix(path, "/_ping")
 	}
-	assert.Contains(t, paths, "/v1.44/_ping", "the ping has its record")
+	assert.True(t, pinged, "the ping has its record")
+}
+
+// A request that never reaches the daemon is logged too, with the error.
+func TestAnSlogLoggerAtDebugReceivesFailedRequestRecords(t *testing.T) {
+	gone := dockermock.NewDaemon()
+	gone.Close()
+	debug, records := debugRecords(t)
+	c, err := New(WithHost(gone.Host()), WithLogger(debug))
+	require.NoError(t, err, "client construction with a logger")
+	_, err = c.do(context.Background(), http.MethodGet, "/_ping", nil, nil)
+	require.Error(t, err, "nothing listens at a closed daemon's address")
+
+	logged := records()
+	require.NotEmpty(t, logged, "the failed request has a record")
+	assert.Contains(t, logged[0], "error", "the record says what went wrong")
+	assert.Contains(t, logged[0], "path", "the record says which request it was")
 }
 
 // ignoreLogger drops every record but is not an *slog.Logger, so the client
@@ -183,12 +214,8 @@ func (ignoreLogger) Error(string, ...any) {}
 // A logger that drops Debug records, such as the default or an slog logger
 // at Info, must not cost every request the allocations of building one.
 func TestADroppedRequestRecordIsNotBuilt(t *testing.T) {
-	fd := newDaemon(t)
-	fd.ServeVersion("1.54", "1.40")
-	fd.Handle("GET", "/_ping", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	allocs := func(l Logger) float64 {
-		c, err := New(WithHost(fd.Host()), WithLogger(l))
-		require.NoError(t, err, "client construction with a logger")
+		c := newMockClient(t, mockStatus(http.StatusOK), WithLogger(l))
 		ping := func() {
 			resp, err := c.do(context.Background(), http.MethodGet, "/_ping", nil, nil)
 			require.NoError(t, err, "ping")

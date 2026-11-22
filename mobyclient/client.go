@@ -1,7 +1,6 @@
 package mobyclient
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -208,24 +207,24 @@ func FromEnv() (*Client, error) { return New() }
 // loggingHook builds a client.ResponseHook that logs one Debug record per
 // request, in the same shape dockerapi's WithLogger produces, so a caller
 // switching clients sees familiar log lines.
+//
+// Building a record allocates on every request, so an *slog.Logger is asked
+// first whether it keeps Debug records, and is given the request's context.
+// A logger of any other type cannot be asked, so it is always called.
 func loggingHook(logger dockerclient.Logger) client.ResponseHook {
+	sl, isSlog := logger.(*slog.Logger)
 	return func(resp *http.Response) {
 		if resp == nil || resp.Request == nil {
 			return
 		}
-		if !debugEnabled(resp.Request.Context(), logger) {
-			return
+		ctx := resp.Request.Context()
+		switch {
+		case !isSlog:
+			logger.Debug("docker request", "method", resp.Request.Method, "path", resp.Request.URL.Path, "status", resp.StatusCode)
+		case sl.Enabled(ctx, slog.LevelDebug):
+			sl.DebugContext(ctx, "docker request", "method", resp.Request.Method, "path", resp.Request.URL.Path, "status", resp.StatusCode)
 		}
-		logger.Debug("docker request", "method", resp.Request.Method, "path", resp.Request.URL.Path, "status", resp.StatusCode)
 	}
-}
-
-// debugEnabled reports whether a logger keeps Debug records. Building a
-// record allocates on every request, so it is skipped for an *slog.Logger
-// that would drop it, such as the default. Any other Logger is always called.
-func debugEnabled(ctx context.Context, logger dockerclient.Logger) bool {
-	l, ok := logger.(*slog.Logger)
-	return !ok || l.Enabled(ctx, slog.LevelDebug)
 }
 
 // constructError reports which setting client.New refused, as an

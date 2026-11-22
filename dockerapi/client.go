@@ -205,10 +205,21 @@ func (c *Client) doRaw(ctx context.Context, method, path string, query url.Value
 
 // debugEnabled reports whether the logger keeps Debug records. Building a
 // record allocates on every request, so it is skipped for an *slog.Logger
-// that would drop it, such as the default. Any other Logger is always called.
+// that would drop it, such as the default. A logger of any other type cannot
+// be asked, so it is always called.
 func (c *Client) debugEnabled(ctx context.Context) bool {
 	l, ok := c.logger.(*slog.Logger)
 	return !ok || l.Enabled(ctx, slog.LevelDebug)
+}
+
+// debug writes a Debug record. An *slog.Logger gets ctx with it, the context
+// debugEnabled asked about.
+func (c *Client) debug(ctx context.Context, msg string, args ...any) {
+	if l, ok := c.logger.(*slog.Logger); ok {
+		l.DebugContext(ctx, msg, args...)
+		return
+	}
+	c.logger.Debug(msg, args...)
 }
 
 // request builds and sends one HTTP request. When versioned is true the path
@@ -237,7 +248,7 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if c.debugEnabled(ctx) {
-			c.logger.Debug("docker request failed", "method", method, "path", path, "error", err)
+			c.debug(ctx, "docker request failed", "method", method, "path", path, "error", err)
 		}
 		// A cancellation or deadline is the caller's own doing. It is not a
 		// bad response, and it must keep matching context.Canceled and
@@ -252,7 +263,7 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 		return nil, dockerclient.RequestFailed(method, path, c.host, err)
 	}
 	if c.debugEnabled(ctx) {
-		c.logger.Debug("docker request", "method", method, "path", path, "status", resp.StatusCode, "duration", since(start))
+		c.debug(ctx, "docker request", "method", method, "path", path, "status", resp.StatusCode, "duration", since(start))
 	}
 	// Podman announces itself on every response, so a client that pinned its
 	// API version and never negotiates can still name the daemon in an error.
