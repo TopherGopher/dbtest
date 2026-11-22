@@ -1,7 +1,10 @@
 package dockerclient_test
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"strings"
@@ -131,6 +134,19 @@ func TestConnectionErrorWrapping(t *testing.T) {
 	assert.Nil(t, dockerclient.WrapConnectionError("h", nil), "nil stays nil")
 	plain := errors.New("something else")
 	assert.Same(t, plain, dockerclient.WrapConnectionError("h", plain), "errors that are not connection problems pass through unchanged")
+}
+
+// A client that rejects the daemon's certificate sends no request, so the
+// failure is a connection failure, and the certificate error stays as its
+// cause.
+func TestAnUntrustedDaemonCertificateIsAConnectionFailure(t *testing.T) {
+	untrusted := &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}
+
+	err := dockerclient.WrapConnectionError("tcp://build-host:2376", fmt.Errorf("Get \"https://build-host:2376/version\": %w", untrusted))
+
+	assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "no request was sent to an untrusted daemon")
+	var unknownCA x509.UnknownAuthorityError
+	assert.ErrorAs(t, err, &unknownCA, "the certificate problem is kept as the cause")
 }
 
 func TestAPIVersionErrorMessages(t *testing.T) {
