@@ -23,16 +23,18 @@ Open <http://localhost:8000>. The page reloads as you save.
 Before you push, run `zensical build --strict`, as the Pages workflow does.
 It fails on a broken link or anchor, or on an included file or section that
 is missing. Then run `go test` in the repository root. It fails if `nav`
-names a page that does not exist, or if a block of Go neither includes its
-code nor is titled as an illustration.
+names a page that does not exist, or if a Go block has neither an include
+nor the title `Illustration, not compiled` (see [Go on a page](#go-on-a-page)).
 
-If the build says a page does not exist, look at the end of its output: a
-missing file or section shows there as `SnippetMissingError`.
+A missing included file or section can make the build report that a page
+does not exist. The real cause is at the end of the output, as
+`SnippetMissingError`.
 
 ## Add a guide
 
 1. Create `docs/guides/<slug>.md` with front matter. `tracks` lists the
-   issues the page follows; see [Conventions](#conventions).
+   issues and pull requests whose outcome the page describes; see
+   [Conventions](#conventions).
 
     ```markdown
     ---
@@ -61,7 +63,7 @@ repository, so it compiles; see [Go on a page](#go-on-a-page).
 
 **Badge what is true today.** `status` is one of `current`, `changing` or
 `landing`, and `tracks` lists the issues (`"#40"`) and pull requests
-(`"PR #53"`) the page follows. The site renders a banner and a nav icon from
+(`"PR #53"`) whose outcome the page describes. The site renders a banner and a nav icon from
 them. [Keeping the docs current](../project/docs-maintenance.md) says what
 each status means, and how to change it when something lands.
 
@@ -94,9 +96,8 @@ comment, and is only compiled when it has none.
 ```
 ````
 
-In this page's Markdown source, each `--8<--` is written with a `;` in
-front, which stops the site from acting on it here. Leave the `;` out of
-yours.
+On this page each `--8<--` has a `;` in front, so the site leaves it alone.
+Leave the `;` out of your Markdown and your Go files.
 
 `run-script` names a section of the file. A comment holding
 `;--8<-- [start:run-script]` marks where it begins, and one holding
@@ -104,8 +105,8 @@ yours.
 left out. Leave out the name to include a whole file.
 
 To show a whole function body, put the markers on the `func` line and the
-closing-brace line. Those lines are left out, and pkg.go.dev does not show
-the comments:
+closing-brace line. Those lines are left out of the page. pkg.go.dev shows
+only an example's body, so it does not show the markers either:
 
 ````markdown
 ```go
@@ -118,12 +119,17 @@ func ExampleStart() /* ;--8<-- [start:start] */ {
 A section that ends at an example's closing brace includes its `// Output:`
 comment, which shows the reader what the code prints.
 
-To show part of a body, put each marker on a line of its own. pkg.go.dev
-shows a marker inside an example's body, so prefer a whole body there; a
-test is not shown on pkg.go.dev, so markers inside it are hidden. An
-`Example` takes no arguments, so one that shows the body of a `TestMain`
-declares `var m *testing.M` and ends that line with the start marker, which
-keeps the declaration off the page.
+To show part of a body, put each marker on a line of its own. In an
+example, pkg.go.dev shows those markers, so prefer a whole body there. A
+test is not shown on pkg.go.dev, so markers inside it stay hidden.
+
+An `Example` takes no arguments, so to show the body of a `TestMain`,
+declare `var m *testing.M` and end that line with the start marker. The
+declaration then stays off the page.
+
+Above a declaration outside any function, leave a blank line after the
+start marker. Otherwise Go reads the marker as the first line of the
+declaration's doc comment.
 
 A block can wrap the included lines in a function written on the page, to
 show a whole test or `TestMain`:
@@ -146,4 +152,7 @@ repo, err := NewRepository(inst.URI())
 ````
 
 `go test` in the repository root fails on any other Go block that has no
-include, and on an include from a file that `go test` does not compile.
+include. It also fails on an include from a file that `go test` skips: one
+that is not a `_test.go` file, or whose path has a `testdata` directory or a
+file or directory name starting with `_` or a dot. CI runs `go test` in
+every module of the repository, so a test file in any of them is compiled.

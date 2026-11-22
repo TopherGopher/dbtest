@@ -43,13 +43,13 @@ func TestRosterQueries(t *testing.T) {
 }
 ```
 
-`DatabaseFor` builds the database's name from the case's name, with anything
-but letters, digits, `-` and `_` replaced, cut to fit the server's limit. The
-name ends in a random part, so no two cases share one.
+`DatabaseFor` names the database after the case, with a random suffix, so
+no two cases share one.
 
-!!! note "Why cleanup order matters here"
-    `Run` registered the container's removal on the outer test, so it runs
-    after every subtest has finished and its database has been dropped.
+!!! note "The container outlives the subtests"
+    Parallel subtests run after the outer test function returns. The
+    container is still there, because `Run` registered its removal on the
+    outer test, and that cleanup waits for every subtest.
 
 ## A container per package
 
@@ -73,8 +73,9 @@ result of `m.Run`. Calling `os.Exit` yourself would skip the deferred `Stop`
 and leave the container running.
 
 A test that panics, or a run that `go test -timeout` ends, also exits without
-running the deferred `Stop`, so the container is left running.
-[The label](cleanup.md#3-the-label) finds it.
+running the deferred `Stop`, so the container is left running. Every dbtest
+container carries the label `mongotest=regression`, and
+[The label](cleanup.md#3-the-label) gives the command that removes them.
 
 ## Choosing
 
@@ -82,7 +83,7 @@ running the deferred `Stop`, so the container is left running.
 | --- | --- | --- | --- |
 | Isolation | Complete, including server state such as indexes and server parameters | Per database. Server-wide state is shared across cases | Per database. Server-wide state is shared across the package |
 | Start-up cost | One container per test | One container per table | One container per package |
-| `t.Parallel` | Safe at every level | Safe for subtests; the container outlives them | Safe at every level; the container outlives every test |
+| `t.Parallel` | Safe at every level | Safe at every level | Safe at every level |
 | A crashed `mongod` | Affects one test | Fails the whole table | Fails the rest of the package |
 | Good for | Integration tests of a feature | Many small query or codec cases | Many small tests that need no server state of their own |
 
@@ -91,7 +92,10 @@ running the deferred `Stop`, so the container is left running.
 `go test ./...` runs packages concurrently, and each package's test binary
 starts its own containers, under a limit of its own. If the machine runs
 short of memory, lower `-p` or `-parallel` rather than sharing containers
-between packages. Parallel tests in one package that need a missing image
-share one pull. Separate packages are separate processes, so each pulls a
-missing image on its own; see
+between packages.
+
+Parallel tests in one package that need a missing image share one pull.
+Separate packages are separate processes, so the first `go test ./...` on a
+machine may pull a missing image once per package. To pull it before any
+test starts, see
 [Which image](../reference/mongod.md#which-image).

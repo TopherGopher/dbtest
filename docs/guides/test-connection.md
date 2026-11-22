@@ -6,8 +6,9 @@ status: current
 
 # Starting a server
 
-`Run`, `Start` and `Attach` each return an `*Instance`. It holds a connected
-client of the official driver and the container, if it started one.
+`Run`, `Start` and `Attach` each return an `*Instance`. It holds a client of
+the official Go driver, already connected, and the container, if one was
+started.
 
 ## In a test
 
@@ -17,9 +18,8 @@ func TestOrders(t *testing.T) {
 }
 ```
 
-`Run` starts a container, connects, and removes the container when the test
-ends. Any failure fails the test, including an unreachable Docker daemon. The
-test is never skipped.
+Any failure fails the test, including an unreachable Docker daemon; the test
+is never skipped.
 
 `RunWithOptions` takes [options](../reference/mongod.md#options). Start from
 `DefaultOptions()` and chain the settings you need:
@@ -30,8 +30,8 @@ inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("r
 
 ## Outside a test
 
-`Start` and `StartWithOptions` do the same outside a test, and the caller
-stops the instance. In `TestMain`, one server started this way can serve
+`Start` and `StartWithOptions` start and connect in the same way without a
+test. You call `Stop` when you are done. In `TestMain`, one server started this way can serve
 every test in the package:
 
 ```go
@@ -107,9 +107,9 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 ## Order of cleanup
 
 `t.Cleanup` functions run last-registered first. `Run` registers the
-container's removal as it starts. Cleanups the test registers later run
-before it, so a client the test creates is disconnected while the container
-still exists:
+container's removal as it starts. Cleanups registered after `Run` run before
+the removal, so a client the test creates is disconnected while the
+container still exists:
 
 ```go
 func TestOwnClient(t *testing.T) {

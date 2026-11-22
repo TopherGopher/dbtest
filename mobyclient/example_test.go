@@ -22,7 +22,7 @@ import (
 // The examples in this file talk to an in-process stand-in for the Docker
 // Engine API (see exampleDaemon at the bottom of the file), so they run
 // anywhere and produce the same output with no Docker daemon installed.
-// Real code gets its client from mobyclient.FromEnv instead.
+// Real code gets its client from mobyclient.New instead.
 
 func ExampleFromEnv() {
 	// FromEnv finds the daemon as the docker CLI does: DOCKER_HOST, then the
@@ -334,7 +334,7 @@ func ExampleClient_Exec() {
 // file, so they run anywhere with no Docker installed and always produce the
 // same output. ServeDefaults answers every endpoint with the fixed values
 // dockermock documents; servePing adds the /_ping route the moby client
-// negotiates against. Real code has no stub: it calls mobyclient.FromEnv.
+// negotiates against. Real code has no stub: it calls mobyclient.New.
 var exampleDaemon = sync.OnceValue(func() *dockermock.Daemon {
 	d := dockermock.NewDaemon(dockermock.OverTCP())
 	d.ServeDefaults()
