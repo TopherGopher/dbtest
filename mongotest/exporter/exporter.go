@@ -15,9 +15,9 @@
 // applies instead; a deadline later than the driver's thirty seconds changes
 // nothing. Once ctx is cancelled or its deadline passes, the export stops at
 // its next write, and its error matches ctx.Err() as well as ErrExport. JSON
-// is written a document at a time, CSV in blocks of several. ctx cannot stop
-// a read the server never answers: mongoexport does not pass it to MongoDB's
-// Go driver.
+// is written a document at a time, CSV in blocks of several. Nothing bounds a
+// read the server never answers: mongoexport passes neither ctx nor the
+// connection string's socketTimeoutMS or timeoutMS to MongoDB's Go driver.
 package exporter
 
 import (

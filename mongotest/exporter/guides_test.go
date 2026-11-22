@@ -3,6 +3,7 @@ package exporter_test
 import (
 	"bufio"
 	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,7 +35,8 @@ func TestIntegrationAnExportCanGoToAFile(t *testing.T) {
 	t.Logf("wrote %d documents", n)
 	// --8<-- [end:file]
 
-	assert.EqualValues(t, 3, n, "only the documents the query matches are written")
+	assert.EqualValues(t, 3, n, "only the documents the query matches are counted")
+	assert.Equal(t, 3, fileLines(t, f.Name()), "the file holds those documents, one to a line")
 }
 
 func TestIntegrationAGzipWriterCompressesAnExport(t *testing.T) {
@@ -55,6 +57,15 @@ func TestIntegrationAGzipWriterCompressesAnExport(t *testing.T) {
 	assert.Equal(t, 5, gzippedLines(t, f.Name()), "the file holds every document, one to a line")
 }
 
+// fileLines counts the lines in a file.
+func fileLines(t *testing.T, path string) int {
+	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err, "the file can be opened")
+	defer f.Close()
+	return countLines(t, f)
+}
+
 // gzippedLines counts the lines in a gzip file.
 func gzippedLines(t *testing.T, path string) int {
 	t.Helper()
@@ -63,8 +74,18 @@ func gzippedLines(t *testing.T, path string) int {
 	defer f.Close()
 	r, err := gzip.NewReader(f)
 	require.NoError(t, err, "the file is gzip")
+	return countLines(t, r)
+}
+
+// countLines counts the lines r holds, and fails the test if r cannot be read
+// to the end, as a gzip stream with a bad checksum cannot.
+func countLines(t *testing.T, r io.Reader) int {
+	t.Helper()
 	lines := 0
-	for s := bufio.NewScanner(r); s.Scan(); lines++ {
+	s := bufio.NewScanner(r)
+	for s.Scan() {
+		lines++
 	}
+	require.NoError(t, s.Err(), "the file reads to the end")
 	return lines
 }
