@@ -18,9 +18,16 @@ go get github.com/tophergopher/dbtest/mongotestv2  # if you use go.mongodb.org/m
 Starting a new project with no driver yet? Use `mongotestv2`: driver v1 is
 in maintenance.
 
-For PostgreSQL, add the root module and import its
-[`postgres`](../reference/postgres.md) package. It returns a connection
-string for any driver, such as pgx or lib/pq, and adds no dependency:
+For PostgreSQL, add [`pgtest`](../reference/pgtest.md). `pgtest.Run(t)`
+returns a pgx pool and a `*sql.DB`, both connected:
+
+```sh
+go get github.com/tophergopher/dbtest/pgtest
+```
+
+To use another driver, such as lib/pq, add the root module and import its
+[`postgres`](../reference/postgres.md) package instead. It returns a
+connection string and adds no dependency:
 
 ```sh
 go get github.com/tophergopher/dbtest
@@ -32,7 +39,8 @@ Each module is separate, so you download only what you use:
 | --- | --- |
 | `github.com/tophergopher/dbtest/mongotest` | Tests on driver v1, v1.17.10 or later. `mongotest.Run(t)` returns a connected client. |
 | `github.com/tophergopher/dbtest/mongotestv2` | Tests on driver v2, v2.10.0 or later. Same API as `mongotest`: `mongotestv2.Run(t)` returns a connected v2 client. |
-| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) and [`postgres`](../reference/postgres.md) packages, which start MongoDB and PostgreSQL without importing a driver, and the Docker client packages. `mongotest` and `mongotestv2` require it, so a MongoDB user rarely adds it. |
+| `github.com/tophergopher/dbtest/pgtest` | Tests on PostgreSQL with pgx v5, through its pool or `database/sql`. `pgtest.Run(t)` returns both, connected. See [`pgtest`](../reference/pgtest.md). |
+| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) and [`postgres`](../reference/postgres.md) packages, which start MongoDB and PostgreSQL without importing a driver, and the Docker client packages. `mongotest`, `mongotestv2` and `pgtest` require it, so their users rarely add it. |
 | `github.com/tophergopher/dbtest/mobyclient` | Code that already uses Docker's Go client, moby, and wants dbtest to share it. See [`mobyclient`](../docker-clients/mobyclient.md). |
 | `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. It takes a connection string, so it works with either driver. See [Exporting data](../guides/exporting-data.md). |
 

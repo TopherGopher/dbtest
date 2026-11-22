@@ -1,8 +1,7 @@
 ---
 title: The postgres package
 description: "Start a PostgreSQL container and get its URI, with no driver imported."
-status: changing
-tracks: ["#137"]
+status: current
 ---
 
 # The postgres package
@@ -10,7 +9,8 @@ tracks: ["#137"]
 `github.com/tophergopher/dbtest/postgres` starts a PostgreSQL container,
 waits until the server accepts logins, tells you where to connect, and
 removes the container if the process is interrupted. It is in the root
-module and imports no driver, so it adds no dependency to yours.
+module and imports no driver, so it adds no dependency to yours. For a test
+that wants a client already connected, use [pgtest](pgtest.md) instead.
 
 ```go
 --8<-- "postgres/example_test.go:start"
@@ -28,13 +28,13 @@ server joins that container's network instead of taking a host port.
 
 ## Connecting
 
-Hand `URI()` to any driver:
+Hand `URI()` to any driver. With pgx:
 
-```go title="Illustration, not compiled"
-db, err := sql.Open("pgx", c.URI())      // database/sql, with github.com/jackc/pgx/v5/stdlib imported
-pool, err := pgxpool.New(ctx, c.URI())   // pgx's own pool
-db, err := sql.Open("postgres", c.URI()) // lib/pq
+```go
+--8<-- "pgtest/guides_test.go:drivers"
 ```
+
+lib/pq takes it too, with `sql.Open("postgres", c.URI())`.
 
 The URI is `postgres://postgres:<password>@<host>:<port>/postgres?sslmode=disable`.
 Because it sets every part, the `PGHOST`, `PGPASSWORD`, `PGSSLMODE` and
@@ -139,8 +139,8 @@ docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 
 ## Not here
 
-- **A connected client.** A module that returns a `*sql.DB` and a pgx pool
-  comes next, in [#137](https://github.com/TopherGopher/dbtest/issues/137).
+- **A connected client.** [pgtest](pgtest.md) returns a `*sql.DB` and a pgx
+  pool, already connected, and gives each test a database of its own.
 - **Commands and scripts.** There is no `Exec` or `RunScript`: run SQL
   through your driver. To look inside a container while a test is paused,
   run `docker exec -it <name> psql -U postgres`.

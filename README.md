@@ -6,9 +6,8 @@
 
 dbtest starts a real database server in a Docker container for a Go test.
 For MongoDB it hands the test a connected client of the official MongoDB Go
-driver, and removes the container when the test ends. For PostgreSQL, the
-`postgres` package hands it a connection string. A connected client is
-planned.
+driver, and removes the container when the test ends. For PostgreSQL it
+hands the test a pgx pool and a `*sql.DB`, both connected.
 
 ```sh
 go get github.com/tophergopher/dbtest/mongotest    # if you use go.mongodb.org/mongo-driver
@@ -54,24 +53,24 @@ lists what replaces each. If you set `MONGOTEST_HOST_IP`, rename it to
 
 ## PostgreSQL
 
-The `postgres` package starts PostgreSQL and returns a connection string
-for any driver. It adds no dependency to your module. Install it with:
-
 ```sh
-go get github.com/tophergopher/dbtest
+go get github.com/tophergopher/dbtest/pgtest
 ```
-
-`Start` does not take `t`, so stop the container yourself, as below.
 
 ```go
-c, err := postgres.Start(t.Context()) // import "github.com/tophergopher/dbtest/postgres"
-require.NoError(t, err)
-t.Cleanup(func() { c.Stop(context.Background()) })
-
-db, err := sql.Open("pgx", c.URI()) // or pgxpool.New(ctx, c.URI())
+func TestOrders(t *testing.T) {
+    db := pgtest.Run(t).DB // import "github.com/tophergopher/dbtest/pgtest"
+    _, err := db.ExecContext(t.Context(), "CREATE TABLE orders (item text)")
+    require.NoError(t, err)
+}
 ```
 
-See [The postgres package](https://tophergopher.github.io/dbtest/reference/postgres/).
+`Run(t).Pool` is pgx's own pool, and draws on the same connections. For
+another driver, such as lib/pq, the `postgres` package in the root module
+starts the server and returns its connection string, with no driver
+imported. See
+[The pgtest package](https://tophergopher.github.io/dbtest/reference/pgtest/)
+and [The postgres package](https://tophergopher.github.io/dbtest/reference/postgres/).
 
 ## Cleaning up stray containers
 
