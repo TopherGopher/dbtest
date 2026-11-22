@@ -57,16 +57,16 @@ the first socket that answers.
 
 `dockerapi` works with every supported Podman.
 
-`dockerapi` also reports which engine answered:
+`dockerapi` also reports which engine answered, once it has negotiated. Here
+`docker` is a client pointed at a `dockermock.Daemon` that answers as Podman
+does:
 
 ```go
-c, _ := dockerapi.FromEnv()
-if c.Runtime() == dockerapi.RuntimePodman {
-    // Podman identifies itself through the Libpod-API-Version header.
-}
+--8<-- "dockerapi/example_test.go:runtime"
 ```
 
-Version errors name the product, so a Podman user is never told to upgrade a
+Podman identifies itself through the `Libpod-API-Version` header. Version
+errors name the product, so a Podman user is never told to upgrade a
 Docker daemon they do not have.
 
 ## Troubleshooting

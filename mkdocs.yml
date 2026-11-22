@@ -122,7 +122,11 @@ markdown_extensions:
   - pymdownx.keys
   - pymdownx.mark
   - pymdownx.smartsymbols
-  - pymdownx.snippets
+  # Pages include their Go from the repository's examples and tests, so CI
+  # compiles what the site shows. A missing file or section fails the build.
+  - pymdownx.snippets:
+      check_paths: true
+      dedent_subsections: true
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true

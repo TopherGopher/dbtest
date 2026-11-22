@@ -12,8 +12,9 @@ client of the official driver and the container, if it started one.
 ## In a test
 
 ```go
-inst := mongotest.Run(t)
-db := inst.Database("app")
+func TestOrders(t *testing.T) {
+	--8<-- "mongotest/example_test.go:run"
+}
 ```
 
 `Run` starts a container, connects, and removes the container when the test
@@ -23,7 +24,7 @@ test is never skipped.
 `RunWithOptions` takes [options](../reference/mongod.md#options). Start from
 `DefaultOptions()` and chain the settings you need:
 
-```go
+```go title="Illustration, not compiled"
 inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
 ```
 
@@ -34,16 +35,8 @@ stops the instance. In `TestMain`, one server started this way can serve
 every test in the package:
 
 ```go
-var server *mongotest.Instance
-
 func TestMain(m *testing.M) {
-    ctx := context.Background()
-    var err error
-    if server, err = mongotest.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    defer server.Stop(ctx)
-    m.Run()
+	--8<-- "mongotest/example_test.go:test-main"
 }
 ```
 
@@ -58,7 +51,7 @@ service container, and starts nothing. Its instance has no container, and
 `Stop` only disconnects.
 
 ```go
-inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
+--8<-- "mongotest/example_test.go:attach"
 ```
 
 !!! warning "Shared server, shared data"
@@ -66,8 +59,7 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
     own database with `DatabaseFor`, which drops it when the test ends:
 
     ```go
-    coll := inst.DatabaseFor(t).Collection("app")
-    // ...
+    --8<-- "mongotest/example_test.go:database-for"
     ```
 
 ## What an instance gives you
@@ -89,7 +81,7 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 
 === "URI"
 
-    ```go
+    ```go title="Illustration, not compiled"
     repo, err := NewRepository(inst.URI())
     ```
 
@@ -100,7 +92,7 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 
 === "*mongo.Client"
 
-    ```go
+    ```go title="Illustration, not compiled"
     repo := NewRepository(inst.Client)
     ```
 
@@ -108,7 +100,7 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 
 === "*mongo.Database"
 
-    ```go
+    ```go title="Illustration, not compiled"
     svc := NewService(inst.Database("app"))
     ```
 
@@ -120,11 +112,7 @@ before it, so a client the test creates is disconnected while the container
 still exists:
 
 ```go
-inst := mongotest.Run(t)
-
-client, err := mongo.Connect(t.Context(), options.Client().ApplyURI(inst.URI()))
-require.NoError(t, err)
-t.Cleanup(func() { _ = client.Disconnect(context.Background()) }) // runs first
+--8<-- "mongotest/example_test.go:own-client"
 ```
 
 ## Errors

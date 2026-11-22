@@ -90,16 +90,12 @@ Windows; see the Docker Desktop tab.
 This step is optional. The first test run on a machine downloads the
 MongoDB image. Tests wait for the download, which does not count against
 their start timeout, and fail if it fails. To download the image before any
-test starts, call `mongod.PullImage` from `TestMain`:
+test starts, call `mongod.PullImage` from `TestMain`. The package to import
+is `github.com/tophergopher/dbtest/mongod`:
 
 ```go
-import "github.com/tophergopher/dbtest/mongod"
-
 func TestMain(m *testing.M) {
-	if err := mongod.PullImage(context.Background(), mongod.DefaultOptions()); err != nil {
-		log.Fatal(err)
-	}
-	os.Exit(m.Run())
+	--8<-- "mongod/example_test.go:pull-test-main"
 }
 ```
 

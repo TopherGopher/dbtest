@@ -21,15 +21,11 @@ go get github.com/tophergopher/dbtest/mobyclient
 
 ## Getting a client
 
-```go
-c, err := mobyclient.New() // find the daemon as the docker CLI does
-```
+`mobyclient.New()` finds the daemon as the docker CLI does. `WithHost` gives
+the address instead:
 
 ```go
-c, err := mobyclient.New( // or give the address
-    mobyclient.WithHost("unix:///var/run/docker.sock"),
-    mobyclient.WithLogger(slog.Default()),
-)
+--8<-- "mobyclient/example_test.go:with-host"
 ```
 
 With no `WithHost` or `WithMobyClient`, the client finds the daemon as the

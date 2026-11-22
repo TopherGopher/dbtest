@@ -19,6 +19,7 @@ func newConformanceClient(tb testing.TB) dockerclient.Client {
 	d := dockermock.NewDaemon()
 	tb.Cleanup(d.Close)
 	f := dockermock.NewFake()
+	// What the suite expects of its test image, which it cannot set itself.
 	f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
 	f.Log, f.ErrLog = dockerclienttest.TestContainerLog, dockerclienttest.TestContainerErrLog
 	d.ServeFake(f)

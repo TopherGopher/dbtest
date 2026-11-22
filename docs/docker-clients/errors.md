@@ -38,18 +38,7 @@ directly:
 ## Branching
 
 ```go
-id, _, err := docker.ContainerCreate(ctx, "", cfg)
-switch {
-case err == nil:
-case dockerclient.IsNotFound(err):          // shorthand for errors.Is(err, ErrNotFound)
-    // pull the image and try again
-case errors.Is(err, dockerclient.ErrConflict):
-    // the name is taken; remove the old container or pick another name
-case errors.Is(err, dockerclient.ErrConnectionFailed):
-    // no daemon; tell the user where we looked
-default:
-    return err
-}
+--8<-- "dockerclient/example_test.go:branching"
 ```
 
 ## Reading the details
@@ -57,16 +46,7 @@ default:
 Each carrier exposes what it knows. `errors.As` gets you there:
 
 ```go
-var se *dockerclient.StatusError
-if errors.As(err, &se) {
-    log.Printf("%s %s returned %d: %s", se.Method, se.Path, se.StatusCode, se.Message)
-}
-
-var ve *dockerclient.APIVersionError
-if errors.As(err, &ve) {
-    log.Printf("%s supports %s to %s; this client supports %s to %s",
-        ve.Product, ve.ServerMin, ve.ServerMax, ve.ClientMin, ve.ClientMax)
-}
+--8<-- "dockerclient/example_test.go:status-fields"
 ```
 
 `StatusError` also carries a hint, a sentence suggesting the usual fix for

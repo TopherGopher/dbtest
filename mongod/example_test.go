@@ -5,9 +5,12 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
+	"testing"
 
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/dockermock"
@@ -52,7 +55,7 @@ func exampleDocker() (dockerclient.Client, func()) {
 
 // Start needs no options. This example is compiled but not run, because it
 // talks to a real Docker daemon.
-func ExampleStart() {
+func ExampleStart() /* --8<-- [start:start] */ {
 	ctx := context.Background()
 
 	c, err := mongod.Start(ctx)
@@ -64,7 +67,7 @@ func ExampleStart() {
 
 	// Hand c.URI() to a MongoDB driver.
 	fmt.Println(c.URI())
-}
+} // --8<-- [end:start]
 
 // Chain the options a start needs onto DefaultOptions.
 func ExampleStartWithOptions() {
@@ -108,6 +111,17 @@ func ExamplePullImage() {
 	fmt.Println(c.Image())
 	// Output: docker.io/library/mongo:6.0
 }
+
+// This is the body of a TestMain that pulls the image before any test
+// starts. It is compiled but not run, because it talks to a real Docker
+// daemon.
+func ExamplePullImage_testMain() {
+	var m *testing.M // TestMain's own m --8<-- [start:pull-test-main]
+	if err := mongod.PullImage(context.Background(), mongod.DefaultOptions()); err != nil {
+		log.Fatal(err)
+	}
+	os.Exit(m.Run())
+} // --8<-- [end:pull-test-main]
 
 // A With method returns a copy, so tests can add to a shared base without
 // changing it for each other.
@@ -223,15 +237,7 @@ func ExampleStartWithOptions_errors() {
 	// remove: WithMongodArgs
 }
 
-// Calling this after m.Run in a TestMain removes any container a test
-// forgot to stop:
-//
-//	func TestMain(m *testing.M) {
-//		m.Run()
-//		if err := mongod.ReapRunningContainers(context.Background()); err != nil {
-//			log.Print(err)
-//		}
-//	}
+// Reaping removes every container the process started and did not stop.
 func ExampleReapRunningContainers() {
 	docker, closeDocker := exampleDocker()
 	defer closeDocker()
@@ -246,6 +252,17 @@ func ExampleReapRunningContainers() {
 	fmt.Println("reaped:", mongod.ReapRunningContainers(ctx) == nil)
 	// Output: reaped: true
 }
+
+// This is the body of a TestMain that removes, after the tests, any container
+// a test forgot to stop. It is compiled but not run, because it talks to a
+// real Docker daemon.
+func ExampleReapRunningContainers_testMain() {
+	var m *testing.M // TestMain's own m --8<-- [start:reap-test-main]
+	m.Run()
+	if err := mongod.ReapRunningContainers(context.Background()); err != nil {
+		log.Print(err)
+	}
+} // --8<-- [end:reap-test-main]
 
 // busy is a daemon that refuses to remove any container.
 type busy struct{ dockerclient.Client }
@@ -292,7 +309,7 @@ func ExampleContainer_RunScript() {
 		fmt.Println("start:", err)
 		return
 	}
-	defer c.Stop(ctx)
+	defer c.Stop(ctx) // --8<-- [start:run-script]
 
 	ok, err := c.RunScript(ctx, "db.runCommand({ping: 1}).ok")
 	if err != nil {
@@ -303,7 +320,7 @@ func ExampleContainer_RunScript() {
 	}
 	fmt.Println("ping ok:", ok)
 	// Output: ping ok: 1
-}
+} // --8<-- [end:run-script]
 
 // tlsStage is the stage for a container started with TLS: once the start
 // copies its certificate in, a stand-in for mongod answers over TLS with it.

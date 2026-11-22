@@ -72,17 +72,7 @@ own database name and drop it in cleanup, as shown in
 To choose at run time:
 
 ```go
-func startMongo(t *testing.T) *mongotest.Instance {
-    t.Helper()
-    uri := os.Getenv("MONGODB_URI")
-    if uri == "" {
-        return mongotest.Run(t)
-    }
-    inst, err := mongotest.Attach(t.Context(), uri)
-    require.NoError(t, err, "the MongoDB service must be reachable")
-    t.Cleanup(func() { _ = inst.Stop(context.Background()) })
-    return inst
-}
+--8<-- "mongotest/example_test.go:ci-helper"
 ```
 
 ## Other runners

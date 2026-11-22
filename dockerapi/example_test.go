@@ -28,7 +28,7 @@ func ExampleFromEnv() {
 	// FromEnv locates the daemon like the docker CLI: DOCKER_HOST, then the
 	// current docker context, then the platform default socket.
 	os.Setenv("DOCKER_HOST", stubHost())
-	defer os.Unsetenv("DOCKER_HOST")
+	defer os.Unsetenv("DOCKER_HOST") // --8<-- [start:from-env]
 
 	c, err := dockerapi.FromEnv()
 	if err != nil {
@@ -38,7 +38,7 @@ func ExampleFromEnv() {
 	}
 	fmt.Println("using the daemon from DOCKER_HOST:", c.Host() == os.Getenv("DOCKER_HOST"))
 	// Output: using the daemon from DOCKER_HOST: true
-}
+} // --8<-- [end:from-env]
 
 func ExampleNew() {
 	c, err := dockerapi.New(
@@ -205,7 +205,7 @@ func ExampleClient_APIVersion() {
 }
 
 func ExampleClient_Negotiate() {
-	c := exampleClient()
+	c := exampleClient() // --8<-- [start:negotiate]
 	// Negotiation is implicit on the first request; call it directly to
 	// check connectivity before doing any work.
 	if err := c.Negotiate(context.Background()); err != nil {
@@ -218,7 +218,7 @@ func ExampleClient_Negotiate() {
 	}
 	fmt.Println("daemon speaks API", c.APIVersion())
 	// Output: daemon speaks API 1.44
-}
+} // --8<-- [end:negotiate]
 
 func ExampleClient_ImagePull() {
 	c := exampleClient()
@@ -400,7 +400,7 @@ func ExampleClient_ExecCreate() {
 }
 
 func ExampleClient_ExecStart() {
-	c := exampleClient()
+	c := exampleClient() // --8<-- [start:exec-start]
 	ctx := context.Background()
 	execID, err := c.ExecCreate(ctx, "c0ffee1234ab", dockerapi.ExecConfig{Cmd: []string{"mongod", "--version"}})
 	if err != nil {
@@ -412,7 +412,7 @@ func ExampleClient_ExecStart() {
 	}
 	fmt.Printf("stdout %q stderr %q\n", stdout, stderr)
 	// Output: stdout "1\n" stderr ""
-}
+} // --8<-- [end:exec-start]
 
 func ExampleClient_ContainerLogsTo() {
 	c := exampleClient()
@@ -632,7 +632,7 @@ func ExampleClient_Runtime() {
 	// at API 1.41 that Podman held through 5.7.
 	daemon.ServePodmanVersion("1.41", "5.7.1")
 
-	docker, _ := dockerapi.New(dockerapi.WithHost(daemon.Host()))
+	docker, _ := dockerapi.New(dockerapi.WithHost(daemon.Host())) // --8<-- [start:runtime]
 	if err := docker.Negotiate(context.Background()); err != nil {
 		panic(err)
 	}
@@ -641,7 +641,7 @@ func ExampleClient_Runtime() {
 	// Output:
 	// runtime: podman
 	// negotiated: 1.41
-}
+} // --8<-- [end:runtime]
 
 func ExampleClient_ServerProduct() {
 	// The product string is what version errors name, so a Podman user is

@@ -20,16 +20,7 @@ documents to export, then call `WriteJSON` or `WriteCSV`. Here `c` is a
 container from `mongod.Start`, and `c.URI()` its connection string:
 
 ```go
-f, err := os.Create("testdata/people.json")
-require.NoError(t, err)
-defer f.Close()
-
-n, err := exporter.New(c.URI(), "app", "people").
-    Query(`{"city": "Gotham"}`).
-    Sort(`{"name": 1}`).
-    Limit(100).
-    WriteJSON(t.Context(), f, exporter.JSONOptions{Canonical: true})
-require.NoError(t, err)
+--8<-- "mongotest/exporter/example_test.go:file"
 ```
 
 `n` is how many documents were written. Each method returns a new exporter
@@ -83,15 +74,7 @@ The exporter writes to any `io.Writer`, so you choose where the output goes.
 To write a compressed temporary file, wrap the file in a gzip writer:
 
 ```go
-f, err := os.CreateTemp("", "people-*.json.gz")
-require.NoError(t, err)
-t.Cleanup(func() { _ = os.Remove(f.Name()) })
-
-compressed := gzip.NewWriter(f)
-_, err = exporter.New(c.URI(), "app", "people").WriteJSON(t.Context(), compressed, exporter.JSONOptions{})
-require.NoError(t, err)
-require.NoError(t, compressed.Close())
-require.NoError(t, f.Close())
+--8<-- "mongotest/exporter/example_test.go:gzip"
 ```
 
 Close the gzip writer before the file, or the file is incomplete.

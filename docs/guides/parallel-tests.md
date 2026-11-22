@@ -16,7 +16,7 @@ A test binary starts at most 8 containers per CPU at once, and further starts
 wait their turn; see
 [Many containers at once](../reference/mongod.md#many-containers-at-once).
 
-```go
+```go title="Illustration, not compiled"
 func TestFindByCity(t *testing.T) {
     t.Parallel()
     inst := mongotest.Run(t)
@@ -38,34 +38,7 @@ whole table pays one start-up.
 
 ```go
 func TestRosterQueries(t *testing.T) {
-    inst := mongotest.Run(t)
-
-    cases := []struct {
-        name   string
-        seed   []hero
-        filter bson.M
-        want   int
-    }{
-        {"by city", []hero{{Name: "Diana", City: "Themyscira"}}, bson.M{"city": "Themyscira"}, 1},
-        {"no match", []hero{{Name: "Diana", City: "Themyscira"}}, bson.M{"city": "Gotham"}, 0},
-        {"empty collection", nil, bson.M{}, 0},
-    }
-
-    for _, tc := range cases {
-        t.Run(tc.name, func(t *testing.T) {
-            t.Parallel()
-            // A database for this case alone, dropped when the case ends.
-            coll := inst.DatabaseFor(t).Collection("roster")
-            for _, h := range tc.seed {
-                _, err := coll.InsertOne(t.Context(), h)
-                require.NoError(t, err, "seeding %q must succeed", tc.name)
-            }
-
-            n, err := coll.CountDocuments(t.Context(), tc.filter)
-            require.NoError(t, err, "the query must run")
-            assert.EqualValues(t, tc.want, n, "the filter must match the seeded documents")
-        })
-    }
+	--8<-- "mongotest/example_test.go:table"
 }
 ```
 
@@ -82,7 +55,7 @@ name ends in a random part, so no two cases share one.
 When a package has many small tests, start one container for all of them in
 `TestMain`, and give each test its own database.
 
-```go
+```go title="Illustration, not compiled"
 var server *mongotest.Instance
 
 func TestMain(m *testing.M) {

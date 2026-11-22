@@ -13,10 +13,7 @@ implements exactly the endpoints dbtest needs.
 ## Getting a client
 
 ```go
-c, err := dockerapi.FromEnv()
-if err != nil {
-    return err // the message names the variable or setting to fix
-}
+--8<-- "dockerapi/example_test.go:from-env"
 ```
 
 `FromEnv` locates the daemon the way the `docker` CLI does, in this order:
@@ -52,7 +49,7 @@ socket. Building a client never depends on a daemon being up.
 
 `New` takes options for a fixed host and more:
 
-```go
+```go title="Illustration, not compiled"
 c, err := dockerapi.New(
     dockerapi.WithHost("tcp://build-host:2376"),
     dockerapi.WithTLSConfig(&tls.Config{RootCAs: pool}),
@@ -83,24 +80,22 @@ uses the highest version both sides support. Call `Negotiate` to do it
 eagerly, and `APIVersion` to read the result:
 
 ```go
-if err := c.Negotiate(ctx); err != nil {
-    var ve *dockerclient.APIVersionError
-    if errors.As(err, &ve) {
-        // ve names the product (docker or podman) and both version windows
-    }
-}
-fmt.Println(c.APIVersion()) // for example "1.44"
+--8<-- "dockerapi/example_test.go:negotiate"
 ```
+
+When the two version ranges do not overlap, `Negotiate` returns an
+`*APIVersionError` that names the product, Docker or Podman, and both ranges.
 
 ## Which engine answered
 
+Once the client has negotiated, `Runtime` says which engine answered:
+`RuntimeDocker`, `RuntimePodman`, or `RuntimeUnknown` for an engine that is
+neither. Before then it is `RuntimeUnknown`. `ServerProduct` is how the daemon
+described itself. Here the daemon is a `dockermock.Daemon` that answers as
+Podman does:
+
 ```go
-switch c.Runtime() {
-case dockerapi.RuntimeDocker:
-case dockerapi.RuntimePodman:
-case dockerapi.RuntimeUnknown: // not yet negotiated, or an engine that is neither
-}
-fmt.Println(c.ServerProduct()) // how the daemon described itself
+--8<-- "dockerapi/example_test.go:runtime"
 ```
 
 Podman is identified by the `Libpod-API-Version` header it sets on every
@@ -112,7 +107,7 @@ All methods of the [interface](index.md#the-interface) are implemented, plus
 `ExecStart`, which buffers the output that `ExecStartTo` streams:
 
 ```go
-stdout, stderr, err := c.ExecStart(ctx, execID)
+--8<-- "dockerapi/example_test.go:exec-start"
 ```
 
 A few behaviours worth knowing:

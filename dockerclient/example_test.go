@@ -15,6 +15,8 @@ import (
 // startMongo is the kind of code this package exists for: it works against
 // any client, so a caller decides whether that is dockerapi, mobyclient or a
 // double from dockermock.
+//
+// --8<-- [start:start-mongo]
 func startMongo(ctx context.Context, docker dockerclient.Client) (string, error) {
 	cfg := dockerclient.ContainerConfig{
 		Image:        "mongo:8",
@@ -38,7 +40,9 @@ func startMongo(ctx context.Context, docker dockerclient.Client) (string, error)
 	return id, docker.ContainerStart(ctx, id)
 }
 
-func ExampleClient() {
+// --8<-- [end:start-mongo]
+
+func ExampleClient() /* --8<-- [start:client] */ {
 	// A Fake stands in for a daemon, so this runs with no Docker installed.
 	docker := dockermock.NewFake()
 	ctx := context.Background()
@@ -58,7 +62,7 @@ func ExampleClient() {
 	// Output:
 	// running: true
 	// published: true
-}
+} // --8<-- [end:client]
 
 func ExampleContainerInspect_HostPort() {
 	info := dockerclient.ContainerInspect{
@@ -81,6 +85,27 @@ func ExampleIsNotFound() {
 	fmt.Println(dockerclient.IsNotFound(err))
 	// Output: true
 }
+
+// Branch on what went wrong with errors.Is, never on the message.
+func ExampleClient_errors() /* --8<-- [start:branching] */ {
+	docker := dockermock.NewFake()
+	cfg := dockerclient.ContainerConfig{Image: "mongo:8"}
+
+	_, _, err := docker.ContainerCreate(context.Background(), "", cfg)
+	switch {
+	case err == nil:
+		fmt.Println("created")
+	case dockerclient.IsNotFound(err): // shorthand for errors.Is(err, dockerclient.ErrNotFound)
+		fmt.Println("the image is not local: pull it and try again")
+	case errors.Is(err, dockerclient.ErrConflict):
+		fmt.Println("the name is taken: remove the old container or pick another name")
+	case errors.Is(err, dockerclient.ErrConnectionFailed):
+		fmt.Println("no daemon: say where we looked")
+	default:
+		fmt.Println(err)
+	}
+	// Output: the image is not local: pull it and try again
+} // --8<-- [end:branching]
 
 func ExampleNopLogger() {
 	// The default for every client: it discards everything.
@@ -222,6 +247,18 @@ func ExampleStatusError() {
 	// true
 	// Check the id, name or image tag; the object may have been removed already, or the image was never pulled
 }
+
+// errors.As reaches the error that carries the details.
+func ExampleStatusError_fields() /* --8<-- [start:status-fields] */ {
+	docker := dockermock.NewFake()
+	_, err := docker.ContainerInspect(context.Background(), "never-created")
+
+	var se *dockerclient.StatusError
+	if errors.As(err, &se) {
+		fmt.Printf("%s %s returned %d\n", se.Method, se.Path, se.StatusCode)
+	}
+	// Output: GET /containers/never-created/json returned 404
+} // --8<-- [end:status-fields]
 
 func ExampleWrapConnectionError() {
 	// Transport failures are turned into the same actionable error by every

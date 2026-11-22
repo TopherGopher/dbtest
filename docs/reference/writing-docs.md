@@ -49,8 +49,8 @@ exist.
 ## Conventions
 
 **Lead with working code.** A guide is a complete example first and
-explanation second. Every snippet should compile if the surrounding imports
-are obvious; say so when something is elided.
+explanation second. The code comes from the repository, so it compiles; see
+[Go on a page](#go-on-a-page).
 
 **Say what is true today, and badge it.** `status` is one of `current`,
 `changing` or `landing`, and `tracks` lists the issues (`"#40"`)
@@ -71,3 +71,48 @@ let pkg.go.dev carry the exact types.
 
 **One idea per section.** Headings are navigation. If a section needs a
 second heading to stay readable, it is probably two sections.
+
+## Go on a page
+
+A page does not hold its own Go. Each block includes the code from an
+`Example` function or a test in the repository, so CI compiles it, and runs
+it when the example has an `// Output:` comment:
+
+````markdown
+```go
+;--8<-- "mongod/example_test.go:start"
+```
+````
+
+`start` names a section of the file. A comment holding
+`;--8<-- [start:start]` marks where it begins, and one holding
+`;--8<-- [end:start]` where it ends. The lines that hold the markers are left
+out. To show a whole example body, put the start marker between the
+function's parentheses and its opening brace, and the end marker after its
+closing brace, where pkg.go.dev does not show them. Leave out the name to
+include a whole file.
+
+Most examples have no `*testing.T`, so they declare one with
+`var t *testing.T` and start the section on the line below. A block may
+put the function around the included lines, so a page can show a whole test
+or `TestMain`:
+
+````markdown
+```go
+func TestMain(m *testing.M) {
+	;--8<-- "mongod/example_test.go:pull-test-main"
+}
+```
+````
+
+An example that needs Docker has no `// Output:` comment, so it is compiled
+but never run. A block that cannot be compiled, such as a sketch of code
+the reader writes, is titled so the reader knows:
+
+````markdown
+```go title="Illustration, not compiled"
+repo, err := NewRepository(inst.URI())
+```
+````
+
+`go test` in the repository root fails on a block of Go that does neither.

@@ -46,7 +46,7 @@ func ExampleNew() {
 	// Output: true
 }
 
-func ExampleWithHost() {
+func ExampleWithHost() /* --8<-- [start:with-host] */ {
 	// A unix socket, a TCP endpoint, or an http/https URL.
 	c, err := mobyclient.New(mobyclient.WithHost("unix:///var/run/docker.sock"))
 	if err != nil {
@@ -54,7 +54,7 @@ func ExampleWithHost() {
 	}
 	fmt.Println(c.Host())
 	// Output: unix:///var/run/docker.sock
-}
+} // --8<-- [end:with-host]
 
 func ExampleWithMobyClient() {
 	// Wrap a *client.Client the caller already built, instead of letting
