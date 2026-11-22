@@ -40,7 +40,11 @@ func FuzzParseImage(f *testing.F) {
 			assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a refused reference is the caller's to correct")
 			return
 		}
-		_, parseErr := dockerclient.ParseImageRef(image)
-		assert.NoError(t, parseErr, "an accepted reference is one the daemon can use")
+		trimmed := strings.TrimSpace(ref)
+		assert.Contains(t, []string{trimmed, "docker.io/library/postgres:" + trimmed}, image,
+			"a reference is used as written, or a lone version names the official image")
+		again, err := parseImage("WithImage", image)
+		assert.NoError(t, err, "an accepted image is accepted again")
+		assert.Equal(t, image, again, "and means the same")
 	})
 }

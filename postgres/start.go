@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"strconv"
 	"sync"
 
 	"github.com/tophergopher/dbtest/dockerapi"
@@ -40,6 +39,7 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 		return nil, err
 	}
 	cfg.hostSource = r.Source
+	cfg.announceExposure(r)
 	c := &Container{
 		ctr: container.New(cfg.name, docker, cfg.logger),
 		ref: cfg.image, password: cfg.password, host: r.Host,
@@ -78,6 +78,11 @@ func PullImage(ctx context.Context, opts Options) error {
 	// the registry for nothing, and can run into its rate limit.
 	if _, err := docker.ImageInspect(ctx, cfg.image); err == nil {
 		return nil
+	}
+	// An inspect that failed because the caller gave up says nothing about
+	// the image, so no pull is announced.
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	cfg.logger.Info(pullingMessage, "image", cfg.image)
 	if _, err := pullImage(ctx, docker, cfg, false); err != nil {
@@ -139,6 +144,20 @@ func (c config) reach(ctx context.Context, docker dockerclient.Client) (hostaddr
 	return hostaddr.Decide(ctx, docker, in)
 }
 
+// announceExposure logs that more than this process can reach the server.
+// The same call is loopback-only on a laptop, so the change is worth saying.
+func (c config) announceExposure(r hostaddr.Reach) {
+	if !r.Exposed() {
+		return
+	}
+	attrs := []any{"container", c.name}
+	if r.Shared() {
+		attrs = append(attrs, "network", r.Network)
+	}
+	c.logger.Info("Other machines or containers can reach this server, because "+r.Where()+
+		". It asks for the password that Container.URI() includes.", attrs...)
+}
+
 // portOnNetwork is the port the server is dialled at on a shared network.
 func (c config) portOnNetwork() int {
 	if c.networkPort != 0 {
@@ -169,22 +188,12 @@ func (c *Container) spec(cfg config, docker dockerclient.Client, r hostaddr.Reac
 // the interface the address to dial needs, unless the container joins a
 // shared network.
 func (c config) containerConfig(r hostaddr.Reach) dockerclient.ContainerConfig {
-	hc := &dockerclient.HostConfig{NetworkMode: r.Network}
-	if r.Network == "" {
-		publishOn := "" // empty asks the daemon to choose the port
-		if c.port != 0 {
-			publishOn = strconv.Itoa(c.port)
-		}
-		hc.PortBindings = map[string][]dockerclient.PortBinding{
-			serverPort: {{HostIP: hostaddr.BindIP(r.Host), HostPort: publishOn}},
-		}
-	}
 	return dockerclient.ContainerConfig{
 		Image:        c.image,
 		Env:          []string{"POSTGRES_PASSWORD=" + c.password},
 		Labels:       maps.Clone(c.labels),
 		ExposedPorts: map[string]struct{}{serverPort: {}},
-		HostConfig:   hc,
+		HostConfig:   r.HostConfig(serverPort, c.port),
 	}
 }
 

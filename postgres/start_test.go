@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tophergopher/dbtest/dockerclient"
-	"github.com/tophergopher/dbtest/internal/reaper"
 	"github.com/tophergopher/dbtest/postgres"
 )
 
@@ -50,7 +49,9 @@ func TestEachStartHasItsOwnNameAndPassword(t *testing.T) {
 }
 
 // A driver given the URI must connect as the container's superuser, to its
-// database, without TLS, which the image does not serve.
+// database, without TLS, which the image does not serve. Every part is
+// spelled out, because pgx and lib/pq fill in from PGHOST, PGPASSWORD and
+// the rest any part a connection string leaves out.
 func TestTheURIConnectsAsTheSuperuser(t *testing.T) {
 	m, port := readyMock(t)
 	c := mustStart(t, m, postgres.DefaultOptions())
@@ -64,28 +65,6 @@ func TestTheURIConnectsAsTheSuperuser(t *testing.T) {
 	assert.Equal(t, net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), u.Host, "at the address the server answered on")
 	assert.Equal(t, "/"+c.Database(), u.Path, "to the database that exists")
 	assert.Equal(t, "disable", u.Query().Get("sslmode"), "without TLS, which lib/pq would otherwise insist on")
-}
-
-// libpq and pgx fill in from PGHOST, PGPASSWORD, PGSSLMODE and the rest any
-// part a connection string leaves out, so a shell's leftovers could point a
-// test at another server. The URI must leave out none of them.
-func TestTheURISpellsOutWhatPGVariablesWouldFillIn(t *testing.T) {
-	for _, name := range []string{"PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGSSLMODE"} {
-		t.Setenv(name, "from-the-shell")
-	}
-	m, _ := readyMock(t)
-	c := mustStart(t, m, postgres.DefaultOptions())
-
-	u, err := url.Parse(c.URI())
-	require.NoError(t, err, "the URI parses")
-	password, hasPassword := u.User.Password()
-	assert.NotEmpty(t, u.Hostname(), "the host is given, not left to PGHOST")
-	assert.NotEmpty(t, u.Port(), "the port is given, not left to PGPORT")
-	assert.NotEmpty(t, u.User.Username(), "the user is given, not left to PGUSER")
-	assert.True(t, hasPassword && password != "", "the password is given, not left to PGPASSWORD")
-	assert.NotEqual(t, "/", u.Path, "the database is given, not left to PGDATABASE")
-	assert.NotEmpty(t, u.Query().Get("sslmode"), "the TLS mode is given, not left to PGSSLMODE")
-	assert.NotContains(t, c.URI(), "from-the-shell", "and nothing comes from the environment")
 }
 
 // The server answers "starting up" before it accepts connections; a start
@@ -118,6 +97,7 @@ func TestStartTimesOutWhenNothingAnswers(t *testing.T) {
 	require.ErrorAs(t, err, &notReady, "the details are a NotReadyError")
 	assert.False(t, notReady.ContextEnded, "the start timeout ended it, not the caller")
 	assert.Equal(t, 300*time.Millisecond, notReady.Timeout, "and it says how long it waited")
+	assert.Contains(t, err.Error(), postgres.EnvStartTimeout, "and ends with advice on how to allow longer")
 }
 
 func TestATimeoutWhileStartingUpKeepsTheServersReason(t *testing.T) {
@@ -147,9 +127,9 @@ func TestAFailedStartRemovesItsContainer(t *testing.T) {
 	_, err := start(t, m, postgres.DefaultOptions().WithStartTimeout(100*time.Millisecond))
 
 	require.Error(t, err, "the start fails")
-	name, _ := created(t, m)
 	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "and leaves nothing behind")
-	assert.NotContains(t, reaper.Names(), name, "nor anything registered for reaping")
+	require.NoError(t, postgres.ReapRunningContainers(context.Background()), "reaping succeeds")
+	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "and finds nothing more to remove")
 }
 
 func TestStartPullsAnImageTheDaemonDoesNotHave(t *testing.T) {
@@ -169,7 +149,7 @@ func TestStartPullsAnImageTheDaemonDoesNotHave(t *testing.T) {
 	require.NoError(t, err, "a missing image is pulled, not reported")
 	require.Len(t, m.CallsTo("ImagePull"), 1, "once")
 	assert.Equal(t, "docker.io/library/postgres:18", m.CallsTo("ImagePull")[0].Args[0], "the image that was asked for")
-	assert.NotEmpty(t, logger.at("info"), "a pull, which can take minutes, is announced where a first-time user sees it")
+	assert.Len(t, logger.about("info", "image", "docker.io/library/postgres:18"), 1, "a pull, which can take minutes, is announced at info")
 }
 
 func TestStopRemovesTheContainerAndItsVolumes(t *testing.T) {
@@ -194,12 +174,13 @@ func TestStopOnANilContainerDoesNothing(t *testing.T) {
 func TestReapRunningContainersRemovesWhatIsStillUp(t *testing.T) {
 	m, _ := readyMock(t)
 	c := mustStart(t, m, postgres.DefaultOptions())
-	require.Contains(t, reaper.Names(), c.Name(), "a running container is registered")
 
 	require.NoError(t, postgres.ReapRunningContainers(context.Background()), "reaping succeeds")
+	require.NoError(t, postgres.ReapRunningContainers(context.Background()), "and reaping again finds nothing to do")
 
-	assert.Len(t, m.CallsTo("ContainerRemove"), 1, "the container is removed")
-	assert.NotContains(t, reaper.Names(), c.Name(), "and no longer registered")
+	removes := m.CallsTo("ContainerRemove")
+	require.Len(t, removes, 1, "the running container is removed, once")
+	assert.Equal(t, c.ID(), removes[0].Args[0], "by its id")
 }
 
 func TestPrintingAContainerHidesThePassword(t *testing.T) {
@@ -211,7 +192,7 @@ func TestPrintingAContainerHidesThePassword(t *testing.T) {
 		assert.NotContains(t, printed, c.Password(), "logging a container with %s must not leak its password", verb)
 		assert.Contains(t, printed, c.Name(), "but it says which container it is")
 	}
-	assert.NotContains(t, fmt.Sprint(nil, (*postgres.Container)(nil)), c.Password(), "a nil container prints too")
+	assert.Equal(t, "<nil>", fmt.Sprintf("%v", (*postgres.Container)(nil)), "a nil container prints as nil")
 }
 
 func TestTheReadyLineHidesThePassword(t *testing.T) {
@@ -219,25 +200,31 @@ func TestTheReadyLineHidesThePassword(t *testing.T) {
 	logger := &levelLogger{}
 	c := mustStart(t, m, postgres.DefaultOptions().WithLogger(logger))
 
-	for _, line := range logger.at("info") {
+	require.NotEmpty(t, logger.all(), "the start logs, or this test checks nothing")
+	for _, line := range logger.all() {
 		for _, value := range line.attrs {
-			assert.NotContains(t, fmt.Sprint(value), c.Password(), "logs are shared more widely than the daemon")
+			assert.NotContains(t, fmt.Sprint(value), c.Password(), "logs are shared more widely than the daemon, at %s too", line.level)
 		}
 	}
+	assert.NotEmpty(t, logger.with("info", "uri"), "the ready line gives the URI, with the password hidden")
 }
 
 // Inside a container on the same daemon, the server joins this process's
 // network and is dialled there, with nothing published.
 func TestAShareableNetworkIsJoined(t *testing.T) {
-	port := serve(t, askPassword)
+	// The container's address on the network differs from the address a
+	// published port would have, which TestMain pins to 127.0.0.1.
+	const onNetwork = "127.0.0.2"
+	port := serveAt(t, onNetwork, askPassword)
 	m, _ := readyMock(t)
 	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
 		info := running(0)
-		info.NetworkSettings.Networks = map[string]dockerclient.NetworkEndpoint{"dbtest-net": {IPAddress: "127.0.0.1"}}
+		info.NetworkSettings.Networks = map[string]dockerclient.NetworkEndpoint{"dbtest-net": {IPAddress: onNetwork}}
 		return info, nil
 	}
 	t.Setenv(postgres.EnvHostIP, "")
-	opts := postgres.DefaultOptions().
+	logger := &levelLogger{}
+	opts := postgres.DefaultOptions().WithLogger(logger).
 		WithNetworkLookup(func(context.Context, dockerclient.Client) (string, error) { return "dbtest-net", nil }).
 		WithNetworkPort(port)
 
@@ -246,19 +233,90 @@ func TestAShareableNetworkIsJoined(t *testing.T) {
 	_, request := created(t, m)
 	assert.Equal(t, "dbtest-net", request.HostConfig.NetworkMode, "the container joins the network")
 	assert.Empty(t, request.HostConfig.PortBindings, "and nothing is published")
-	assert.Equal(t, port, c.Port(), "it is dialled at its address there")
+	assert.Equal(t, onNetwork, c.Host(), "it is dialled at its address there")
+	assert.Equal(t, port, c.Port(), "on the port it listens on there")
+	u, err := url.Parse(c.URI())
+	require.NoError(t, err, "the URI parses")
+	assert.Equal(t, net.JoinHostPort(onNetwork, fmt.Sprint(port)), u.Host, "and the URI points there")
+	assert.Len(t, logger.about("info", "network", "dbtest-net"), 1, "a line says other containers on the network can reach it")
+}
+
+// A server only this machine can reach is not worth a line.
+func TestALoopbackServerIsNotAnnouncedAsExposed(t *testing.T) {
+	m, _ := readyMock(t)
+	logger := &levelLogger{}
+	mustStart(t, m, postgres.DefaultOptions().WithLogger(logger))
+	assert.Len(t, logger.at("info"), 1, "only the ready line is logged at info")
 }
 
 // WithPort chooses a host port, which only publishing can honour.
 func TestWithPortPublishesEvenWhereANetworkIsShared(t *testing.T) {
+	// Without the pinned address the network lookup runs, as it would for
+	// a caller. The address a published port gets depends on the machine,
+	// so the start may not finish; only the request matters here.
+	t.Setenv(postgres.EnvHostIP, "")
 	m, _ := readyMock(t)
-	opts := postgres.DefaultOptions().WithPort(15432).
+	opts := postgres.DefaultOptions().WithPort(15432).WithStartTimeout(200 * time.Millisecond).
 		WithNetworkLookup(func(context.Context, dockerclient.Client) (string, error) { return "dbtest-net", nil })
 
-	_, err := start(t, m, opts)
+	_, _ = start(t, m, opts)
 
-	require.NoError(t, err, "the start succeeds")
 	_, request := created(t, m)
 	assert.Empty(t, request.HostConfig.NetworkMode, "no network is joined")
 	assert.Equal(t, "15432", request.HostConfig.PortBindings["5432/tcp"][0].HostPort, "the port is published where asked")
+}
+
+// A probe that gets no reply gives up, so a port that accepts and then says
+// nothing holds up neither the caller who cancels nor the next attempt.
+func TestASilentServerHoldsUpNoOne(t *testing.T) {
+	t.Run("the caller's deadline ends the wait at once", func(t *testing.T) {
+		m, _ := servingMock(t, silent)
+		began := time.Now()
+		_, err := startWithin(t, m, postgres.DefaultOptions(), 200*time.Millisecond)
+		assert.ErrorIs(t, err, postgres.ErrNotReady, "the start ends not ready")
+		assert.Less(t, time.Since(began), time.Second, "well before one attempt's own limit")
+	})
+	t.Run("one silent connection does not hold up the next", func(t *testing.T) {
+		var connections atomic.Int32
+		m, _ := servingMock(t, func(conn net.Conn) {
+			if connections.Add(1) == 1 {
+				silent(conn)
+				return
+			}
+			askPassword(conn)
+		})
+		_, err := start(t, m, postgres.DefaultOptions().WithStartTimeout(5*time.Second))
+		assert.NoError(t, err, "the next attempt finds the server")
+	})
+}
+
+// A create the start timeout cut short may still have made the container,
+// so it is removed by name, but only by a name the start generated: a name
+// the caller chose may be someone else's container.
+func TestACreationCutShortIsRemovedOnlyByAGeneratedName(t *testing.T) {
+	for name, tc := range map[string]struct {
+		opts       postgres.Options
+		wantRemove bool
+	}{
+		"a generated name": {opts: postgres.DefaultOptions(), wantRemove: true},
+		"a chosen name":    {opts: postgres.DefaultOptions().WithName("orders-db"), wantRemove: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, _ := readyMock(t)
+			m.ContainerCreateFunc = func(ctx context.Context, _ string, _ dockerclient.ContainerConfig) (string, []string, error) {
+				<-ctx.Done()
+				return "", nil, ctx.Err()
+			}
+
+			_, err := start(t, m, tc.opts.WithStartTimeout(100*time.Millisecond))
+
+			require.ErrorIs(t, err, postgres.ErrNotReady, "the start ran out of time")
+			createdName, _ := m.CallsTo("ContainerCreate")[0].Args[0].(string)
+			var removedByName bool
+			for _, call := range m.CallsTo("ContainerRemove") {
+				removedByName = removedByName || call.Args[0] == createdName
+			}
+			assert.Equal(t, tc.wantRemove, removedByName, "removed by name only when the name was generated")
+		})
+	}
 }

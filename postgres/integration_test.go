@@ -3,6 +3,8 @@ package postgres_test
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -64,9 +66,10 @@ func psql(ctx context.Context, docker dockerclient.Client, c *postgres.Container
 	return docker.Exec(ctx, c.ID(), "psql", uri, "--no-psqlrc", "--tuples-only", "--no-align", "--command", query)
 }
 
-// insideURI is the container's URI as seen from inside it: the same user,
-// password and database, at its address on its network. Not loopback: the
-// image trusts every login from there, so a password would prove nothing.
+// insideURI is the container's own URI, with only its address changed to
+// the container's address on its network, where psql inside it can dial.
+// Not loopback: the image trusts every login from there, so a password
+// would prove nothing. password, when not empty, replaces the URI's.
 func insideURI(t *testing.T, ctx context.Context, docker dockerclient.Client, c *postgres.Container, password string) string {
 	t.Helper()
 	info, err := docker.ContainerInspect(ctx, c.ID())
@@ -76,7 +79,21 @@ func insideURI(t *testing.T, ctx context.Context, docker dockerclient.Client, c 
 		address = network.IPAddress
 	}
 	require.NotEmpty(t, address, "the container has an address on its network")
-	return "postgres://" + c.Username() + ":" + password + "@" + address + ":5432/" + c.Database() + "?sslmode=disable"
+	u, err := url.Parse(c.URI())
+	require.NoError(t, err, "the URI parses")
+	u.Host = net.JoinHostPort(address, "5432")
+	if password != "" {
+		u.User = url.UserPassword(u.User.Username(), password)
+	}
+	return u.String()
+}
+
+// volumesOf asks the docker CLI which volumes a container has mounted.
+func volumesOf(t *testing.T, id string) []string {
+	t.Helper()
+	out, err := exec.Command("docker", "inspect", "--format", "{{range .Mounts}}{{.Name}} {{end}}", id).Output()
+	require.NoError(t, err, "the docker CLI inspects the container")
+	return strings.Fields(string(out))
 }
 
 // The call the package is judged by: no options, no client, nothing to read
@@ -90,7 +107,7 @@ func TestIntegrationStartNeedsNoOptions(t *testing.T) {
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
 	assert.Equal(t, postgres.DefaultImage, c.Image(), "it runs the default image")
-	result, err := psql(ctx, docker, c, insideURI(t, ctx, docker, c, c.Password()), "SELECT current_user || ' ' || current_database()")
+	result, err := psql(ctx, docker, c, insideURI(t, ctx, docker, c, ""), "SELECT current_user || ' ' || current_database()")
 	require.NoError(t, err, "psql runs in the container")
 	assert.Equal(t, 0, result.ExitCode, "the URI's credentials log in: %s", result.Stderr)
 	assert.Equal(t, c.Username()+" "+c.Database(), strings.TrimSpace(result.Stdout), "as the superuser, to the database the URI names")
@@ -107,14 +124,14 @@ func TestIntegrationEachStartGetsAnEmptyDatabase(t *testing.T) {
 	first, err := postgres.StartWithOptions(ctx, opts)
 	require.NoError(t, err, "the first container starts")
 	t.Cleanup(func() { _ = first.Stop(context.Background()) })
-	result, err := psql(ctx, docker, first, insideURI(t, ctx, docker, first, first.Password()), "CREATE TABLE orders (id int)")
+	result, err := psql(ctx, docker, first, insideURI(t, ctx, docker, first, ""), "CREATE TABLE orders (id int)")
 	require.NoError(t, err, "psql runs in the first container")
 	require.Equal(t, 0, result.ExitCode, "a table is created: %s", result.Stderr)
 
 	second, err := postgres.StartWithOptions(ctx, opts)
 	require.NoError(t, err, "the second container starts")
 	t.Cleanup(func() { _ = second.Stop(context.Background()) })
-	result, err = psql(ctx, docker, second, insideURI(t, ctx, docker, second, second.Password()), "SELECT count(*) FROM pg_tables WHERE tablename = 'orders'")
+	result, err = psql(ctx, docker, second, insideURI(t, ctx, docker, second, ""), "SELECT count(*) FROM pg_tables WHERE tablename = 'orders'")
 	require.NoError(t, err, "psql runs in the second container")
 	assert.Equal(t, "0", strings.TrimSpace(result.Stdout), "nothing one test creates is seen by the next")
 }
@@ -126,7 +143,12 @@ func TestIntegrationStopAndReapLeaveNothingBehind(t *testing.T) {
 
 	stopped, err := postgres.StartWithOptions(ctx, opts)
 	require.NoError(t, err, "a container starts")
+	volumes := volumesOf(t, stopped.ID())
+	require.NotEmpty(t, volumes, "the image keeps its data in an anonymous volume")
 	require.NoError(t, stopped.Stop(ctx), "and is stopped")
+	for _, volume := range volumes {
+		assert.Error(t, exec.Command("docker", "volume", "inspect", volume).Run(), "Stop removes the volume that held the data")
+	}
 	_, err = postgres.StartWithOptions(ctx, opts)
 	require.NoError(t, err, "another starts and is left running")
 

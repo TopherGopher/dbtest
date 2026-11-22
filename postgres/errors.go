@@ -164,11 +164,28 @@ func (c config) notReadyAdvice(lastErr error, crowded bool) string {
 		return crowdedAdvice
 	case !addressInDoubt(lastErr):
 		return allowLonger
-	case c.hostSource != "":
-		return "The address came from " + c.hostSource + ". " + allowLonger + ", or correct the address with WithHostIP or " + EnvHostIP
+	case c.addressChosen():
+		return c.checkAddressAdvice()
 	}
-	return allowLonger + ", or correct the address with WithHostIP or " + EnvHostIP
+	return checkImageAdvice + c.checkAddressAdvice()
 }
+
+// addressChosen reports whether the caller chose the address, with
+// WithHostIP or DBTEST_HOST_IP, rather than leaving it to detection.
+func (c config) addressChosen() bool {
+	return c.hostSource == "WithHostIP" || c.hostSource == EnvHostIP
+}
+
+// checkAddressAdvice says where the address came from, and how to correct it.
+func (c config) checkAddressAdvice() string {
+	return "Check the address, which came from " + c.hostSource + ", and correct it with WithHostIP or " + EnvHostIP +
+		". Or allow longer with WithStartTimeout or " + EnvStartTimeout
+}
+
+// checkImageAdvice comes first when the address was detected: an image that
+// is not PostgreSQL, or serves it on another port, looks just like a wrong
+// address.
+const checkImageAdvice = "Check that the image serves PostgreSQL on port 5432. "
 
 // allowLonger is the advice for a start that may only have been slow.
 const allowLonger = "Allow longer with WithStartTimeout or " + EnvStartTimeout
@@ -176,8 +193,8 @@ const allowLonger = "Allow longer with WithStartTimeout or " + EnvStartTimeout
 // crowdedAdvice is the advice for a start that ran out of time while it and
 // others filled the limit. A slow server looks just like a wrong address, so
 // the address is not mentioned.
-const crowdedAdvice = "The other starts may have slowed this one. " +
-	"Lower the limit on starts at once with postgres.SetMaxConcurrentStarts, or allow longer with WithStartTimeout or " + EnvStartTimeout
+const crowdedAdvice = "Other containers starting at the same time may have slowed this one. " +
+	"Allow fewer at once with postgres.SetMaxConcurrentStarts, or allow longer with WithStartTimeout or " + EnvStartTimeout
 
 // addressInDoubt reports whether the last attempt failed in a way a wrong
 // address would explain: nothing answered there, or something that is not

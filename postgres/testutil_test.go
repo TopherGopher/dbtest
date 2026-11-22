@@ -44,6 +44,15 @@ func startingUp(conn net.Conn) {
 	}
 }
 
+// silent reads the startup message and then says nothing, until the probe
+// gives up and closes the connection.
+func silent(conn net.Conn) {
+	defer conn.Close()
+	if readStartup(conn) {
+		_, _ = io.Copy(io.Discard, conn)
+	}
+}
+
 // hangUp is what Docker does on a published port while nothing listens
 // behind it.
 func hangUp(conn net.Conn) { _ = conn.Close() }
@@ -63,7 +72,13 @@ func readStartup(conn net.Conn) bool {
 // returns the port.
 func serve(t testing.TB, handle func(net.Conn)) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	return serveAt(t, "127.0.0.1", handle)
+}
+
+// serveAt is serve on a given loopback address.
+func serveAt(t testing.TB, address string, handle func(net.Conn)) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", net.JoinHostPort(address, "0"))
 	require.NoError(t, err, "readiness connects to a real socket")
 	t.Cleanup(func() { _ = ln.Close() })
 	go func() {
@@ -182,6 +197,35 @@ func (l *levelLogger) Debug(_ string, kv ...any) { l.log("debug", kv) }
 func (l *levelLogger) Info(_ string, kv ...any)  { l.log("info", kv) }
 func (l *levelLogger) Warn(_ string, kv ...any)  { l.log("warn", kv) }
 func (l *levelLogger) Error(_ string, kv ...any) { l.log("error", kv) }
+
+// all returns every line logged.
+func (l *levelLogger) all() []logLine {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]logLine(nil), l.lines...)
+}
+
+// about returns the lines logged at a level that carry a key with a value.
+func (l *levelLogger) about(level, key string, value any) []logLine {
+	var found []logLine
+	for _, line := range l.at(level) {
+		if line.attrs[key] == value {
+			found = append(found, line)
+		}
+	}
+	return found
+}
+
+// with returns the lines logged at a level that carry a key.
+func (l *levelLogger) with(level, key string) []logLine {
+	var found []logLine
+	for _, line := range l.at(level) {
+		if _, ok := line.attrs[key]; ok {
+			found = append(found, line)
+		}
+	}
+	return found
+}
 
 // at returns the lines logged at a level.
 func (l *levelLogger) at(level string) []logLine {

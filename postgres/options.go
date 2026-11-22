@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
-	"github.com/tophergopher/dbtest/internal/container"
 )
 
 // Environment variables that configure a whole suite without editing code.
@@ -202,7 +201,7 @@ func newConfig(opts Options) (config, error) {
 	if opts.err != nil {
 		return config{}, opts.err
 	}
-	c := config{Options: opts.WithLabel(container.LabelKey, container.LabelValue), password: randomHex(passwordRandomBytes)}
+	c := config{Options: opts, password: randomHex(passwordRandomBytes)}
 	if c.name == "" {
 		c.name, c.generatedName = namePrefix+randomHex(nameRandomBytes), true
 	}

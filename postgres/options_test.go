@@ -30,6 +30,7 @@ func TestTheImageAStartRuns(t *testing.T) {
 		{name: "the variable when no option names an image", opts: postgres.DefaultOptions(), fromEnv: "public.ecr.aws/docker/library/postgres:18",
 			want: "public.ecr.aws/docker/library/postgres:18"},
 		{name: "a lone version from the variable", opts: postgres.DefaultOptions(), fromEnv: "16", want: "docker.io/library/postgres:16"},
+		{name: "a variable of only spaces is unset", opts: postgres.DefaultOptions(), fromEnv: "  ", want: "docker.io/library/postgres:18"},
 		{name: "an option wins outright over the variable", opts: postgres.DefaultOptions().WithImage("17"), fromEnv: "mirror.corp.example/postgres",
 			want: "docker.io/library/postgres:17"},
 	}
@@ -83,7 +84,8 @@ func TestOptionsThatCannotWorkAreRefused(t *testing.T) {
 		{name: "an image with a scheme", opts: postgres.DefaultOptions().WithImage("https://docker.io/postgres")},
 		{name: "a version docker cannot use as a tag", opts: postgres.DefaultOptions().WithImage("17+1")},
 		{name: "an empty host address", opts: postgres.DefaultOptions().WithHostIP(""), matches: postgres.ErrEmptyHostIP},
-		{name: "a port out of range", opts: postgres.DefaultOptions().WithPort(70000)},
+		{name: "a port above the range", opts: postgres.DefaultOptions().WithPort(70000)},
+		{name: "a negative port", opts: postgres.DefaultOptions().WithPort(-1)},
 		{name: "a negative start timeout", opts: postgres.DefaultOptions().WithStartTimeout(-time.Second)},
 		{name: "a negative pull timeout", opts: postgres.DefaultOptions().WithPullTimeout(-time.Second)},
 		{name: "an image variable that is not a reference", opts: postgres.DefaultOptions(), env: map[string]string{postgres.EnvImage: "not an image"}},

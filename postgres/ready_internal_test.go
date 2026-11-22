@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // message frames a reply as the server does: its type, then its length,
@@ -35,11 +34,8 @@ func TestReadStartupReply(t *testing.T) {
 		assert.NoError(t, readStartupReply(strings.NewReader(trust)), "an image run with trust authentication is ready too")
 	})
 	t.Run("starting up is not ready", func(t *testing.T) {
-		err := readStartupReply(strings.NewReader(startingUp))
-		var refused *startingUpError
-		require.ErrorAs(t, err, &refused, "the server's refusal is kept, so a timeout can say why")
-		assert.Equal(t, "57P03", refused.Code, "the SQLSTATE says what the server was doing")
-		assert.Equal(t, "the database system is starting up", refused.Message, "the server's own words are kept")
+		assert.ErrorIs(t, readStartupReply(strings.NewReader(startingUp)), errStartingUp,
+			"the server's refusal is kept, so a timeout can say why")
 	})
 	t.Run("any other refusal is ready", func(t *testing.T) {
 		badRole := message('E', "SFATAL\x00C28000\x00Mrole \"nobody\" does not exist\x00\x00")
@@ -50,16 +46,24 @@ func TestReadStartupReply(t *testing.T) {
 		assert.ErrorIs(t, readStartupReply(strings.NewReader("")), errNoReply,
 			"Docker accepts on a published port and hangs up while nothing listens behind it")
 	})
-	t.Run("a reply cut short is no reply", func(t *testing.T) {
-		assert.ErrorIs(t, readStartupReply(strings.NewReader(authRequest[:3])), errNoReply,
-			"a server that stops mid-reply is not ready")
-	})
 	for name, reply := range map[string]string{
-		"HTTP":               "HTTP/1.1 400 Bad Request\r\n\r\n",
-		"an unknown type":    message('Z', "I"),
-		"a length too long":  "R\x7f\xff\xff\xff",
-		"a length too short": "R\x00\x00\x00\x02",
-		"an empty request":   message('R', ""),
+		"a header cut short":  authRequest[:3],
+		"a request cut short": authRequest[:5],
+		"a refusal cut short": startingUp[:12],
+	} {
+		t.Run(name+" is no reply", func(t *testing.T) {
+			assert.ErrorIs(t, readStartupReply(strings.NewReader(reply)), errNoReply,
+				"a connection that ends mid-reply is not ready, and says nothing about the address")
+		})
+	}
+	for name, reply := range map[string]string{
+		"HTTP":                                 "HTTP/1.1 400 Bad Request\r\n\r\n",
+		"an unknown type":                      message('Z', "I"),
+		"a length too long":                    "R\x7f\xff\xff\xff",
+		"a length too short":                   "R\x00\x00\x00\x02",
+		"an empty request":                     message('R', ""),
+		"a request too short to hold its code": message('R', "\x00\x00"),
+		"a refusal that never ends":            message('E', "C57P03"),
 	} {
 		t.Run(name+" is not PostgreSQL", func(t *testing.T) {
 			assert.ErrorIs(t, readStartupReply(strings.NewReader(reply)), errNotPostgres,
