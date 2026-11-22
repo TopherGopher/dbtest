@@ -75,7 +75,7 @@ var leaks = map[string]func(t *testing.T, inst *pgtest.Instance){
 		require.NoError(t, err, "the query runs")
 	},
 	"database/sql rows never closed": func(t *testing.T, inst *pgtest.Instance) {
-		_, err := inst.DB.QueryContext(context.Background(), "SELECT 1") //nolint:rowserrcheck // the leak under test
+		_, err := inst.DB.QueryContext(context.Background(), "SELECT 1")
 		require.NoError(t, err, "the query runs")
 	},
 	"a transaction never ended": func(t *testing.T, inst *pgtest.Instance) {
