@@ -7,22 +7,23 @@ status: current
 # Conformance suite
 
 `github.com/tophergopher/dbtest/dockerclient/dockerclienttest` holds one
-test suite and one benchmark suite. `dockerapi`, `mobyclient` and
-`dockermock.Fake` all run them, so the three are held to the same behaviour
-and measured on the same scale. A new implementation of the interface is
-finished when it passes `dockerclienttest.Conformance`.
+test suite and one benchmark suite for implementations of
+`dockerclient.Client`. The two real clients, `dockerapi` and `mobyclient`,
+and the fake `dockermock.Fake` all run them, so the three are held to the
+same behaviour and measured on the same scale. A new implementation of
+`dockerclient.Client` is finished when it passes
+`dockerclienttest.Conformance`.
 
 ## Running it against your implementation
 
 The suite takes a factory that returns a fresh client for each case. The
 client should be pointed at a fake daemon such as `dockermock.Daemon`, so the
-suite runs anywhere with no daemon installed. The pattern `dockerapi` and
-`mobyclient` use is a real client talking to a `dockermock.Daemon` whose
-routes are backed by a `Fake`, so the whole HTTP path is exercised against
-state that actually changes. This is `dockerapi`'s own conformance test,
-which runs both suites, `Conformance` and `Benchmarks`. For your client,
-change the package and import, and call your constructor where this calls
-`dockerapi.New`:
+suite runs anywhere with no daemon installed. `dockerapi` and `mobyclient`
+each pass a real client that talks to a `dockermock.Daemon`. The daemon's
+routes are backed by a `Fake`, so requests go over HTTP and change real
+state. Below is `dockerapi`'s conformance test, which runs both
+`Conformance` and `Benchmarks`. For your client, change the package and
+import, and call your constructor where this calls `dockerapi.New`:
 
 ```go
 --8<-- "dockerapi/conformance_test.go"
@@ -50,7 +51,7 @@ so nothing is downloaded.
 
 Behaviour that depends on the wire, such as the exact request shape, pull
 progress parsing, exec frame demultiplexing across split reads and the
-negotiation window, is tested in each implementation's own package against
+API version negotiation, is tested in each implementation's own package against
 `dockermock.Daemon`, since a fake client such as `Fake` has no wire.
 
 ## What is benchmarked
@@ -70,11 +71,13 @@ cd mobyclient && go test -run='^$' -bench=. -benchmem  # mobyclient is its own m
 
 To run it against your client, call `dockerclienttest.Benchmarks` from a
 benchmark, as `BenchmarkClient` above does. To compare two implementations,
-run the benchmark suite for each against the same daemon.
+run the suite for each on the same machine, and compare the two outputs
+with [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat).
 
-Comparing `dockerapi` with `mobyclient` compares what each costs its caller,
-not identical work. The moby client sends every request through an
-OpenTelemetry transport, which does nothing unless a tracer is set up.
+Comparing `dockerapi` with `mobyclient` shows what each client costs its
+caller. The two do not do identical work. The moby client sends every
+request through an OpenTelemetry transport. It records nothing unless a
+tracer is set up, but it still runs, and costs something, on every request.
 Before a pull, it rewrites a short reference such as `mongo:8` into its full
 form. `mobyclient` also converts each call's arguments and results between
 the moby types and the `dockerclient` ones.
