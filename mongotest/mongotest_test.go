@@ -61,7 +61,7 @@ func TestIntegrationRunRemovesTheContainerWhenTheTestEnds(t *testing.T) {
 func TestIntegrationAReplicaSetCommitsATransaction(t *testing.T) /* --8<-- [start:transaction] */ {
 	inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
 	ctx := t.Context()
-	coll := inst.Database("mongotest").Collection("orders")
+	coll := inst.Database("shop").Collection("orders")
 
 	session, err := inst.StartSession()
 	require.NoError(t, err, "a session starts")

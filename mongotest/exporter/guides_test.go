@@ -31,6 +31,7 @@ func TestIntegrationAnExportCanGoToAFile(t *testing.T) {
 		WriteJSON(t.Context(), f, exporter.JSONOptions{Canonical: true})
 	require.NoError(t, err, "the export succeeds")
 	require.NoError(t, f.Close(), "the file is written out")
+	t.Logf("wrote %d documents", n)
 	// --8<-- [end:file]
 
 	assert.EqualValues(t, 3, n, "only the documents the query matches are written")

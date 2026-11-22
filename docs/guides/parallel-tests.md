@@ -34,7 +34,8 @@ func TestFindByName(t *testing.T) {
 
 When a table has many small cases, start one container for the table and give
 each case its own database. Cases still cannot see each other's data, and the
-whole table pays one start-up.
+whole table pays one start-up. Here `hero` is a struct with `Name` and
+`City` fields:
 
 ```go
 func TestRosterQueries(t *testing.T) {
