@@ -1,9 +1,9 @@
 package mongod_test
 
 import (
-	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tophergopher/dbtest/mongod"
 )
@@ -25,23 +25,26 @@ func BenchmarkStart(b *testing.B) {
 	}
 	for _, tc := range cases {
 		b.Run(tc.name, func(b *testing.B) {
-			docker, ctx := liveDocker(b)
+			docker, pullCtx := liveDocker(b)
 			key, value := runLabel(b)
 			opts := tc.opts.WithDocker(docker).WithLabel(key, value)
-			require.NoError(b, mongod.PullImage(ctx, opts), "the image is on the daemon before the clock starts")
+			require.NoError(b, mongod.PullImage(pullCtx, opts), "the image is on the daemon before the clock starts")
 			for b.Loop() {
-				startThenStop(b, ctx, opts)
+				startThenStop(b, opts)
+			}
+			if ids, checked := containersLabelled(b, key, value); checked {
+				assert.Empty(b, ids, "every container the benchmark started is removed")
 			}
 		})
 	}
 }
 
 // startThenStop starts a container and removes it with the timer paused.
-func startThenStop(b *testing.B, ctx context.Context, opts mongod.Options) {
+func startThenStop(b *testing.B, opts mongod.Options) {
 	b.Helper()
-	c, err := mongod.StartWithOptions(ctx, opts)
+	c, err := mongod.StartWithOptions(b.Context(), opts)
 	require.NoError(b, err, "the container starts")
 	b.StopTimer()
 	defer b.StartTimer()
-	require.NoError(b, c.Stop(context.Background()), "the container is removed before the next start")
+	require.NoError(b, c.Stop(b.Context()), "the container is removed before the next start")
 }
