@@ -112,14 +112,7 @@ func PullImage(ctx context.Context, opts Options) error {
 // ReapRunningContainers removes every container Start created in this
 // process that has not been stopped. Call it after m.Run in TestMain so a
 // run leaves nothing behind. After [DisableSignalHandler], it is the only
-// thing that removes a container nobody stopped:
-//
-//	func TestMain(m *testing.M) {
-//		m.Run()
-//		if err := mongod.ReapRunningContainers(context.Background()); err != nil {
-//			log.Print(err)
-//		}
-//	}
+// thing that removes a container nobody stopped.
 //
 // Every removal is attempted, all at the same time, even if one fails. The
 // error matches [ErrReap], and is a [ReapError] with an entry for each

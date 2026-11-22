@@ -8,15 +8,16 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/tophergopher/dbtest/dockerapi"
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/dockermock"
 )
 
+// --8<-- [start:start-mongo]
+
 // startMongo is the kind of code this package exists for: it works against
 // any client, so a caller decides whether that is dockerapi, mobyclient or a
 // double from dockermock.
-//
-// --8<-- [start:start-mongo]
 func startMongo(ctx context.Context, docker dockerclient.Client) (string, error) {
 	cfg := dockerclient.ContainerConfig{
 		Image:        "mongo:8",
@@ -100,7 +101,7 @@ func ExampleClient_errors() /* --8<-- [start:branching] */ {
 	case errors.Is(err, dockerclient.ErrConflict):
 		fmt.Println("the name is taken: remove the old container or pick another name")
 	case errors.Is(err, dockerclient.ErrConnectionFailed):
-		fmt.Println("no daemon: say where we looked")
+		fmt.Println("no daemon answered: start one or set DOCKER_HOST")
 	default:
 		fmt.Println(err)
 	}
@@ -259,6 +260,28 @@ func ExampleStatusError_fields() /* --8<-- [start:status-fields] */ {
 	}
 	// Output: GET /containers/never-created/json returned 404
 } // --8<-- [end:status-fields]
+
+// A daemon and a client that share no API version give an
+// *APIVersionError, which says what each side accepts.
+func ExampleAPIVersionError_fields() /* --8<-- [start:version-fields] */ {
+	daemon := dockermock.NewDaemon(dockermock.OverTCP())
+	defer daemon.Close()
+	daemon.ServeVersion("1.70", "1.60") // a daemon newer than the client
+	docker, err := dockerapi.New(dockerapi.WithHost(daemon.Host()))
+	if err != nil {
+		panic(err)
+	}
+
+	err = docker.Negotiate(context.Background())
+	var ve *dockerclient.APIVersionError
+	if errors.As(err, &ve) {
+		fmt.Printf("the daemon accepts %s to %s\n", ve.ServerMin, ve.ServerMax)
+		fmt.Printf("the client accepts %s to %s\n", ve.ClientMin, ve.ClientMax)
+	}
+	// Output:
+	// the daemon accepts 1.60 to 1.70
+	// the client accepts 1.24 to 1.44
+} // --8<-- [end:version-fields]
 
 func ExampleWrapConnectionError() {
 	// Transport failures are turned into the same actionable error by every

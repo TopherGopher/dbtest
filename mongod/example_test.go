@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -60,13 +59,13 @@ func ExampleStart() /* --8<-- [start:start] */ {
 
 	c, err := mongod.Start(ctx)
 	if err != nil {
-		fmt.Println("cannot start mongod:", err)
-		return
+		log.Fatal(err)
 	}
-	defer c.Stop(context.Background())
+	defer c.Stop(ctx)
 
-	// Hand c.URI() to a MongoDB driver.
-	fmt.Println(c.URI())
+	// Give c.URI() to a MongoDB driver. It holds any password, so log the
+	// address instead.
+	log.Printf("mongod is listening on %s:%d", c.Host(), c.Port())
 } // --8<-- [end:start]
 
 // Chain the options a start needs onto DefaultOptions.
@@ -120,7 +119,7 @@ func ExamplePullImage_testMain() {
 	if err := mongod.PullImage(context.Background(), mongod.DefaultOptions()); err != nil {
 		log.Fatal(err)
 	}
-	os.Exit(m.Run())
+	m.Run()
 } // --8<-- [end:pull-test-main]
 
 // A With method returns a copy, so tests can add to a shared base without
@@ -309,14 +308,14 @@ func ExampleContainer_RunScript() {
 		fmt.Println("start:", err)
 		return
 	}
-	defer c.Stop(ctx) // --8<-- [start:run-script]
+	defer c.Stop(ctx)
 
+	// --8<-- [start:run-script]
 	ok, err := c.RunScript(ctx, "db.runCommand({ping: 1}).ok")
 	if err != nil {
 		// A *ScriptError's fields hold all the shell wrote; the message
 		// quotes the start of it.
-		fmt.Println(err)
-		return
+		log.Fatal(err)
 	}
 	fmt.Println("ping ok:", ok)
 	// Output: ping ok: 1

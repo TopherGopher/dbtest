@@ -25,20 +25,23 @@ import (
 // Real code gets its client from dockerapi.FromEnv instead.
 
 func ExampleFromEnv() {
+	os.Setenv("DOCKER_HOST", stubHost())
+	defer os.Unsetenv("DOCKER_HOST")
+
+	// --8<-- [start:from-env]
 	// FromEnv locates the daemon like the docker CLI: DOCKER_HOST, then the
 	// current docker context, then the platform default socket.
-	os.Setenv("DOCKER_HOST", stubHost())
-	defer os.Unsetenv("DOCKER_HOST") // --8<-- [start:from-env]
-
 	c, err := dockerapi.FromEnv()
 	if err != nil {
-		// The message names the variable or setting to fix.
-		fmt.Println("cannot reach a daemon:", err)
+		// FromEnv contacts no daemon, so the error is about the settings,
+		// and names the one to fix.
+		fmt.Println("check DOCKER_HOST and the docker context:", err)
 		return
 	}
+	// --8<-- [end:from-env]
 	fmt.Println("using the daemon from DOCKER_HOST:", c.Host() == os.Getenv("DOCKER_HOST"))
 	// Output: using the daemon from DOCKER_HOST: true
-} // --8<-- [end:from-env]
+}
 
 func ExampleNew() {
 	c, err := dockerapi.New(
@@ -205,7 +208,9 @@ func ExampleClient_APIVersion() {
 }
 
 func ExampleClient_Negotiate() {
-	c := exampleClient() // --8<-- [start:negotiate]
+	c := exampleClient()
+
+	// --8<-- [start:negotiate]
 	// Negotiation is implicit on the first request; call it directly to
 	// check connectivity before doing any work.
 	if err := c.Negotiate(context.Background()); err != nil {
@@ -400,9 +405,12 @@ func ExampleClient_ExecCreate() {
 }
 
 func ExampleClient_ExecStart() {
-	c := exampleClient() // --8<-- [start:exec-start]
+	c := exampleClient()
+
+	// --8<-- [start:exec-start]
 	ctx := context.Background()
-	execID, err := c.ExecCreate(ctx, "c0ffee1234ab", dockerapi.ExecConfig{Cmd: []string{"mongod", "--version"}})
+	id := "c0ffee1234ab" // the container's ID, from ContainerCreate
+	execID, err := c.ExecCreate(ctx, id, dockerapi.ExecConfig{Cmd: []string{"mongosh", "--quiet", "--eval", "1"}})
 	if err != nil {
 		panic(err)
 	}
@@ -621,23 +629,26 @@ func exampleClient() *dockerapi.Client {
 	return c
 }
 
-func ExampleClient_Runtime() {
-	// Podman serves the same API, so the endpoints work either way. Which
-	// one answered still matters: their version windows differ, and an
-	// error that names the wrong product sends the reader nowhere.
+// Podman serves the same API, so the endpoints work either way. Which one
+// answered still matters: their version ranges differ, and an error that
+// names the wrong product sends the reader nowhere.
+func ExampleClient_Runtime() /* --8<-- [start:runtime] */ {
+	// A fake daemon that answers as Podman 5.7 does, which accepts API
+	// versions up to 1.41.
 	daemon := dockermock.NewDaemon(dockermock.OverTCP())
 	defer daemon.Close()
 	daemon.ServeDefaults()
-	// Answer the way Podman's compatible endpoint does, including the cap
-	// at API 1.41 that Podman held through 5.7.
 	daemon.ServePodmanVersion("1.41", "5.7.1")
 
-	docker, _ := dockerapi.New(dockerapi.WithHost(daemon.Host())) // --8<-- [start:runtime]
-	if err := docker.Negotiate(context.Background()); err != nil {
+	c, err := dockerapi.New(dockerapi.WithHost(daemon.Host()))
+	if err != nil {
 		panic(err)
 	}
-	fmt.Println("runtime:", docker.Runtime())
-	fmt.Println("negotiated:", docker.APIVersion())
+	if err := c.Negotiate(context.Background()); err != nil {
+		panic(err)
+	}
+	fmt.Println("runtime:", c.Runtime())
+	fmt.Println("negotiated:", c.APIVersion())
 	// Output:
 	// runtime: podman
 	// negotiated: 1.41

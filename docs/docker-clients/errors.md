@@ -17,7 +17,7 @@ wrong, the value at fault and what to do about it, and are free to change.
 | --- | --- | --- |
 | `ErrInvalidArgument` | `*InvalidArgumentError` | A value was rejected before any request was sent. The error names the argument, the problem and the fix. |
 | `ErrConnectionFailed` | `*ConnectionError` | The daemon could not be reached, or no TLS connection could be made: a certificate was rejected, or plain HTTP was sent to a daemon that accepts only TLS. The error names the socket or address tried. |
-| `ErrAPIVersion` | `*APIVersionError` | The client's and daemon's API version windows do not overlap, or a feature needs a newer daemon. Names the product, so Podman users are not told to upgrade Docker. |
+| `ErrAPIVersion` | `*APIVersionError` | The client's and daemon's API version ranges do not overlap, or a feature needs a newer daemon. Names the product, so Podman users are not told to upgrade Docker. |
 | `ErrNotFound` | `*StatusError` | The daemon answered 404. For `ContainerCreate` this means the image is not local: pull and retry. |
 | `ErrConflict` | `*StatusError` | The daemon answered 409, for instance a container name already in use. |
 | `ErrUnauthorized` | `*StatusError` | The daemon, or a proxy in front of it, answered 401 or 403. `StatusError.FromProxy` is true when a proxy refused the request. |
@@ -47,6 +47,12 @@ Each carrier exposes what it knows. `errors.As` gets you there:
 
 ```go
 --8<-- "dockerclient/example_test.go:status-fields"
+```
+
+An `*APIVersionError` says which API versions each side accepts:
+
+```go
+--8<-- "dockerclient/example_test.go:version-fields"
 ```
 
 `StatusError` also carries a hint, a sentence suggesting the usual fix for
