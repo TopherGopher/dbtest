@@ -110,9 +110,9 @@ func PullImage(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// ReapRunningContainers removes every container Start created in this
-// process that has not been stopped. Call it after m.Run in TestMain so a
-// run leaves nothing behind. After [DisableSignalHandler], it is the only
+// ReapRunningContainers removes every container this module started in this
+// process that has not been stopped, PostgreSQL's from the postgres package
+// included. Call it after m.Run in TestMain so a run leaves nothing behind. After [DisableSignalHandler], it is the only
 // thing that removes a container nobody stopped.
 //
 // Every removal is attempted, all at the same time, even if one fails. The
@@ -127,17 +127,18 @@ func PullImage(ctx context.Context, opts Options) error {
 //	}
 func ReapRunningContainers(ctx context.Context) error { return reaper.Reap(ctx) }
 
-// DisableSignalHandler stops this package from removing containers on
+// DisableSignalHandler stops this module from removing containers on
 // SIGINT or SIGTERM and then ending the process, which would skip a
 // program's own shutdown. Call it before the first Start, such as at the top
-// of main. It applies to every container, for the rest of the process, so
-// call [ReapRunningContainers] from your own shutdown or they are left
-// running.
+// of main. It applies to every container this module starts, PostgreSQL's
+// included, for the rest of the process, so call [ReapRunningContainers]
+// from your own shutdown or they are left running.
 func DisableSignalHandler() { reaper.Disable() }
 
 // SetMaxConcurrentStarts sets how many containers this process may be
 // starting at once, in total rather than per CPU, and returns the previous
-// limit. A value below 1 restores the default, 8 per CPU.
+// limit. The limit covers every container this module starts, PostgreSQL's
+// included. A value below 1 restores the default, 8 per CPU.
 //
 // A start counts against the limit until it returns, so the limit caps how
 // many containers are starting, not how many are running. A start beyond
