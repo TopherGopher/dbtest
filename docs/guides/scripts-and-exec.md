@@ -29,7 +29,9 @@ value of the last expression, so a script ending in an expression returns
 that value:
 
 ```go
---8<-- "mongotest/example_test.go:script"
+func TestSeedWithAScript(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:script"
+}
 ```
 
 `db` is the `test` database; use `db.getSiblingDB(name)` for another. Each
@@ -57,7 +59,9 @@ with `Stdout`, `Stderr` and `ExitCode`. A non-zero exit is reported in
 inline. The shell quoting means the data must not contain a single quote:
 
 ```go
---8<-- "mongotest/example_test.go:mongoimport"
+func TestSeedWithMongoimport(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:mongoimport"
+}
 ```
 
 For anything larger than a few lines, insert through the driver instead; it

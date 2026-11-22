@@ -10,7 +10,9 @@ Transactions, change streams and retryable writes need a replica set. A
 single member is enough for tests.
 
 ```go
---8<-- "mongotest/example_test.go:transaction"
+func TestTransfer(t *testing.T) {
+	--8<-- "mongotest/mongotest_test.go:transaction"
+}
 ```
 
 `WithReplicaSet("rs0")` starts `mongod` as the only member of a replica set
@@ -31,5 +33,7 @@ replica set. Do not add `WithReplicaSet` with it; the start fails with
 With a replica set running, change streams work as they do in production:
 
 ```go
---8<-- "mongotest/example_test.go:change-stream"
+func TestEvents(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:change-stream"
+}
 ```

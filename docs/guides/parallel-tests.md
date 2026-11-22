@@ -38,7 +38,7 @@ whole table pays one start-up.
 
 ```go
 func TestRosterQueries(t *testing.T) {
-	--8<-- "mongotest/example_test.go:table"
+	--8<-- "mongotest/guides_test.go:table"
 }
 ```
 
@@ -55,23 +55,15 @@ name ends in a random part, so no two cases share one.
 When a package has many small tests, start one container for all of them in
 `TestMain`, and give each test its own database.
 
-```go title="Illustration, not compiled"
-var server *mongotest.Instance
+```go
+--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:test-main"
+```
 
-func TestMain(m *testing.M) {
-    ctx := context.Background()
-    var err error
-    if server, err = mongotest.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    defer server.Stop(ctx)
-    m.Run()
-}
+Each test then takes its own database from the shared server:
 
-func TestFindByCity(t *testing.T) {
-    t.Parallel()
-    roster := server.DatabaseFor(t).Collection("roster")
-    // ...
+```go
+func TestOrders(t *testing.T) {
+	--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:database-for"
 }
 ```
 

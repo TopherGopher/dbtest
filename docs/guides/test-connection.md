@@ -13,7 +13,7 @@ client of the official driver and the container, if it started one.
 
 ```go
 func TestOrders(t *testing.T) {
-	--8<-- "mongotest/example_test.go:run"
+	--8<-- "mongotest/guides_test.go:run"
 }
 ```
 
@@ -35,9 +35,7 @@ stops the instance. In `TestMain`, one server started this way can serve
 every test in the package:
 
 ```go
-func TestMain(m *testing.M) {
-	--8<-- "mongotest/example_test.go:test-main"
-}
+--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:test-main"
 ```
 
 Let `TestMain` return. Calling `os.Exit` would skip the deferred `Stop`.
@@ -59,7 +57,9 @@ service container, and starts nothing. Its instance has no container, and
     own database with `DatabaseFor`, which drops it when the test ends:
 
     ```go
-    --8<-- "mongotest/example_test.go:database-for"
+    func TestOrders(t *testing.T) {
+    	--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:database-for"
+    }
     ```
 
 ## What an instance gives you
@@ -112,7 +112,9 @@ before it, so a client the test creates is disconnected while the container
 still exists:
 
 ```go
---8<-- "mongotest/example_test.go:own-client"
+func TestOwnClient(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:own-client"
+}
 ```
 
 ## Errors

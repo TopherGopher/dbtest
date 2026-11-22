@@ -14,6 +14,6 @@ hide:
 
 ```go title="orders_test.go"
 func TestOrders(t *testing.T) {
-	--8<-- "mongotest/example_test.go:run"
+	--8<-- "mongotest/guides_test.go:run"
 }
 ```

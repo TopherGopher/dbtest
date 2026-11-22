@@ -72,7 +72,7 @@ own database name and drop it in cleanup, as shown in
 To choose at run time:
 
 ```go
---8<-- "mongotest/example_test.go:ci-helper"
+--8<-- "mongotest/guides_test.go:ci-helper"
 ```
 
 ## Other runners

@@ -58,9 +58,9 @@ func TestIntegrationRunRemovesTheContainerWhenTheTestEnds(t *testing.T) {
 	assert.ErrorIs(t, inst.Ping(context.Background(), nil), mongo.ErrClientDisconnected, "and the client is disconnected")
 }
 
-func TestIntegrationAReplicaSetCommitsATransaction(t *testing.T) {
+func TestIntegrationAReplicaSetCommitsATransaction(t *testing.T) /* --8<-- [start:transaction] */ {
 	inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
-	ctx := context.Background()
+	ctx := t.Context()
 	coll := inst.Database("mongotest").Collection("orders")
 
 	session, err := inst.StartSession()
@@ -74,7 +74,7 @@ func TestIntegrationAReplicaSetCommitsATransaction(t *testing.T) {
 	n, err := coll.CountDocuments(ctx, bson.M{})
 	require.NoError(t, err, "the collection can be counted")
 	assert.EqualValues(t, 1, n, "and holds what the transaction wrote")
-}
+} // --8<-- [end:transaction]
 
 func TestIntegrationATLSClientIsConfiguredForTheContainer(t *testing.T) {
 	inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithTLS())
