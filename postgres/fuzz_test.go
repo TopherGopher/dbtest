@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // This reads bytes from whatever answers at the container's address. It is
@@ -24,5 +25,22 @@ func FuzzReadStartupReply(f *testing.F) {
 		}
 		known := errors.Is(err, errNoReply) || errors.Is(err, errNotPostgres) || errors.Is(err, errStartingUp)
 		assert.True(t, known, "every failure says whether anything answered, so a timeout can advise")
+	})
+}
+
+// This reads what a caller passes to WithImage or sets in
+// DBTEST_POSTGRES_IMAGE.
+func FuzzParseImage(f *testing.F) {
+	for _, seed := range []string{"", " ", "17", "18-alpine", "postgres", "pgvector/pgvector:pg18", "localhost:5000/pg@sha256:" + strings.Repeat("a", 64), "https://x", "1/2"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, ref string) {
+		image, err := parseImage("WithImage", ref)
+		if err != nil {
+			assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a refused reference is the caller's to correct")
+			return
+		}
+		_, parseErr := dockerclient.ParseImageRef(image)
+		assert.NoError(t, parseErr, "an accepted reference is one the daemon can use")
 	})
 }

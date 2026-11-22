@@ -73,7 +73,7 @@ func (c *Container) Username() string { return username }
 func (c *Container) Password() string { return c.password }
 
 // Database returns the database to connect to, which is always "postgres".
-// It is empty when the start returns.
+// It holds no tables of yours when the start returns.
 func (c *Container) Database() string { return database }
 
 // URI returns the connection string to hand to a driver, such as pgx or
