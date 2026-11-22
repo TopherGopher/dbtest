@@ -172,6 +172,7 @@ nav:
   - Reference:
       - reference/index.md
       - The mongod package: reference/mongod.md
+      - The postgres package: reference/postgres.md
       - Environment variables: reference/environment.md
       - Writing a new page: reference/writing-docs.md
   - Project:

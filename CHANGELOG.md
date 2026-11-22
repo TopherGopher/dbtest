@@ -5,6 +5,20 @@ what to do if it affects you.
 
 ## Unreleased
 
+### PostgreSQL containers
+
+Nothing changes for MongoDB users.
+
+- **`github.com/tophergopher/dbtest/postgres` starts PostgreSQL** and
+  returns its connection string: `postgres.Start(ctx)`, then
+  `sql.Open("pgx", c.URI())` or `pgxpool.New(ctx, c.URI())`. It runs
+  `docker.io/library/postgres:18`, carries the label
+  `mongotest=regression`, and is in the root module, which gains no
+  dependency.
+- **`mongod.ReapRunningContainers`, `DisableSignalHandler` and
+  `SetMaxConcurrentStarts` also act on PostgreSQL containers,** as the
+  functions of the same names in `postgres` act on MongoDB's.
+
 ### Tests on driver v2 get a package of their own
 
 Nothing changes for code on driver v1.

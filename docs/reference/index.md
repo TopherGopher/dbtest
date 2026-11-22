@@ -71,6 +71,7 @@ The two packages export the same names. Only the driver behind them differs.
 
 - [The mongod package](mongod.md), which starts a container and returns its
   URI without importing a MongoDB driver.
+- [The postgres package](postgres.md), which does the same for PostgreSQL.
 - [Environment variables](environment.md) that dbtest and its Docker
   clients read.
 - [Writing a new page](writing-docs.md) for this site.

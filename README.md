@@ -4,9 +4,10 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tophergopher/dbtest.svg)](https://pkg.go.dev/github.com/tophergopher/dbtest)
 [![Coverage](https://coveralls.io/repos/github/TopherGopher/dbtest/badge.svg?branch=main)](https://coveralls.io/github/TopherGopher/dbtest?branch=main)
 
-dbtest starts a real MongoDB server in a Docker container for a Go test,
-hands the test a connected client of the official MongoDB Go driver, and
-removes the container when the test ends.
+dbtest starts a real database server in a Docker container for a Go test,
+and removes the container when the test ends. For MongoDB it hands the
+test a connected client of the official MongoDB Go driver. For PostgreSQL,
+the `postgres` package hands it a connection string, for now.
 
 ```sh
 go get github.com/tophergopher/dbtest/mongotest    # if you use go.mongodb.org/mongo-driver
@@ -49,6 +50,21 @@ module exported at v0.2.9 are gone, and
 lists what replaces each. If you set `MONGOTEST_HOST_IP`, rename it to
 `DBTEST_HOST_IP`: the old name is ignored. `MONGOTEST_IMAGE` and
 `MONGOTEST_START_TIMEOUT` keep their names.
+
+## PostgreSQL
+
+The `postgres` package, in the root module, starts PostgreSQL and returns a
+connection string for any driver. It adds no dependency to your module.
+
+```go
+c, err := postgres.Start(ctx) // import "github.com/tophergopher/dbtest/postgres"
+require.NoError(t, err)
+t.Cleanup(func() { c.Stop(context.Background()) })
+
+db, err := sql.Open("pgx", c.URI()) // or pgxpool.New(ctx, c.URI())
+```
+
+See [The postgres package](https://tophergopher.github.io/dbtest/reference/postgres/).
 
 ## Cleaning up stray containers
 
