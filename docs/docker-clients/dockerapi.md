@@ -71,7 +71,7 @@ c, err := dockerapi.New(
 | `WithTLSConfig(cfg)` | Trust a daemon's CA explicitly. Without it, the TLS files of the docker context the daemon was found through are used, or else `DOCKER_CERT_PATH` when `DOCKER_TLS_VERIFY` is set. |
 | `WithAPIVersion(v)` | Pin the API version instead of negotiating. `DOCKER_API_VERSION` does the same. |
 | `WithUserAgent(ua)` | Sent on every request. Defaults to `mongotest-dockerapi/1`. |
-| `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies `dockerclient.Logger`, the type it takes. |
+| `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies `dockerclient.Logger`, the type it takes. For zap, zerolog or logrus, see [Logging with zap, zerolog or logrus](../reference/mongod.md#logging-with-zap-zerolog-or-logrus). |
 
 ## Version negotiation
 

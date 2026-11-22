@@ -51,7 +51,7 @@ alone with no docker context and no socket search, build the client with
 | --- | --- |
 | `WithHost(h)` | Daemon address in `DOCKER_HOST` form. Skips discovery. |
 | `WithMobyClient(cli)` | Wrap a `*client.Client` you already built, for options this package does not expose (custom `*tls.Config`, extra headers). `WithHost` and `WithLogger` are ignored when this is set, since that client is already configured. |
-| `WithLogger(l)` | One `Debug` record per request through the moby client's response hooks. |
+| `WithLogger(l)` | One `Debug` record per request through the moby client's response hooks. For zap, zerolog or logrus, see [Logging with zap, zerolog or logrus](../reference/mongod.md#logging-with-zap-zerolog-or-logrus). |
 
 ## Using it with dbtest
 

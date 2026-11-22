@@ -297,8 +297,8 @@ type ExecResult struct {
 }
 
 // Logger is the structured logging surface the clients emit to. It is
-// satisfied directly by *slog.Logger, and by the adapters in the log/
-// sub-modules for logrus, zap and zerolog.
+// satisfied by *slog.Logger, so any logger with a slog handler, such as zap,
+// zerolog or logrus, can be passed through slog.New.
 type Logger interface {
 	Debug(msg string, keysAndValues ...any)
 	Info(msg string, keysAndValues ...any)
