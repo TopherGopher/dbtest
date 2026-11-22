@@ -39,7 +39,7 @@ func TestIntegrationATestTakesADatabaseOfItsOwn(t *testing.T) /* --8<-- [start:d
 	require.NoError(t, err, "the test's own database takes a table")
 } // --8<-- [end:database-for]
 
-func TestIntegrationAnotherTestDoesNotSeeIt(t *testing.T) {
+func TestIntegrationAnotherTestTakesATableOfTheSameName(t *testing.T) {
 	t.Parallel()
 	db := server.DatabaseFor(t).DB
 

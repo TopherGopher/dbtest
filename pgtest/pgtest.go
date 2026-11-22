@@ -29,8 +29,7 @@ import (
 )
 
 // Options configures a start. Its With methods return a changed copy, as in
-// pgtest.DefaultOptions().WithImage("17"). The errors a start returns are in
-// the postgres package.
+// pgtest.DefaultOptions().WithImage("17").
 type Options = postgres.Options
 
 // DefaultOptions returns the options Start uses.
@@ -39,19 +38,22 @@ func DefaultOptions() Options { return postgres.DefaultOptions() }
 // Instance is a PostgreSQL server and two clients connected to it. Stop
 // closes both and removes the container.
 type Instance struct {
-	// Pool is pgx's connection pool. It is capped at pgxpool's default
-	// size, the larger of 4 and the number of CPUs; for more, open a pool
-	// of your own from URI with pool_max_conns set.
+	// Pool is pgx's connection pool, connected to the server's default
+	// database, which every test on the instance shares; use DatabaseFor
+	// for a test's own. It holds at most 4 connections, or one per CPU if
+	// that is more. For more, open your own pool with MaxConns set.
 	Pool *pgxpool.Pool
-	// DB is database/sql through pgx's driver, not lib/pq, and draws its
-	// connections from Pool. To test with lib/pq, open your own with
-	// sql.Open("postgres", inst.URI()).
+	// DB is database/sql through pgx's driver, not lib/pq. It draws its
+	// connections from Pool, and reaches the same shared database. To test
+	// with lib/pq, open your own with sql.Open("postgres", inst.URI()).
 	DB *sql.DB
 	// Container is the container the instance started, or nil for one from
 	// Attach.
 	Container *postgres.Container
 
-	uri     string
+	// config is kept parsed rather than as the URI, so that printing an
+	// Instance shows no password.
+	config  *pgxpool.Config
 	stopped atomic.Bool
 }
 
@@ -78,9 +80,9 @@ func StartWithOptions(ctx context.Context, opts Options) (*Instance, error) {
 }
 
 // Run starts a PostgreSQL container for a test and connects to it, and
-// removes it when the test ends. Any failure, Docker being unreachable
-// included, fails the test: it is never skipped. A connection the test still
-// holds when it ends fails it too.
+// removes it when the test ends. Any failure fails the test, including an
+// unreachable Docker daemon: it is never skipped. A connection the test
+// still holds when it ends fails it too.
 func Run(tb testing.TB) *Instance {
 	tb.Helper()
 	return RunWithOptions(tb, DefaultOptions())
@@ -91,11 +93,12 @@ func RunWithOptions(tb testing.TB, opts Options) *Instance {
 	tb.Helper()
 	inst, err := StartWithOptions(tb.Context(), opts)
 	if err != nil {
-		tb.Fatalf("pgtest: cannot start PostgreSQL: %v", err)
+		tb.Fatal(err)
 	}
 	// The test's context has ended by the time cleanup runs; Stop removes
 	// the container all the same.
 	tb.Cleanup(func() {
+		tb.Helper()
 		if err := inst.Stop(context.Background()); err != nil {
 			tb.Error(err)
 		}
@@ -105,52 +108,55 @@ func RunWithOptions(tb testing.TB, opts Options) *Instance {
 
 // Attach connects to a PostgreSQL server that is already running, such as a
 // CI service container. Its instance has no container, and Stop only closes
-// the clients.
+// the clients. Like libpq, pgx fills in what the URI leaves out from the PG*
+// variables, ~/.pgpass and pg_service.conf. DatabaseFor needs PostgreSQL 13
+// or later.
 func Attach(ctx context.Context, uri string) (*Instance, error) {
+	// pgx would fill a blank URI in from the environment.
 	if strings.TrimSpace(uri) == "" {
-		return nil, ErrEmptyURI
+		return nil, ErrInvalidURI
 	}
 	config, err := pgxpool.ParseConfig(uri)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrNotConnected, err)
+		// pgx's reason is left out: its masking of the password is best
+		// effort, and a malformed URI is where it fails.
+		return nil, ErrInvalidURI
 	}
 	pool, err := connect(ctx, config)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w. Check that the server is running and reachable at the URI", ErrNotConnected, err)
 	}
-	return &Instance{Pool: pool, DB: stdlib.OpenDBFromPool(pool), uri: uri}, nil
+	return &Instance{Pool: pool, DB: stdlib.OpenDBFromPool(pool), config: config}, nil
 }
 
-// connect opens a pool and pings the server once, so a URI that leads
-// nowhere is reported here rather than at the first query.
+// connect opens a pool from a copy of config and pings the server once, so a
+// URI that leads nowhere is reported here rather than at the first query.
 func connect(ctx context.Context, config *pgxpool.Config) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	pool, err := pgxpool.NewWithConfig(ctx, config.Copy())
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrNotConnected, err)
+		return nil, err
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("%w: %w. Check that the server is running and reachable at the URI", ErrNotConnected, err)
+		return nil, err
 	}
 	return pool, nil
 }
 
 // URI returns the connection string the instance connected with. It
 // includes the password, so keep it out of logs.
-func (inst *Instance) URI() string { return inst.uri }
+func (inst *Instance) URI() string { return inst.config.ConnString() }
 
 // Stop closes DB and Pool, then removes the container if the instance started
-// one. It can be called again, including after a Stop that failed.
-//
-// Unlike mongotest's Stop, it does not wait for connections still in use. It
-// returns an error that matches [ErrConnectionsHeld], leaves the pool to close
-// once they come back, and removes the container all the same.
+// one. If a connection is still in use, Stop does not wait for it: it returns
+// an error that matches [ErrConnectionsHeld] and removes the container all the
+// same. It can be called again.
 func (inst *Instance) Stop(ctx context.Context) error {
 	if inst == nil {
 		return nil
 	}
 	var err error
-	if inst.stopped.CompareAndSwap(false, true) {
+	if inst.stopped.CompareAndSwap(false, true) && inst.Pool != nil {
 		err = closeClients(inst.DB, inst.Pool)
 	}
 	return errors.Join(err, inst.Container.Stop(ctx))

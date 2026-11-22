@@ -3,6 +3,7 @@ package pgtest_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -152,9 +153,11 @@ func TestAttachRefusesAnEmptyURI(t *testing.T) {
 	// connect to whatever server those name.
 	t.Setenv("PGHOST", "127.0.0.1")
 
-	_, err := pgtest.Attach(context.Background(), "")
+	for _, uri := range []string{"", "   "} {
+		_, err := pgtest.Attach(context.Background(), uri)
 
-	assert.ErrorIs(t, err, pgtest.ErrEmptyURI, "an unset DATABASE_URL is reported, not filled in from the environment")
+		assert.ErrorIs(t, err, pgtest.ErrInvalidURI, "an unset DATABASE_URL (%q) is reported, not filled in from the environment", uri)
+	}
 }
 
 func TestAttachToNothingIsNotConnected(t *testing.T) {
@@ -164,14 +167,56 @@ func TestAttachToNothingIsNotConnected(t *testing.T) {
 	_, err := pgtest.Attach(ctx, "postgres://someone:hunter2@127.0.0.1:1/app?connect_timeout=2")
 
 	require.ErrorIs(t, err, pgtest.ErrNotConnected, "a server that cannot be reached is reported at once, not on the first query")
-	assert.NotContains(t, err.Error(), "hunter2", "and the error never holds the password, so it is safe to log")
+	assert.NotContains(t, err.Error(), "hunter2", "and a well-formed URI's password stays out of the error")
 }
 
-func TestAttachToAMalformedURIIsNotConnected(t *testing.T) {
-	_, err := pgtest.Attach(context.Background(), "postgres://someone:hunter2@127.0.0.1:notaport/app")
+func TestAttachRefusesAURIItCannotRead(t *testing.T) {
+	for _, uri := range []string{
+		"postgres://someone:hunter2@127.0.0.1:notaport/app",
+		// pgx's own masking stops at the space and quotes "two".
+		"host=db user=someone password=hunter two dbname=app",
+	} {
+		_, err := pgtest.Attach(context.Background(), uri)
 
-	require.ErrorIs(t, err, pgtest.ErrNotConnected, "a URI pgx cannot read is reported with the same sentinel")
-	assert.NotContains(t, err.Error(), "hunter2", "and the error never holds the password, so it is safe to log")
+		require.ErrorIs(t, err, pgtest.ErrInvalidURI, "a URI pgx cannot read is told apart from a server that cannot be reached")
+		assert.NotContains(t, err.Error(), "hunter", "and no part of the password is in the error, so it is safe to log")
+		assert.NotContains(t, err.Error(), "two", "not even the part pgx fails to mask")
+	}
+}
+
+func TestIntegrationPrintingAnInstanceHidesThePassword(t *testing.T) {
+	inst := pgtest.Run(t)
+
+	assert.NotContains(t, fmt.Sprintf("%+v", inst), inst.Container.Password(),
+		"logging an instance, or a failed assertion that dumps one, does not show the password")
+}
+
+func TestIntegrationStopClosesTheClients(t *testing.T) {
+	server := pgtest.Run(t)
+	inst, err := pgtest.Attach(context.Background(), server.URI())
+	require.NoError(t, err, "a second instance attaches to the server")
+
+	require.NoError(t, inst.Stop(context.Background()), "stopping succeeds")
+
+	assert.Error(t, inst.Pool.Ping(context.Background()), "the pool is closed while the server is still up, so it holds no connection to it")
+	assert.Error(t, inst.DB.Ping(), "and so is the database/sql handle")
+}
+
+func TestIntegrationStopDoesNotCountRowsOnTheirWayBack(t *testing.T) {
+	server := pgtest.Run(t)
+	// database/sql closes the Rows of a cancelled context in a goroutine of
+	// its own, as it does for a test that queried with t.Context(). Each run
+	// gives that goroutine the chance to lose the race.
+	for range 5 {
+		inst, err := pgtest.Attach(context.Background(), server.URI())
+		require.NoError(t, err, "a second instance attaches to the server")
+		ctx, cancel := context.WithCancel(context.Background())
+		_, err = inst.DB.QueryContext(ctx, "SELECT 1")
+		require.NoError(t, err, "the query runs")
+		cancel()
+
+		assert.NoError(t, inst.Stop(context.Background()), "Rows that database/sql is closing are not reported as held")
+	}
 }
 
 func TestAStartWithNoDaemonIsAConnectionFailure(t *testing.T) {
@@ -205,4 +250,5 @@ func TestStoppingANilInstanceDoesNothing(t *testing.T) {
 	var inst *pgtest.Instance
 
 	assert.NoError(t, inst.Stop(context.Background()), "a failed start's nil instance can be stopped from a defer")
+	assert.NoError(t, (&pgtest.Instance{}).Stop(context.Background()), "and so can an instance with no clients")
 }

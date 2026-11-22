@@ -41,7 +41,11 @@ func ExampleStart() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer server.Stop(ctx)
+	defer func() {
+		if err := server.Stop(ctx); err != nil {
+			log.Print(err) // such as a connection a test never gave back
+		}
+	}()
 	m.Run()
 }
 
@@ -70,19 +74,23 @@ func ExampleAttach() /* --8<-- [start:attach] */ {
 // environment variables, so an unset DATABASE_URL cannot point a test at
 // some other server.
 func ExampleAttach_emptyURI() {
-	_, err := pgtest.Attach(context.Background(), "")
-	fmt.Println(errors.Is(err, pgtest.ErrEmptyURI))
+	_, err := pgtest.Attach(context.Background(), os.Getenv("AN_UNSET_VARIABLE"))
+	fmt.Println(errors.Is(err, pgtest.ErrInvalidURI))
 	// Output: true
 }
 
 // A connection the code under test never gave back is reported when the
-// instance stops, rather than making Stop wait for it.
+// instance stops, rather than making Stop wait for it. Under Run or
+// DatabaseFor, the test fails with the same error.
 func ExampleErrConnectionsHeld() {
-	var t *testing.T            // the test's own t
-	var server *pgtest.Instance // started in TestMain
-	rows, _ := server.Pool.Query(t.Context(), "SELECT 1")
-	_ = rows // never closed: rows.Close() was forgotten
-	if err := server.Stop(context.Background()); errors.Is(err, pgtest.ErrConnectionsHeld) {
-		log.Print(err)
+	ctx := context.Background()
+	inst, err := pgtest.Start(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	rows, _ := inst.Pool.Query(ctx, "SELECT 1")
+	_ = rows // rows.Close() was forgotten, so its connection never comes back
+	if err := inst.Stop(ctx); errors.Is(err, pgtest.ErrConnectionsHeld) {
+		log.Print(err) // gives the count and what usually holds a connection
 	}
 }

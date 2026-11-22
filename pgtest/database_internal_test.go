@@ -32,10 +32,6 @@ func FuzzDatabaseName(f *testing.F) {
 
 		assert.LessOrEqual(t, len(name), 63, "the server cuts a name longer than 63 bytes, so two tests could share one")
 		assert.Regexp(t, plainIdentifier, name, "the name needs no care in a caller's own SQL")
+		assert.NotEqual(t, name, databaseName(test), "two databases for one test, or for the same test in two processes, never collide")
 	})
-}
-
-func TestDatabaseNameIsNewEachTime(t *testing.T) {
-	assert.NotEqual(t, databaseName("TestOrders"), databaseName("TestOrders"),
-		"two databases for one test, or for the same test in two processes, do not collide")
 }

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tophergopher/dbtest/pgtest"
+	"github.com/tophergopher/dbtest/postgres"
 )
 
 // createIn creates a table in a test's database and writes a row to it.
@@ -48,8 +50,8 @@ func TestIntegrationDatabaseForConnectsBothClientsToTheTestsDatabase(t *testing.
 func TestIntegrationDatabaseForTakesAnyTestName(t *testing.T) {
 	inst := pgtest.Run(t)
 
-	// Each case, as a database name, needs quoting, is mixed case, or is
-	// longer than the server's 63 bytes. None relies on a space, because
+	// Each case holds a character a database name cannot keep, is mixed
+	// case, or is longer than the server's 63 bytes. None relies on a space, because
 	// t.Run turns spaces into underscores.
 	for _, name := range []string{
 		"v1.5",
@@ -139,4 +141,69 @@ func TestIntegrationDatabaseForSaysWhichPrivilegeIsMissing(t *testing.T) {
 	require.True(t, test.Failed(), "a database the role may not create fails the test")
 	assert.False(t, returned, "and ends it, so no caller is handed a database that is not there")
 	assert.Contains(t, strings.Join(test.failures, "\n"), "CREATEDB", "and names the privilege the role needs")
+}
+
+func TestIntegrationDatabaseForGivesSubtestsOfALongNameTheirOwn(t *testing.T) {
+	inst := pgtest.Run(t)
+	long := strings.Repeat("a_long_shared_prefix_", 4)
+
+	for _, name := range []string{long + "first", long + "second"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			createIn(t, inst.DatabaseFor(t))
+		})
+	}
+}
+
+func TestIntegrationDatabaseForReportsADropThatFails(t *testing.T) {
+	ctx := context.Background()
+	c, err := postgres.Start(ctx)
+	require.NoError(t, err, "a server starts")
+	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+	inst, err := pgtest.Attach(ctx, c.URI())
+	require.NoError(t, err, "an instance attaches to it")
+	t.Cleanup(func() { _ = inst.Stop(context.Background()) })
+	test := &recorder{TB: t}
+	inst.DatabaseFor(test)
+
+	// The server goes away while the instance is still attached.
+	require.NoError(t, c.Stop(ctx), "the server is removed")
+	test.end()
+
+	assert.True(t, test.Failed(), "a database that could not be dropped fails the test, so it is not left behind unnoticed")
+}
+
+func TestIntegrationDatabaseForDropsEvenAfterAnAttachedInstanceStops(t *testing.T) {
+	server := pgtest.Run(t)
+	inst, err := pgtest.Attach(context.Background(), server.URI())
+	require.NoError(t, err, "an instance attaches to the server")
+	test := &recorder{TB: t}
+	d := inst.DatabaseFor(test)
+	createIn(t, d)
+
+	// A Stop deferred in the test runs before the test's cleanups.
+	require.NoError(t, inst.Stop(context.Background()), "the attached instance stops")
+	test.end()
+
+	assert.False(t, test.Failed(), "the drop succeeds: %v", test.failures)
+	assert.False(t, databaseExists(t, server.Pool, d.Name()), "and the database is not left on a server that outlives the instance")
+}
+
+func TestIntegrationDatabaseForAfterStopFailsTheTest(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	t.Cleanup(cancel)
+	inst, err := pgtest.Start(ctx)
+	require.NoError(t, err, "a container starts")
+	require.NoError(t, inst.Stop(ctx), "and stops")
+	test := &recorder{TB: t}
+	returned := false
+
+	inGoroutine(func() {
+		inst.DatabaseFor(test)
+		returned = true
+	})
+	test.end()
+
+	assert.True(t, test.Failed(), "asking a stopped instance for a database fails the test")
+	assert.False(t, returned, "and ends it, so no caller is handed a database that is not there")
 }
