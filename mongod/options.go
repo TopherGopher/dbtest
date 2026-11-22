@@ -335,7 +335,7 @@ func newConfig(opts Options) (config, error) {
 	if opts.err != nil {
 		return config{}, opts.err
 	}
-	c := config{Options: opts.WithLabel(RequiredLabelKey, RequiredLabelValue)}
+	c := config{Options: opts}
 	if c.name == "" {
 		c.name, c.generatedName = namePrefix+randomHex(nameRandomBytes), true
 	}

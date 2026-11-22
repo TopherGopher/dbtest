@@ -2,7 +2,6 @@ package mongod
 
 import (
 	"maps"
-	"strconv"
 
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/internal/hostaddr"
@@ -24,26 +23,11 @@ func (c config) containerConfig(r hostaddr.Reach) dockerclient.ContainerConfig {
 // hostConfig says how the container is reached, and mounts the volume that
 // keeps the data, if there is one.
 func (c config) hostConfig(r hostaddr.Reach) *dockerclient.HostConfig {
-	hc := c.reachConfig(r)
+	hc := r.HostConfig(mongoPort, c.port)
 	if c.volume != "" {
 		hc.Volumes = []dockerclient.VolumeMount{{Name: c.volume, Path: dataDir}}
 	}
 	return hc
-}
-
-// reachConfig puts the container on the shared network, or publishes its
-// port on the interface that the address to dial needs.
-func (c config) reachConfig(r hostaddr.Reach) *dockerclient.HostConfig {
-	if r.Shared() {
-		return &dockerclient.HostConfig{NetworkMode: r.Network}
-	}
-	publishOn := "" // empty asks the daemon to choose the port
-	if c.port != 0 {
-		publishOn = strconv.Itoa(c.port)
-	}
-	return &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
-		mongoPort: {{HostIP: hostaddr.BindIP(r.Host), HostPort: publishOn}},
-	}}
 }
 
 // command returns the mongod flags. The image's entrypoint supplies the

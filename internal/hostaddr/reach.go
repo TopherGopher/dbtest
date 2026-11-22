@@ -2,6 +2,7 @@ package hostaddr
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
@@ -42,6 +43,22 @@ func (r Reach) Where() string {
 	return "its port is open on every network interface of the Docker host, because it is reached from another machine or container"
 }
 
+// HostConfig returns how the container is created for this reach: on the
+// shared network, or with containerPort published on the interface the
+// address to dial needs. A hostPort of 0 lets the daemon choose.
+func (r Reach) HostConfig(containerPort string, hostPort int) *dockerclient.HostConfig {
+	if r.Shared() {
+		return &dockerclient.HostConfig{NetworkMode: r.Network}
+	}
+	publishOn := "" // empty asks the daemon to choose the port
+	if hostPort != 0 {
+		publishOn = strconv.Itoa(hostPort)
+	}
+	return &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
+		containerPort: {{HostIP: BindIP(r.Host), HostPort: publishOn}},
+	}}
+}
+
 // ReachInput is what an image package knows when it decides how its
 // container is reached.
 type ReachInput struct {
@@ -53,7 +70,8 @@ type ReachInput struct {
 	// "WithPort", or is "".
 	PublishFor string
 	// Timeout bounds the lookup of a shared network, which runs before the
-	// start timeout begins.
+	// start timeout begins. It must be positive: at zero the lookup fails
+	// at once, and the port is always published.
 	Timeout time.Duration
 	Logger  dockerclient.Logger
 	// Resolve and Find replace Resolve and FindSharedNetwork when set, so a

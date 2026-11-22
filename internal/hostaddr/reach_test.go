@@ -135,17 +135,40 @@ func TestTheNetworkLookupIsBoundedByTheTimeout(t *testing.T) {
 	in, _, _ := input(resolvedTo("127.0.0.1", false), "", nil)
 	in.Timeout = 20 * time.Millisecond
 	in.Find = func(ctx context.Context, _ dockerclient.Client) (string, error) {
-		<-ctx.Done()
-		return "", errors.Join(ErrNoSharedNetwork, ctx.Err())
+		select {
+		case <-ctx.Done():
+			return "", errors.Join(ErrNoSharedNetwork, ctx.Err())
+		case <-time.After(5 * time.Second):
+			return "", ErrNoSharedNetwork
+		}
 	}
+	began := time.Now()
 	r, err := Decide(context.Background(), &dockermock.Mock{}, in)
 	require.NoError(t, err, "a lookup that gives up means publishing")
 	assert.False(t, r.Shared(), "the port is published")
+	assert.Less(t, time.Since(began), 2*time.Second, "the lookup gave up at the timeout, not on its own")
 }
 
 // Who else can connect decides whether an image needs credentials.
 func TestWhoElseCanReachTheContainer(t *testing.T) {
 	assert.False(t, Reach{Host: "127.0.0.1"}.Exposed(), "a port published on loopback is this machine's alone")
 	assert.True(t, Reach{Host: "build-host"}.Exposed(), "a port published on every interface is not")
-	assert.True(t, Reach{Network: "dbtest-net"}.Exposed(), "nor is a container on a shared network")
+	assert.True(t, Reach{Network: "dbtest-net", Host: "127.0.0.1"}.Exposed(), "nor is a container on a shared network")
+}
+
+// The create request must match the decision: join the network, or publish
+// the port on the interface the address to dial needs.
+func TestTheHostConfigFollowsTheReach(t *testing.T) {
+	shared := Reach{Network: "dbtest-net"}.HostConfig("5432/tcp", 0)
+	assert.Equal(t, "dbtest-net", shared.NetworkMode, "a shared network is joined")
+	assert.Empty(t, shared.PortBindings, "and nothing is published")
+
+	local := Reach{Host: "127.0.0.1"}.HostConfig("5432/tcp", 0)
+	assert.Empty(t, local.NetworkMode, "a published container joins no network of ours")
+	assert.Equal(t, []dockerclient.PortBinding{{HostIP: Loopback, HostPort: ""}}, local.PortBindings["5432/tcp"],
+		"a local daemon publishes on loopback, on a port the daemon chooses")
+
+	remote := Reach{Host: "build-host"}.HostConfig("5432/tcp", 15432)
+	assert.Equal(t, []dockerclient.PortBinding{{HostIP: AllInterfaces, HostPort: "15432"}}, remote.PortBindings["5432/tcp"],
+		"an address elsewhere needs every interface, and a fixed port is kept")
 }

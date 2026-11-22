@@ -11,7 +11,7 @@ import (
 )
 
 // LabelKey and LabelValue mark every container this module starts, whatever
-// its image, so that one command finds them all:
+// its image. Start adds them, so that one command finds them all:
 //
 //	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
 const (
