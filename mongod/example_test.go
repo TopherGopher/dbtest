@@ -227,11 +227,10 @@ func ExampleStartWithOptions_errors() {
 // forgot to stop:
 //
 //	func TestMain(m *testing.M) {
-//		code := m.Run()
+//		m.Run()
 //		if err := mongod.ReapRunningContainers(context.Background()); err != nil {
 //			log.Print(err)
 //		}
-//		os.Exit(code)
 //	}
 func ExampleReapRunningContainers() {
 	docker, closeDocker := exampleDocker()

@@ -1,0 +1,45 @@
+name: Copy images
+
+# Copies each MongoDB image the library uses by default to this repository's
+# packages on ghcr.io, as an exact copy with the same digest. The copies are a
+# last resort for the library's pulls, after Docker Hub and its mirror (ECR
+# Public or quay.io). See "Image copies" in docs/project/contributing.md.
+on:
+  schedule:
+    # Twice a day, at minute 17, because GitHub often delays runs scheduled
+    # on the hour.
+    - cron: '17 5,17 * * *'
+  workflow_dispatch:
+
+# Jobs may only read the repository by default. Only the copy job may also
+# publish packages.
+permissions:
+  contents: read
+
+jobs:
+  copy:
+    name: Copy images to ghcr.io
+    # A run started by hand from another branch would publish that branch's
+    # unreviewed image list to the tags every fallback pull gets.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Pushing to ghcr.io needs packages: write.
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Check out
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # Nothing after the checkout uses git, so the token need not stay in
+        # .git/config.
+        persist-credentials: false
+
+    # The token reaches docker login on its standard input, never on the
+    # command line. Only this step has it.
+    - name: Copy each image, and check its digest
+      env:
+        TOKEN: ${{ github.token }}
+      run: |
+        printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+        .github/scripts/copy-images.sh ghcr.io/tophergopher/dbtest
