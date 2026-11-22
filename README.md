@@ -9,8 +9,8 @@ hands the test a connected client of the official MongoDB Go driver, and
 removes the container when the test ends.
 
 ```sh
-go get github.com/tophergopher/dbtest/mongotest    # you import go.mongodb.org/mongo-driver
-go get github.com/tophergopher/dbtest/mongotestv2  # you import go.mongodb.org/mongo-driver/v2
+go get github.com/tophergopher/dbtest/mongotest    # if you use go.mongodb.org/mongo-driver
+go get github.com/tophergopher/dbtest/mongotestv2  # if you use go.mongodb.org/mongo-driver/v2
 ```
 
 Starting a new project with no driver yet? Use `mongotestv2`: driver v1 is
@@ -38,7 +38,7 @@ func TestOrders(t *testing.T) {
 
 With driver v2, import `github.com/tophergopher/dbtest/mongotestv2` and
 `go.mongodb.org/mongo-driver/v2/bson`, and write `mongotestv2.Run(t)`.
-Nothing else changes. Keep the `bson` import on v2: a v1 `bson` value passed
+Nothing else changes. Do not leave `bson` on v1: a v1 `bson` value passed
 to a v2 client compiles, but at run time it is stored as the wrong type or
 refused.
 
@@ -67,13 +67,7 @@ Remove those with `docker volume rm <name>`.
 
 The documentation site lives in [`docs/`](docs/) and is built with
 [Zensical](https://zensical.org/). It is published to GitHub Pages from `main` by
-[`.github/workflows/docs.yml`](.github/workflows/docs.yml). To preview it
-locally:
-
-```shell
-pip install -r docs/requirements.txt
-zensical serve
-```
-
-New usage patterns go in `docs/guides/`; see
-[Writing a new page](https://tophergopher.github.io/dbtest/reference/writing-docs/).
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml). New usage
+patterns go in `docs/guides/`.
+[Writing a new page](https://tophergopher.github.io/dbtest/reference/writing-docs/)
+says how to preview the site locally and what a page must hold.

@@ -8,8 +8,8 @@ tracks: ["#51"]
 # Podman
 
 Podman serves the Docker Engine API, so dbtest works against it unchanged
-once it can find the socket. Nothing in dbtest shells out to a `docker` or
-`podman` binary.
+once it can find the socket. dbtest talks to the socket directly, so you do
+not need the `docker` or `podman` command installed.
 
 ## Start the socket
 
@@ -34,32 +34,28 @@ once it can find the socket. Nothing in dbtest shells out to a `docker` or
     podman machine start
     ```
 
-    `podman machine` forwards the API to the Docker default socket on macOS,
-    so no further configuration is usually needed. On Windows it exposes an
-    AF_UNIX socket under `%TEMP%` since Podman 5.3, which the new client can
-    dial.
+    On macOS, `podman machine` forwards the API to the Docker default
+    socket, which dbtest finds. On Windows, Podman 5.3 or newer exposes a
+    socket under `%TEMP%`, and dbtest finds that too.
 
 ## Point dbtest at it
 
-Set `DOCKER_HOST` the same way you would for the `docker` CLI:
+dbtest finds Podman's socket on its own. Its
+[`dockerapi`](../docker-clients/dockerapi.md) client tries rootless Docker,
+system Docker, rootless Podman, then system Podman, and uses the first that
+answers. If Docker also runs, set `DOCKER_HOST` to choose Podman:
 
 ```sh
 export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
 go test ./...
 ```
 
-Even this is optional. When nothing is configured, dbtest's
-[`dockerapi`](../docker-clients/dockerapi.md) client probes, in order,
-rootless Docker, system Docker, rootless Podman and system Podman, and uses
-the first socket that answers.
+## Which engine answered
 
-## API versions
-
-`dockerapi` works with every supported Podman.
-
-`dockerapi` also reports which engine answered, once it has negotiated. Here
-`docker` is a client pointed at a `dockermock.Daemon` that answers as Podman
-does:
+`dockerapi` reports which engine answered, once it has negotiated, so code
+can tell Podman from Docker where they behave differently. Here `c` is a
+client pointed at a `dockermock.Daemon`, a fake daemon, that answers as
+Podman does:
 
 ```go
 --8<-- "dockerapi/example_test.go:runtime"
@@ -73,5 +69,6 @@ Docker daemon they do not have.
 
 ??? failure "`cannot connect to the docker daemon at …`"
     The socket is not running or `DOCKER_HOST` points at the wrong path. Check
-    with `podman --remote info` using the same `CONTAINER_HOST` value, or
-    `curl --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/_ping`.
+    with `CONTAINER_HOST=$DOCKER_HOST podman --remote info`, or with
+    `curl --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/_ping`,
+    which prints `OK` when the socket works.

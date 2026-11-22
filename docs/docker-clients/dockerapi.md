@@ -35,9 +35,12 @@ implements exactly the endpoints dbtest needs.
     ```
 
     `/run/user/$UID` stands in when `XDG_RUNTIME_DIR` is unset. On macOS the
-    `podman machine` sockets are searched too. On Windows the optional Docker
-    Desktop TCP endpoint is probed, then the AF_UNIX socket `podman machine`
-    exposes.
+    `podman machine` sockets are searched too.
+
+    On Windows the client cannot open Docker Desktop's named pipe. It tries
+    `tcp://localhost:2375`, which Docker Desktop serves only if you turn it
+    on, then the socket `podman machine` exposes. The
+    [`mobyclient`](mobyclient.md) client can open the pipe.
 
 The probe connects rather than checking that the file exists, so a socket
 left behind by a stopped daemon never shadows a running one. When nothing
@@ -47,7 +50,7 @@ socket. Building a client never depends on a daemon being up.
 
 ## Options
 
-`New` takes options for a fixed host and more:
+`New()` with no options is `FromEnv`. Its options set the host and more:
 
 ```go title="Illustration, not compiled"
 c, err := dockerapi.New(
@@ -66,14 +69,11 @@ c, err := dockerapi.New(
 | `WithTLSConfig(cfg)` | Trust a daemon's CA explicitly. Without it, the TLS files of the docker context the daemon was found through are used, or else `DOCKER_CERT_PATH` when `DOCKER_TLS_VERIFY` is set. |
 | `WithAPIVersion(v)` | Pin the API version instead of negotiating. |
 | `WithUserAgent(ua)` | Sent on every request. Defaults to `mongotest-dockerapi/1`. |
-| `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies the interface. |
+| `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies `dockerclient.Logger`, the type it takes. |
 
 ## Version negotiation
 
-Negotiation is mandatory with the daemons in the wild: Podman's compatible API
-topped out at 1.41 until 5.8, and recent Docker Engines accept 1.24 through
-1.5x but are stricter about what each version allows.
-
+Daemons differ in which API versions they accept, so the client negotiates.
 `dockerapi` asks for its preferred version (1.44) and accepts anything down to
 1.24. The first request to a daemon triggers a `GET /version`; the client then
 uses the highest version both sides support. Call `Negotiate` to do it
@@ -90,9 +90,13 @@ When the two version ranges do not overlap, `Negotiate` returns an
 
 Once the client has negotiated, `Runtime` says which engine answered:
 `RuntimeDocker`, `RuntimePodman`, or `RuntimeUnknown` for an engine that is
-neither. Before then it is `RuntimeUnknown`. `ServerProduct` is how the daemon
-described itself. Here the daemon is a `dockermock.Daemon` that answers as
-Podman does:
+neither. Before then it is `RuntimeUnknown`. Use it where Docker and Podman
+need different handling, or to name the right engine in a message.
+`ServerProduct` is how the daemon described itself.
+
+Below, `c` is a client pointed at a
+[`dockermock.Daemon`](dockermock.md), a fake daemon for tests, that answers
+as Podman does:
 
 ```go
 --8<-- "dockerapi/example_test.go:runtime"
@@ -110,20 +114,20 @@ All methods of the [interface](index.md#the-interface) are implemented, plus
 --8<-- "dockerapi/example_test.go:exec-start"
 ```
 
-A few behaviours worth knowing:
+Behaviour to know:
 
 - **`ImagePull`** drains the progress stream and surfaces an `error` line
   from the daemon as a `*PullError`, so a failed pull is an error and not a
   silent half-image.
-- **`CopyToContainer`** builds the tar archive with `archive/tar` and streams
-  it through an `io.Pipe`; nothing is buffered beyond the files you passed.
-  It works on a container that has been created but not yet started, which is
+- **`CopyToContainer`** streams the archive instead of building it in
+  memory. It works on a container that has been created but not yet started, which is
   how the `mongod` package places its TLS files before the server starts.
 - **`Exec`** captures stdout and stderr separately through the multiplexed
   stream, waits for the process to exit, and reports a non-zero exit code in
   `ExecResult.ExitCode` rather than as an error.
-- **`ContainerTop`** is how you know `mongod` is actually running: a published
-  port is bound before the process inside is ready.
+- **`ContainerTop`** shows whether a process is running in the container. A
+  published port is bound before the process starts, so an open port proves
+  nothing.
 
 ## Unit testing code that uses dockerapi
 

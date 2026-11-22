@@ -11,8 +11,8 @@ status: current
 Add the module that matches the driver your `go.mod` requires:
 
 ```sh
-go get github.com/tophergopher/dbtest/mongotest    # you import go.mongodb.org/mongo-driver
-go get github.com/tophergopher/dbtest/mongotestv2  # you import go.mongodb.org/mongo-driver/v2
+go get github.com/tophergopher/dbtest/mongotest    # if you use go.mongodb.org/mongo-driver
+go get github.com/tophergopher/dbtest/mongotestv2  # if you use go.mongodb.org/mongo-driver/v2
 ```
 
 Starting a new project with no driver yet? Use `mongotestv2`: driver v1 is
@@ -61,8 +61,8 @@ Windows; see the Docker Desktop tab.
     pipe. You have two choices. Turn on "Expose daemon on
     tcp://localhost:2375 without TLS" in Docker Desktop's settings, and
     dbtest finds it. This lets any program on the machine control Docker.
-    Or use the [`mobyclient`](../docker-clients/mobyclient.md) client, which
-    opens the pipe.
+    Or use [`mobyclient`](../docker-clients/mobyclient.md), which opens the
+    pipe.
 
 === "Podman"
 
@@ -83,14 +83,15 @@ Windows; see the Docker Desktop tab.
     ```
 
     The [Podman guide](../guides/podman.md) covers rootless setups,
-    `podman machine`, and the API version differences.
+    `podman machine`, and how dbtest tells Podman from Docker.
 
 ## Pull the image once
 
 This step is optional. The first test run on a machine downloads the
 MongoDB image. Tests wait for the download, which does not count against
-their start timeout, and fail if it fails. To download the image before any
-test starts, call `mongod.PullImage` from `TestMain`. The package to import
+their start timeout, and fail if it fails. Pulling it first means one
+download, before any test starts, rather than a first test that waits for
+it. To do that, call `mongod.PullImage` from `TestMain`. The package to import
 is `github.com/tophergopher/dbtest/mongod`:
 
 ```go
@@ -125,4 +126,5 @@ Run the [quickstart](quickstart.md) test.
     with `errors.Is` against a sentinel from the `mongod` package, such as
     `mongod.ErrNotReady` or `mongod.ErrContainerExited`. When the container
     exits, the error ends with the server's last log lines, which usually say
-    why.
+    why. On a slow machine, a longer start timeout is the usual fix: set
+    `MONGOTEST_START_TIMEOUT` to a Go duration such as `120s`.
