@@ -65,14 +65,14 @@ Remove those with `docker volume rm <name>`.
 
 ## Documentation
 
-The documentation site lives in [`docs/`](docs/) and is built with MkDocs
-Material. It is published to GitHub Pages from `main` by
+The documentation site lives in [`docs/`](docs/) and is built with
+[Zensical](https://zensical.org/). It is published to GitHub Pages from `main` by
 [`.github/workflows/docs.yml`](.github/workflows/docs.yml). To preview it
 locally:
 
 ```shell
 pip install -r docs/requirements.txt
-mkdocs serve
+zensical serve
 ```
 
 New usage patterns go in `docs/guides/`; see

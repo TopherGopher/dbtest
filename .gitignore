@@ -1,7 +1,9 @@
 .claude/worktrees/
 
-# MkDocs build output; published by CI, never committed.
+# Zensical's build output, published by CI, and its build cache. Neither
+# is committed.
 site/
+.cache/
 
 # Local Python environment for building the docs.
 .venv/

@@ -14,7 +14,7 @@
     {% if page.canonical_url %}{% set og_url = page.canonical_url %}{% endif %}
   {% endif %}
   <meta property="og:type" content="website">
-  {# MkDocs does not autoescape, so a quote in a title or description would end the attribute. #}
+  {# Templates are not autoescaped, so a quote in a title or description would end the attribute. #}
   <meta property="og:title" content="{{ og_title | e }}">
   <meta property="og:description" content="{{ og_description | e }}">
   <meta property="og:url" content="{{ og_url | e }}">
@@ -48,7 +48,7 @@
           Tracked in
           {% for t in page.meta.tracks %}
             {% set n = t | replace("PR", "") | replace("#", "") | trim %}
-            {% if t.startswith("PR") %}
+            {% if t[:2] == "PR" %}
               <a href="{{ config.repo_url }}/pull/{{ n | urlencode }}">PR #{{ n | e }}</a>{% if not loop.last %},{% endif %}
             {% else %}
               <a href="{{ config.repo_url }}/issues/{{ n | urlencode }}">#{{ n | e }}</a>{% if not loop.last %},{% endif %}

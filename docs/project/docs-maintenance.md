@@ -56,8 +56,9 @@ grep -rn '^status:\|^tracks:' docs/
 
 ## Checking before you push
 
-`mkdocs build --strict` fails on a broken link or a page missing from the
-navigation, and the Pages workflow runs it on every pull request. It does not
+`zensical build --strict` fails on a broken link or anchor, and the Pages
+workflow runs it on every pull request. `go test` in the repository root
+fails if `nav` in `mkdocs.yml` names a page that does not exist. It does not
 compile Go snippets. When a snippet is meant to be exact, prefer copying it
 from a runnable `Example` test in the repository, which CI does compile, and
 say which file it came from.

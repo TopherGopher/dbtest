@@ -6,21 +6,22 @@ description: How this site is built, and the conventions for adding a guide.
 # Writing a new page
 
 This site is plain Markdown under `docs/`, built with
-[MkDocs](https://www.mkdocs.org/) and the
-[Material theme](https://squidfunk.github.io/mkdocs-material/). Every push to
-`main` that touches `docs/` or `mkdocs.yml` rebuilds and publishes it.
+[Zensical](https://zensical.org/) from the settings in `mkdocs.yml`. Every
+push to `main` that changes the site rebuilds and publishes it.
 
 ## Preview locally
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r docs/requirements.txt
-mkdocs serve
+zensical serve
 ```
 
-Open <http://127.0.0.1:8000>. The page reloads as you save.
-`mkdocs build --strict` is what CI runs; it fails on a broken link or a page
-missing from the navigation, so run it before you push.
+Open <http://localhost:8000>. The page reloads as you save.
+`zensical build --strict` is what CI runs. It fails on a broken link or
+anchor, so run it before you push. It does not check the navigation:
+`go test` in the repository root fails if `nav` names a page that does not
+exist.
 
 ## Add a guide
 
@@ -63,7 +64,7 @@ for flipping a badge when something lands.
 
 **Use the theme's blocks.** Admonitions, tabs and code annotations are
 described in the
-[Material reference](https://squidfunk.github.io/mkdocs-material/reference/).
+[Zensical documentation](https://zensical.org/docs/authoring/admonitions/).
 
 **Link to the generated reference for signatures.** Describe behaviour here;
 let pkg.go.dev carry the exact types.
