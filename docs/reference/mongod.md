@@ -51,7 +51,7 @@ tests. `Start(ctx)` is `StartWithOptions(ctx, mongod.DefaultOptions())`.
 | `WithTLS()` | Accept only TLS connections; see [TLS](#tls). |
 | `WithNamedVolume(name)` | Keep the data in a Docker volume that a later start finds again; see [Keeping data between runs](#keeping-data-between-runs). |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
-| `WithLogger(l)` | Where a start is logged. `*slog.Logger` works; the default discards. See [Logging with zap, zerolog or logrus](#logging-with-zap-zerolog-or-logrus). |
+| `WithLogger(l)` | Receives what a start does, at Info and Warn. `*slog.Logger` works, as do [zap, zerolog and logrus](#logging-with-zap-zerolog-or-logrus). By default nothing is logged. It does not log the Docker client's requests; give the client its own logger for those. |
 | `WithDocker(client)` | A specific Docker client, such as a [double](#testing-code-that-starts-containers). |
 
 Three settings can come from the environment, so CI can set them for a whole
@@ -69,32 +69,33 @@ A version from an option combines with an image from the environment:
 
 ### Logging with zap, zerolog or logrus
 
-`WithLogger` takes a `dockerclient.Logger`, which `*slog.Logger` satisfies.
-zap, zerolog and logrus each ship a `slog` handler, so wrap it with
-`slog.New` and pass the result. dbtest does not depend on these libraries,
-so the lines below are not compiled.
+zap, zerolog and logrus each provide a `slog` handler. Pass it to
+`slog.New`, and pass the logger that returns to `WithLogger`.
 
 ```go title="Illustration, not compiled"
 // zap: the handler is in zap's experimental module, so its API may change.
 import "go.uber.org/zap/exp/zapslog"
 
-opts := mongod.DefaultOptions().WithLogger(slog.New(zapslog.NewHandler(zapLogger.Core())))
+logger := slog.New(zapslog.NewHandler(zapLogger.Core()))
+opts := mongod.DefaultOptions().WithLogger(logger)
 ```
 
 ```go title="Illustration, not compiled"
-// zerolog: the handler is in zerolog's main package.
-opts := mongod.DefaultOptions().WithLogger(slog.New(zerolog.NewSlogHandler(zerologLogger)))
+// zerolog
+import "github.com/rs/zerolog"
+
+logger := slog.New(zerolog.NewSlogHandler(zerologLogger))
+opts := mongod.DefaultOptions().WithLogger(logger)
 ```
 
 ```go title="Illustration, not compiled"
-// logrus: its package is also named slog, so give it another name.
+// logrus: the handler's package is also named slog, so import it under
+// another name.
 import logrusslog "github.com/sirupsen/logrus/hooks/slog"
 
-opts := mongod.DefaultOptions().WithLogger(slog.New(logrusslog.NewHandler(logrusLogger, nil)))
+logger := slog.New(logrusslog.NewHandler(logrusLogger, nil))
+opts := mongod.DefaultOptions().WithLogger(logger)
 ```
-
-The same logger works with `dockerapi.WithLogger` and
-`mobyclient.WithLogger`.
 
 ## Which image
 

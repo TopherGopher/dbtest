@@ -296,9 +296,9 @@ type ExecResult struct {
 	ExitCode int
 }
 
-// Logger is the structured logging surface the clients emit to. It is
-// satisfied by *slog.Logger, so any logger with a slog handler, such as zap,
-// zerolog or logrus, can be passed through slog.New.
+// Logger receives the structured logs that dbtest's packages write.
+// *slog.Logger satisfies it, so a zap, zerolog or logrus logger works once
+// its slog handler is passed to slog.New.
 type Logger interface {
 	Debug(msg string, keysAndValues ...any)
 	Info(msg string, keysAndValues ...any)

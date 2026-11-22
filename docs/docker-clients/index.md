@@ -113,7 +113,7 @@ against it never imports an implementation:
 | `Top` | The processes in a container. |
 | `File` | A name, mode and content to copy in. |
 | `ExecConfig`, `ExecInspect`, `ExecResult` | Running a command and reading its result. A non-zero exit code is data, not an error. |
-| `Logger` | Four methods, satisfied by `*slog.Logger`. `NopLogger()` discards. |
+| `Logger` | Four methods, satisfied by `*slog.Logger`, and so by [zap, zerolog and logrus](../reference/mongod.md#logging-with-zap-zerolog-or-logrus). `NopLogger()` discards. |
 
 ## Errors
 

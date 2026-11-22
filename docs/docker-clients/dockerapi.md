@@ -55,12 +55,13 @@ macOS, when nothing answers, `FromEnv` still returns a client, pointed at
 where the client connects and what it sends:
 
 ```go title="Illustration, not compiled"
+debug := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 c, err := dockerapi.New(
     dockerapi.WithHost("tcp://build-host:2376"),
     dockerapi.WithTLSConfig(&tls.Config{RootCAs: pool}),
     dockerapi.WithAPIVersion("1.41"),
     dockerapi.WithUserAgent("my-tests/1.0"),
-    dockerapi.WithLogger(slog.Default()),
+    dockerapi.WithLogger(debug),
 )
 ```
 
@@ -71,7 +72,7 @@ c, err := dockerapi.New(
 | `WithTLSConfig(cfg)` | Trust a daemon's CA explicitly. Without it, the TLS files of the docker context the daemon was found through are used, or else `DOCKER_CERT_PATH` when `DOCKER_TLS_VERIFY` is set. |
 | `WithAPIVersion(v)` | Pin the API version instead of negotiating. `DOCKER_API_VERSION` does the same. |
 | `WithUserAgent(ua)` | Sent on every request. Defaults to `mongotest-dockerapi/1`. |
-| `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies `dockerclient.Logger`, the type it takes. For zap, zerolog or logrus, see [Logging with zap, zerolog or logrus](../reference/mongod.md#logging-with-zap-zerolog-or-logrus). |
+| `WithLogger(l)` | One `Debug` record per request, so set the logger to Debug to see them. It takes a `dockerclient.Logger`, such as a `*slog.Logger`; zap, zerolog and logrus work [through their slog handlers](../reference/mongod.md#logging-with-zap-zerolog-or-logrus). By default nothing is logged. |
 
 ## Version negotiation
 
