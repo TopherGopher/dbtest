@@ -276,11 +276,11 @@ func ExampleAPIVersionError_fields() /* --8<-- [start:version-fields] */ {
 	var ve *dockerclient.APIVersionError
 	if errors.As(err, &ve) {
 		fmt.Printf("the daemon accepts %s to %s\n", ve.ServerMin, ve.ServerMax)
-		fmt.Printf("the client accepts %s to %s\n", ve.ClientMin, ve.ClientMax)
+		fmt.Println("the client's newest is its preferred version:", ve.ClientMax == dockerapi.PreferredAPIVersion)
 	}
 	// Output:
 	// the daemon accepts 1.60 to 1.70
-	// the client accepts 1.24 to 1.44
+	// the client's newest is its preferred version: true
 } // --8<-- [end:version-fields]
 
 func ExampleWrapConnectionError() {
