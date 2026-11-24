@@ -11,8 +11,8 @@ This page says how to build and test, and what a change has to meet.
 
 ## Build and test
 
-The repository has five modules: the root, `mongotest`, `mongotestv2`,
-`mongotest/exporter` and `mobyclient`.
+The repository has six modules: the root, `mongotest`, `mongotestv2`,
+`mongotest/exporter`, `mobyclient` and `pgtest`.
 
 ```sh
 git clone https://github.com/TopherGopher/dbtest
@@ -27,6 +27,7 @@ go test -race ./...                     # root module
 (cd mongotestv2 && go vet ./... && go test -race ./...)
 (cd mongotest/exporter && go vet ./... && go test -race ./...)
 (cd mobyclient && go vet ./... && go test -race ./...)
+(cd pgtest && go vet ./... && go test -race ./...)
 ```
 
 Integration tests need a Docker daemon, and pull the images they use. Without
@@ -42,12 +43,13 @@ containers, so it needs a Docker daemon and takes minutes:
 go test ./dockerapi/... ./dockermock/... ./dockerclient/... -run='^$' -bench=. -benchmem
 go test ./mongod/ -run='^$' -bench=BenchmarkStart -benchtime=1x
 go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
+(cd pgtest && go test -run='^$' -fuzz=FuzzDatabaseName -fuzztime=30s)
 ```
 
 ## Known traps
 
 - **A local `go.work` hides version problems.** A workspace resolves the
-  dependencies of all five modules together. The root is then tested against
+  dependencies of all six modules together. The root is then tested against
   newer versions than its users get. CI tests each module from its own
   `go.mod`, so it can fail where your run passed. `.gitignore` keeps a
   `go.work` out of commits. If `go work sync` has rewritten the modules'
@@ -56,7 +58,7 @@ go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
 - **Every `go.mod` has a `toolchain` line naming the Go release that builds
   and tests it.** If your Go is older, the `go` command downloads that
   release. With `GOTOOLCHAIN=local`, it uses your Go instead, which may not
-  be the release CI uses. Change the line in all five files together. CI
+  be the release CI uses. Change the line in all six files together. CI
   installs exactly the root's release, and fails if another module names a
   different one.
 - **A module's tests see your uncommitted root changes; its users do not.**
@@ -86,25 +88,34 @@ up to v0.2.9, from when the module was `github.com/tophergopher/mongotest`.
 reach users. A pushed tag cannot be taken back, because the Go module proxy keeps
 what it has fetched.
 
-1. In a pull request, point the other four modules at the new version, and
+1. In a pull request, point the other five modules at the new version, and
    rename the CHANGELOG's "Unreleased" heading to the version:
 
     ```sh
-    for m in mongotest mongotestv2 mongotest/exporter mobyclient; do
+    for m in mongotest mongotestv2 mongotest/exporter mobyclient pgtest; do
       (cd "$m" && go mod edit -require=github.com/tophergopher/dbtest@vX.Y.Z)
     done
     ```
 
     The `replace` lines keep this building before `vX.Y.Z` is tagged.
+    Never tag a module on its own. `pgtest` uses the `postgres` package,
+    which no root version up to v0.3.0 has, so a `pgtest` tag must require
+    the root version released with it.
 
 2. Publish a full GitHub release, not a pre-release, with a new tag `vX.Y.Z`
    on that pull request's merge commit. The release creates the root module's
    tag, and publishing it starts the Release workflow
    (`.github/workflows/release.yml`). The workflow checks that the commit is
-   on `main`, that `vX.Y.Z` is the highest version tag, and that all four
-   modules require it. It then tags the four modules on the same commit,
-   pushes the tags together, and asks the Go module proxy for all five
+   on `main`, that `vX.Y.Z` is the highest version tag, and that all five
+   modules require it. It then tags the five modules on the same commit,
+   pushes the tags together, and asks the Go module proxy for all six
    versions. It does nothing for a pre-release.
+
+Publish the release as soon as a new module reaches `main`. Until it is
+tagged, `go get` gives its users a pseudo-version of `main`, which requires
+the last root release and may not build against it. Today that holds for
+`pgtest` and `mongotestv2`. `pgtest` cannot build against v0.3.0, which
+has no `postgres` package.
 
 If the run fails, its log says which step failed and what to do:
 
@@ -125,21 +136,21 @@ First check and tag:
 c=SHA-of-the-merge-commit
 git fetch origin
 git merge-base --is-ancestor "$c" origin/main && echo "on main"
-git grep -l "tophergopher/dbtest vX.Y.Z" "$c" -- '*/go.mod'  # the four modules
-for t in vX.Y.Z mongotest/vX.Y.Z mongotestv2/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z; do
+git grep -l "tophergopher/dbtest vX.Y.Z" "$c" -- '*/go.mod'  # the five modules
+for t in vX.Y.Z mongotest/vX.Y.Z mongotestv2/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z pgtest/vX.Y.Z; do
   git tag -a "$t" -m "$t" "$c"
 done
-git tag --points-at "$c"  # exactly the five tags
+git tag --points-at "$c"  # exactly the six tags
 ```
 
-Push only if the output shows that the commit is on `main`, that all four
-modules require `vX.Y.Z`, and that all five tags name the commit:
+Push only if the output shows that the commit is on `main`, that all five
+modules require `vX.Y.Z`, and that all six tags name the commit:
 
 ```sh
-git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotestv2/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z
+git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotestv2/vX.Y.Z mongotest/exporter/vX.Y.Z mobyclient/vX.Y.Z pgtest/vX.Y.Z
 ```
 
-`--atomic` pushes all five or none.
+`--atomic` pushes all six or none.
 
 ## Image copies
 
@@ -198,5 +209,5 @@ has the conventions and the local preview command.
 - The description says what changed and why, and names the issue it closes.
 - A change a user would notice adds a line to `CHANGELOG.md`, under
   "Unreleased".
-- CI must be green: `gofmt`, `go vet`, the tests of all five modules, and
+- CI must be green: `gofmt`, `go vet`, the tests of all six modules, and
   the documentation build.

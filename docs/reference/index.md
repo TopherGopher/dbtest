@@ -17,6 +17,13 @@ what exists and links to where each part is explained.
 
     `Run`, `Start`, `Attach` and `Instance`, for driver v1 and driver v2.
 
+-   :fontawesome-brands-golang:{ .lg .middle } **[pgtest](https://pkg.go.dev/github.com/tophergopher/dbtest/pgtest)**
+
+    ---
+
+    `Run`, `Start`, `Attach` and `Instance`, with a pgx pool and a
+    `*sql.DB`; see [The pgtest package](pgtest.md).
+
 -   :material-database-export:{ .lg .middle } **[exporter on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotest/exporter)**
 
     ---
@@ -72,6 +79,8 @@ The two packages export the same names. Only the driver behind them differs.
 - [The mongod package](mongod.md), which starts a container and returns its
   URI without importing a MongoDB driver.
 - [The postgres package](postgres.md), which does the same for PostgreSQL.
+- [The pgtest package](pgtest.md), which gives a test a PostgreSQL server
+  and a pgx pool and `*sql.DB` connected to it.
 - [Environment variables](environment.md) that dbtest and its Docker
   clients read.
 - [Writing a new page](writing-docs.md) for this site.

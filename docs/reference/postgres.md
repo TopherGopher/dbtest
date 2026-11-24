@@ -1,8 +1,7 @@
 ---
 title: The postgres package
 description: "Start a PostgreSQL container and get its URI, with no driver imported."
-status: changing
-tracks: ["#137"]
+status: current
 ---
 
 # The postgres package
@@ -10,7 +9,8 @@ tracks: ["#137"]
 `github.com/tophergopher/dbtest/postgres` starts a PostgreSQL container,
 waits until the server accepts logins, tells you where to connect, and
 removes the container if the process is interrupted. It is in the root
-module and imports no driver, so it adds no dependency to yours.
+module and imports no driver, so it adds no dependency to yours. For a test
+that wants a client already connected, use [pgtest](pgtest.md) instead.
 
 ```go
 --8<-- "postgres/example_test.go:start"
@@ -18,8 +18,9 @@ module and imports no driver, so it adds no dependency to yours.
 
 `Start` runs `docker.io/library/postgres:18`, publishes the server on a host
 port the daemon picks, and waits up to a minute. It labels the container
-`mongotest=regression`, the label every dbtest container carries so strays
-can be found (see [Cleaning up](#cleaning-up)). Each start gets a fresh,
+`mongotest=regression`. Every dbtest container carries this label,
+PostgreSQL's included, so one command finds strays (see
+[Cleaning up](#cleaning-up)). Each start gets a fresh,
 empty database.
 
 If your tests themselves run in a container on the same Docker daemon, the
@@ -28,13 +29,13 @@ server joins that container's network instead of taking a host port.
 
 ## Connecting
 
-Hand `URI()` to any driver:
+Hand `URI()` to any driver. With pgx:
 
-```go title="Illustration, not compiled"
-db, err := sql.Open("pgx", c.URI())      // database/sql, with github.com/jackc/pgx/v5/stdlib imported
-pool, err := pgxpool.New(ctx, c.URI())   // pgx's own pool
-db, err := sql.Open("postgres", c.URI()) // lib/pq
+```go
+--8<-- "pgtest/guides_test.go:drivers"
 ```
+
+lib/pq takes it too, with `sql.Open("postgres", c.URI())`.
 
 The URI is `postgres://postgres:<password>@<host>:<port>/postgres?sslmode=disable`.
 Because it sets every part, the `PGHOST`, `PGPASSWORD`, `PGSSLMODE` and
@@ -75,8 +76,8 @@ suite. An option beats the variable, and the variable beats the default.
 
 - A lone version, one that starts with a digit, means the official image at
   that tag: `"17"` runs `docker.io/library/postgres:17`.
-- Anything with a name is used exactly as written, with Docker's meaning, so
-  a name with no tag means `latest`: `"postgres:17-alpine"`,
+- Anything else is used as written, as Docker reads it, so a name with no
+  tag means `latest`: `"postgres:17-alpine"`,
   `"pgvector/pgvector:pg18"`, `"postgis/postgis:18-3.6"`.
 
 A second `WithImage` replaces the first. Only images built on the official
@@ -86,9 +87,11 @@ such as Bitnami's, exit at start.
 
 A start pulls an image the daemon does not have. When Docker Hub cannot
 serve an official image, because of its rate limit or an outage, the pull
-tries Amazon ECR Public's copy, and the container runs under that name.
-Call `PullImage` in `TestMain`, so the download happens before any test
-starts, and `ReapRunningContainers` after `m.Run`:
+tries Amazon ECR Public's copy, and `Image()` returns the ECR name.
+
+Call `PullImage` in `TestMain`, so the download happens once, before any
+test starts. Call `ReapRunningContainers` after `m.Run`; see
+[Cleaning up](#cleaning-up).
 
 ```go
 func TestMain(m *testing.M) {
@@ -102,7 +105,7 @@ func TestMain(m *testing.M) {
 | --- | --- |
 | `URI()` | The connection string, with the password. Keep it out of logs. |
 | `Host()`, `Port()` | The address to dial. The host is not always loopback. |
-| `Username()`, `Password()`, `Database()` | `postgres`, the password generated for this container, and `postgres`. `URI()` already includes them. |
+| `Username()`, `Password()`, `Database()` | The user `postgres`, a password generated for this container, and the database `postgres`. `URI()` already includes them. |
 | `ID()`, `Name()`, `Image()` | What was started. |
 | `Stop(ctx)` | Removes the container and its data. Safe to call twice. |
 
@@ -110,9 +113,8 @@ Printing a `Container` hides the password.
 
 ## When a start returns
 
-A start returns once the server at the URI's address answers a login with
-anything other than "starting up", so your first query does not race the
-image's setup. A start that fails removes the container it created. The
+A start returns once the server at the URI's address has finished starting
+up, so your first query does not race the image's setup. A start that fails removes the container it created. The
 error says which step failed, and matches a sentinel such as `ErrNotReady`
 or `ErrContainerExited` with `errors.Is`. When the container exits, the
 error ends with the server's last log lines.
@@ -134,13 +136,13 @@ A container left behind, for example after `SIGKILL`, carries the label, so
 one command removes it:
 
 ```sh
-docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
+docker ps -aq --filter label=mongotest=regression | xargs -r docker rm -fv
 ```
 
 ## Not here
 
-- **A connected client.** A module that returns a `*sql.DB` and a pgx pool
-  comes next, in [#137](https://github.com/TopherGopher/dbtest/issues/137).
+- **A connected client.** [pgtest](pgtest.md) returns a `*sql.DB` and a pgx
+  pool, already connected, and gives each test a database of its own.
 - **Commands and scripts.** There is no `Exec` or `RunScript`: run SQL
   through your driver. To look inside a container while a test is paused,
   run `docker exec -it <name> psql -U postgres`.

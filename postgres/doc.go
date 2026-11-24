@@ -12,7 +12,8 @@
 // to a minute until the server answers a login with anything but "starting
 // up". Each start gets a fresh, empty database, with a superuser "postgres"
 // whose password is generated for it. The package imports no driver: hand
-// [Container.URI] to whichever one you use.
+// [Container.URI] to whichever one you use. For a pgx pool and a *sql.DB
+// already connected, use github.com/tophergopher/dbtest/pgtest instead.
 //
 // # Options
 //

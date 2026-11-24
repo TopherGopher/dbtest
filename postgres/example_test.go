@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"strconv"
 	"testing"
 
@@ -111,7 +110,8 @@ func ExampleOptions_WithImage_mistake() {
 }
 
 // Pull the image in TestMain, so the download happens once, before any test
-// starts, and remove whatever the tests left running afterwards. This
+// starts, and remove whatever the tests left running afterwards. TestMain
+// returns rather than calling os.Exit, so deferred calls still run. This
 // example is compiled but not run, because it talks to a real Docker daemon.
 func ExamplePullImage() {
 	var m *testing.M // TestMain's argument
@@ -120,10 +120,9 @@ func ExamplePullImage() {
 	if err := postgres.PullImage(ctx, postgres.DefaultOptions()); err != nil {
 		log.Fatal(err)
 	}
-	code := m.Run()
+	m.Run()
 	if err := postgres.ReapRunningContainers(ctx); err != nil {
 		log.Print(err)
 	}
-	os.Exit(code)
 	// --8<-- [end:test-main]
 }
