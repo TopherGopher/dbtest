@@ -151,6 +151,9 @@ func (e *StatusError) Hint() string {
 	if e.Is(ErrRateLimited) {
 		return rateLimitHint
 	}
+	if hint := e.requestHint(); hint != "" {
+		return hint
+	}
 	switch e.StatusCode {
 	case http.StatusBadRequest:
 		return "The daemon considered the request malformed; the message names the field to fix"
@@ -164,6 +167,21 @@ func (e *StatusError) Hint() string {
 		return "The daemon, or a registry it asked, failed; retry, and if it persists check the daemon's logs (journalctl -u docker, or Docker Desktop's Troubleshoot view)"
 	case http.StatusServiceUnavailable:
 		return "The daemon is not ready yet; wait a moment and retry"
+	}
+	return ""
+}
+
+// requestHint is the advice for a status that has one likely cause on this
+// request, where the status code's own advice names causes that cannot
+// apply, or "" if there is none.
+func (e *StatusError) requestHint() string {
+	switch {
+	case e.StatusCode == http.StatusNotFound && e.Path == "/images/create":
+		return "The registry has no such image or tag; check the image's name and the tags its registry lists, " +
+			"which Docker Hub shows at hub.docker.com/_/<name> for an official image such as postgres or mongo"
+	case e.StatusCode == http.StatusConflict && e.Path == "/containers/create":
+		return "A container already has this name, perhaps one a killed test left behind; " +
+			"remove it with `docker rm -f <name>`, or pick another name"
 	}
 	return ""
 }

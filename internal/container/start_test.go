@@ -73,6 +73,24 @@ func TestAStartNeedsNoHooks(t *testing.T) {
 	assert.Equal(t, container.Endpoint{Host: "127.0.0.1", Port: hostPort}, reached, "the start returns the host and the published port")
 }
 
+// Every container carries the label the cleanup command finds, whatever the
+// image's package asked for, so no package can forget it.
+func TestEveryContainerCarriesTheSharedLabel(t *testing.T) {
+	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return inspected(""), nil })
+	s := spec(time.Second)
+	s.Request.Labels = map[string]string{"team": "orders"}
+
+	_, err := newContainer(m).Start(t.Context(), s)
+
+	require.NoError(t, err, "the start succeeds")
+	calls := m.CallsTo("ContainerCreate")
+	require.Len(t, calls, 1, "one container is created")
+	request, _ := calls[0].Args[1].(dockerclient.ContainerConfig)
+	assert.Equal(t, container.LabelValue, request.Labels[container.LabelKey], "the shared label is added")
+	assert.Equal(t, "orders", request.Labels["team"], "beside the package's own")
+	assert.NotContains(t, s.Request.Labels, container.LabelKey, "without changing the caller's map")
+}
+
 // onNetwork is what the daemon reports for a running container on network,
 // with nothing published.
 func onNetwork(network, address string) dockerclient.ContainerInspect {

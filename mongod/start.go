@@ -9,6 +9,7 @@ import (
 	"github.com/tophergopher/dbtest/dockerapi"
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/internal/container"
+	"github.com/tophergopher/dbtest/internal/hostaddr"
 	"github.com/tophergopher/dbtest/internal/reaper"
 )
 
@@ -41,14 +42,14 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 		return nil, err
 	}
 	cfg = cfg.withCredentialsIfExposed(r)
-	cfg.hostSource, cfg.network, cfg.publishHost = r.source, r.network, r.publishHost
+	cfg.hostSource, cfg.network, cfg.publishHost = r.Source, r.Network, r.PublishHost
 	cfg.announceExposure(r)
 
-	certs, err := cfg.certificatesFor(r.host)
+	certs, err := cfg.certificatesFor(r.Host)
 	if err != nil {
 		return nil, err
 	}
-	c := newContainer(r.host, cfg, docker, certs)
+	c := newContainer(r.Host, cfg, docker, certs)
 	reached, err := c.ctr.Start(ctx, c.spec(cfg, r))
 	if err != nil {
 		return nil, err
@@ -109,9 +110,9 @@ func PullImage(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// ReapRunningContainers removes every container Start created in this
-// process that has not been stopped. Call it after m.Run in TestMain so a
-// run leaves nothing behind. After [DisableSignalHandler], it is the only
+// ReapRunningContainers removes every container this module started in this
+// process that has not been stopped, PostgreSQL's included. Call it after
+// m.Run in TestMain so a run leaves nothing behind. After [DisableSignalHandler], it is the only
 // thing that removes a container nobody stopped.
 //
 // Every removal is attempted, all at the same time, even if one fails. The
@@ -126,17 +127,18 @@ func PullImage(ctx context.Context, opts Options) error {
 //	}
 func ReapRunningContainers(ctx context.Context) error { return reaper.Reap(ctx) }
 
-// DisableSignalHandler stops this package from removing containers on
+// DisableSignalHandler stops this module from removing containers on
 // SIGINT or SIGTERM and then ending the process, which would skip a
 // program's own shutdown. Call it before the first Start, such as at the top
-// of main. It applies to every container, for the rest of the process, so
-// call [ReapRunningContainers] from your own shutdown or they are left
-// running.
+// of main. It applies to every container this module starts, PostgreSQL's
+// included, for the rest of the process, so call [ReapRunningContainers]
+// from your own shutdown or they are left running.
 func DisableSignalHandler() { reaper.Disable() }
 
 // SetMaxConcurrentStarts sets how many containers this process may be
 // starting at once, in total rather than per CPU, and returns the previous
-// limit. A value below 1 restores the default, 8 per CPU.
+// limit. The limit covers every container this module starts, PostgreSQL's
+// included. A value below 1 restores the default, 8 per CPU.
 //
 // A start counts against the limit until it returns, so the limit caps how
 // many containers are starting, not how many are running. A start beyond
@@ -185,9 +187,9 @@ func (c *Container) startError(op string, err error) error {
 }
 
 // spec fills in the generic start for mongod.
-func (c *Container) spec(cfg config, r reach) container.Spec {
+func (c *Container) spec(cfg config, r hostaddr.Reach) container.Spec {
 	return container.Spec{
-		Request: cfg.containerConfig(r), Port: mongoPort, Network: r.network, NetworkPort: cfg.portOnNetwork(),
+		Request: cfg.containerConfig(r), Port: mongoPort, Network: r.Network, NetworkPort: cfg.portOnNetwork(),
 		Host: c.host, HostSource: cfg.hostSource, GeneratedName: cfg.generatedName,
 		StartTimeout: cfg.startTimeout,
 		Pull:         c.pullFor(cfg),

@@ -18,13 +18,21 @@ go get github.com/tophergopher/dbtest/mongotestv2  # if you use go.mongodb.org/m
 Starting a new project with no driver yet? Use `mongotestv2`: driver v1 is
 in maintenance.
 
+For PostgreSQL, add the root module and import its
+[`postgres`](../reference/postgres.md) package. It returns a connection
+string for any driver, such as pgx or lib/pq, and adds no dependency:
+
+```sh
+go get github.com/tophergopher/dbtest
+```
+
 Each module is separate, so you download only what you use:
 
 | Module | Use it for |
 | --- | --- |
 | `github.com/tophergopher/dbtest/mongotest` | Tests on driver v1, v1.17.10 or later. `mongotest.Run(t)` returns a connected client. |
 | `github.com/tophergopher/dbtest/mongotestv2` | Tests on driver v2, v2.10.0 or later. Same API as `mongotest`: `mongotestv2.Run(t)` returns a connected v2 client. |
-| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) package, which starts MongoDB without importing a driver, and the Docker client packages. `mongotest` and `mongotestv2` require it, so you rarely add it yourself. |
+| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) and [`postgres`](../reference/postgres.md) packages, which start MongoDB and PostgreSQL without importing a driver, and the Docker client packages. `mongotest` and `mongotestv2` require it, so a MongoDB user rarely adds it. |
 | `github.com/tophergopher/dbtest/mobyclient` | Code that already uses Docker's Go client, moby, and wants dbtest to share it. See [`mobyclient`](../docker-clients/mobyclient.md). |
 | `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. It takes a connection string, so it works with either driver. See [Exporting data](../guides/exporting-data.md). |
 
@@ -102,7 +110,9 @@ func TestMain(m *testing.M) {
 
 It pulls the image the tests would use, including one set by
 `MONGOTEST_IMAGE`, and does nothing if the daemon already has it; see
-[Which image](../reference/mongod.md#which-image).
+[Which image](../reference/mongod.md#which-image). For PostgreSQL, call
+`postgres.PullImage` the same way; see
+[The postgres package](../reference/postgres.md#which-image).
 
 ## Check the installation
 

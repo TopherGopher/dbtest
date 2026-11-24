@@ -178,6 +178,20 @@ func TestAContextThatHasAlreadyEndedStartsNothing(t *testing.T) {
 	assert.Empty(t, m.CallsTo("ContainerCreate"), "no container was created, though a slot was free")
 }
 
+// A context that had ended before the start was called was not ended by a
+// wait for a turn, so the error must not send the caller to the limit.
+func TestAContextThatHasAlreadyEndedDoesNotBlameTheLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := newContainer(readyDaemon()).Start(ctx, spec(time.Minute))
+
+	var notReady *container.NotReadyError
+	require.ErrorAs(t, err, &notReady, "the start ends not ready")
+	assert.True(t, notReady.ContextEnded, "because the caller's context ended")
+	assert.NoError(t, notReady.LastErr, "and nothing else went wrong: no turn was waited for")
+}
+
 // A start that runs out of time while other starts filled the limit may
 // have been slowed by them, so the image's package is told, to advise fewer
 // at once rather than a wrong address. The error counts every start.

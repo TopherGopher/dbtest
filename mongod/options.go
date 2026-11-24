@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tophergopher/dbtest/dockerclient"
+	"github.com/tophergopher/dbtest/internal/container"
 	"github.com/tophergopher/dbtest/internal/hostaddr"
 )
 
@@ -39,8 +40,8 @@ const (
 	// package starts, so a stray one can be found and removed:
 	//
 	//	docker rm -fv $(docker ps -aq --filter label=mongotest=regression)
-	RequiredLabelKey   = "mongotest"
-	RequiredLabelValue = "regression"
+	RequiredLabelKey   = container.LabelKey
+	RequiredLabelValue = container.LabelValue
 
 	// mongoPort is the port mongod listens on inside the container.
 	mongoPort = "27017/tcp"
@@ -334,7 +335,7 @@ func newConfig(opts Options) (config, error) {
 	if opts.err != nil {
 		return config{}, opts.err
 	}
-	c := config{Options: opts.WithLabel(RequiredLabelKey, RequiredLabelValue)}
+	c := config{Options: opts}
 	if c.name == "" {
 		c.name, c.generatedName = namePrefix+randomHex(nameRandomBytes), true
 	}

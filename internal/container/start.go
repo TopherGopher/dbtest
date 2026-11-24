@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -86,12 +87,18 @@ type Endpoint struct {
 // return. That wait counts against ctx; the start timeout begins once it is
 // over.
 func (c *Container) Start(ctx context.Context, spec Spec) (Endpoint, error) {
+	spec.Request.Labels = withSharedLabel(spec.Request.Labels)
 	s := &start{c: c, spec: spec, ref: spec.Request.Image, host: spec.Host}
+	// A context that had already ended was not ended by a wait for a turn.
+	var lastErr error
+	if ctx.Err() == nil {
+		lastErr = errWaitingForTurn
+	}
 	slots, release, err := takeSlot(ctx)
 	s.slots = slots
 	if err != nil {
 		s.c.forget()
-		return Endpoint{}, s.notReady(ctx, err, errWaitingForTurn)
+		return Endpoint{}, s.notReady(ctx, err, lastErr)
 	}
 	defer release()
 	deadline, err := s.create(ctx)
@@ -104,6 +111,15 @@ func (c *Container) Start(ctx context.Context, spec Spec) (Endpoint, error) {
 	}
 	c.setBeforeRemove(spec.BeforeRemove)
 	return Endpoint{Host: s.host, Port: s.port}, nil
+}
+
+// withSharedLabel returns a copy of labels with LabelKey added, so every
+// container can be found by the one cleanup command.
+func withSharedLabel(labels map[string]string) map[string]string {
+	out := make(map[string]string, len(labels)+1)
+	maps.Copy(out, labels)
+	out[LabelKey] = LabelValue
+	return out
 }
 
 // start is one start's progress.

@@ -39,7 +39,9 @@ the containers are being removed stops the process at once.
 The process exits even if the program installed a handler of its own, so its
 own shutdown never runs. A program that handles these signals itself calls
 `mongod.DisableSignalHandler()` before the first container starts, then
-removes the containers from its shutdown with `ReapRunningContainers`.
+removes the containers from its shutdown with `ReapRunningContainers`. The
+`postgres` package has the same two functions, and either package's act on
+every container dbtest starts, MongoDB's and PostgreSQL's alike.
 
 You can remove the same containers yourself, for instance from a `TestMain`.
 `mongod.ReapRunningContainers` returns an error naming any container it could
