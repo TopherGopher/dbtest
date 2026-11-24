@@ -6,6 +6,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // Sentinels for a start that failed. Image packages re-export them under
@@ -62,6 +64,26 @@ func (e *UnpublishedPortError) Error() string {
 }
 
 func (e *UnpublishedPortError) Is(target error) bool { return target == ErrNoPublishedPort }
+
+// noNetworkAddressError reports a started container with no address on the
+// network it was asked to join. A real daemon always gives it one, so the
+// likely cause is a Docker client that does not pass the network on or
+// report it back. It matches dockerclient.ErrDaemonResponse.
+type noNetworkAddressError struct {
+	network, name, id string
+}
+
+func (e *noNetworkAddressError) Error() string {
+	return fmt.Sprintf("container %s (%s) has no IPv4 address on network %s, which it was asked to join. "+
+		"If you pass your own Docker client with WithDocker, check that it sends HostConfig.NetworkMode on create "+
+		"and reports NetworkSettings.Networks on inspect. Or publish the port instead: "+
+		"set WithHostIP or DBTEST_HOST_IP to the Docker host's address",
+		e.name, ShortID(e.id), e.network)
+}
+
+func (e *noNetworkAddressError) Is(target error) bool {
+	return target == dockerclient.ErrDaemonResponse
+}
 
 // NotReadyError reports that the container was not ready in time. It
 // matches ErrNotReady, the context error that ended the start, and the last

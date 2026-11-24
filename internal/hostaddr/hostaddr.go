@@ -60,6 +60,8 @@ type Address struct {
 	Host string
 	// Source reads naturally after "the address came from".
 	Source string
+	// Chosen says the caller set it, with WithHostIP or EnvHostIP.
+	Chosen bool
 }
 
 // Resolve returns where a port published by the daemon at dockerHost can be
@@ -173,10 +175,10 @@ func newResolver(dockerHost, override string) hostResolver {
 // variable, then wherever the daemon is.
 func (r hostResolver) resolve() (Address, error) {
 	if r.override != "" {
-		return Address{Host: r.override, Source: "WithHostIP"}, nil
+		return Address{Host: r.override, Source: "WithHostIP", Chosen: true}, nil
 	}
 	if fromEnv := r.getenv(EnvHostIP); fromEnv != "" {
-		return Address{Host: fromEnv, Source: EnvHostIP}, nil
+		return Address{Host: fromEnv, Source: EnvHostIP, Chosen: true}, nil
 	}
 	scheme, hostPart := splitDockerHost(r.dockerHost)
 	switch scheme {

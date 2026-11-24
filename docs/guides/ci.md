@@ -91,9 +91,8 @@ func startMongo(t *testing.T) *mongotest.Instance {
 
     Use a runner with the Docker socket mounted, or the shell executor on a
     host that runs Docker. Docker-in-Docker (`docker:dind` as a service)
-    should work: dbtest dials the daemon's host, as
-    [Remote and nested daemons](remote-daemons.md) explains. Proving it in CI
-    is [#52](https://github.com/TopherGopher/dbtest/issues/52).
+    works too: dbtest dials the daemon's host. See
+    [Remote and nested daemons](remote-daemons.md).
 
     ```yaml
     test:

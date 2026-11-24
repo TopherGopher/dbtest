@@ -8,8 +8,8 @@
 //
 //	client, err := mongo.Connect(options.Client().ApplyURI(c.URI()))
 //
-// That runs docker.io/library/mongo:8.0, the official image, on a host port
-// the daemon chooses and waits up to a minute for mongod. The package imports no MongoDB driver: hand
+// That runs docker.io/library/mongo:8.0, the official image, and waits up to
+// a minute for mongod. The package imports no MongoDB driver: hand
 // [Container.URI] to whichever one you use, and with [Options.WithTLS] also
 // [Container.TLSConfig].
 //
@@ -64,8 +64,8 @@
 //
 // An image pulled from a mirror keeps the mirror's name, such as
 // public.ecr.aws/docker/library/mongo:8.0. The container runs under that
-// name, and [Container.Image] returns it. To be sure a mirror serves exactly
-// the content you expect, name the image by digest.
+// name, and [Container.Image] returns it. The mirrors serve the same image
+// as Docker Hub, so the tag is enough.
 //
 // After a rate limit refuses a pull from Docker Hub or a mirror, that
 // registry is skipped for five minutes; a pull with nowhere else to go fails
@@ -96,19 +96,22 @@
 //
 // # Where to connect
 //
-// The published port is on the machine the daemon runs on, which is not
-// always this one. A start works the address out: a remote daemon's host,
-// loopback for a local one, or the gateway when this process is itself in a
-// container. [Options.WithHostIP] lists the order, and overrides it for a
-// network the detection gets wrong.
+// mongod is not always reachable at loopback. A start dials the first of
+// these that applies: mongod's address on the network of this process's
+// container, with nothing published; or a port the daemon publishes, on a
+// remote daemon's host, on loopback for a local daemon, or at the default
+// gateway. [Options.WithHostIP] lists the rules, and overrides them when the
+// detection is wrong.
 //
 // # Who can connect
 //
-// A local container is published on 127.0.0.1 only, and mongod runs without
-// authentication. Any other address needs the port published on every
-// interface, so the start creates a root user, "mongotest", with a random
-// password. [Container.URI] includes the credentials when there are any, so
-// a test that takes its URI from the container runs unchanged in both places.
+// A container published on 127.0.0.1 runs mongod without authentication,
+// because only this machine can reach it. When its port is published on
+// every interface, or it joins a network shared with this process's
+// container, others can reach it, so the start creates a root user,
+// "mongotest", with a random password. [Container.URI] includes
+// the credentials when there are any, so a test that takes its URI from the
+// container runs unchanged either way.
 //
 //	mongod.DefaultOptions().WithAuth("admin", "secret")   // always these
 //	mongod.DefaultOptions().WithoutAuth()                 // never any

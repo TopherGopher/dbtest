@@ -88,6 +88,9 @@ func (s ContainerState) clone() ContainerState {
 
 type fakeContainer struct {
 	state ContainerState
+	// networkMode is copied at create, so that a caller who changes its
+	// request afterwards does not move the container.
+	networkMode string
 }
 
 type fakeExec struct {
@@ -226,7 +229,11 @@ func (f *Fake) ContainerCreate(ctx context.Context, name string, cfg dockerclien
 			}
 		}
 	}
-	f.containers[id] = &fakeContainer{state: ContainerState{
+	mode := ""
+	if cfg.HostConfig != nil {
+		mode = cfg.HostConfig.NetworkMode
+	}
+	f.containers[id] = &fakeContainer{networkMode: mode, state: ContainerState{
 		ID: id, Name: "/" + name, Config: cfg, Ports: ports, Files: map[string][]byte{},
 	}}
 	return id, nil, nil
@@ -289,8 +296,29 @@ func (f *Fake) ContainerInspect(ctx context.Context, id string) (dockerclient.Co
 		Name:            c.state.Name,
 		State:           state,
 		Config:          dockerclient.InspectedConfig{Image: c.state.Config.Image, Labels: c.state.Config.Labels},
-		NetworkSettings: dockerclient.NetworkSettings{Ports: c.state.Ports},
+		NetworkSettings: dockerclient.NetworkSettings{Ports: c.state.Ports, Networks: c.networks()},
 	}, nil
+}
+
+// networks reports the networks a container's NetworkMode puts it on, as a
+// daemon does. Only a running container has an address, which is made from
+// its id so that each container's differs.
+func (c *fakeContainer) networks() map[string]dockerclient.NetworkEndpoint {
+	mode := c.networkMode
+	subnet := "172.18.0."
+	switch {
+	case mode == "" || mode == "bridge":
+		mode, subnet = "bridge", "172.17.0."
+	case strings.HasPrefix(mode, "container:"):
+		return nil // it shares another container's network stack
+	case mode == "host" || mode == "none":
+		return map[string]dockerclient.NetworkEndpoint{mode: {}}
+	}
+	if !c.state.Running {
+		return map[string]dockerclient.NetworkEndpoint{mode: {}}
+	}
+	n, _ := strconv.Atoi(strings.TrimPrefix(c.state.ID, "fake"))
+	return map[string]dockerclient.NetworkEndpoint{mode: {IPAddress: subnet + strconv.Itoa(2+n%250)}}
 }
 
 func (f *Fake) ContainerLogsTo(ctx context.Context, id string, stdout, stderr io.Writer) error {

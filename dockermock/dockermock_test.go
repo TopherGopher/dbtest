@@ -146,6 +146,22 @@ func TestFakeAssignsHostPorts(t *testing.T) {
 		"two containers must not be given the same host port, or parallel tests would collide")
 }
 
+func TestFakeKeepsTheNetworkAContainerWasCreatedOn(t *testing.T) {
+	f := dockermock.NewFake(dockermock.WithImages("mongo:8"))
+	ctx := context.Background()
+	hostConfig := &dockerclient.HostConfig{NetworkMode: "ci-net"}
+	id, _, err := f.ContainerCreate(ctx, "", dockerclient.ContainerConfig{Image: "mongo:8", HostConfig: hostConfig})
+	require.NoError(t, err, "create on a network")
+	require.NoError(t, f.ContainerStart(ctx, id), "start")
+
+	hostConfig.NetworkMode = "other-net" // a caller reusing its request
+	info, err := f.ContainerInspect(ctx, id)
+
+	require.NoError(t, err, "inspect")
+	assert.Contains(t, info.NetworkSettings.Networks, "ci-net", "a container stays on the network it was created on, as with a daemon")
+	assert.NotContains(t, info.NetworkSettings.Networks, "other-net", "a later change to the request does not move it")
+}
+
 func TestFakePullFuncCanFail(t *testing.T) {
 	f := dockermock.NewFake()
 	f.PullFunc = func(ref string) error {

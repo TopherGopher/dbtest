@@ -3,6 +3,7 @@ package mongod_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -195,6 +196,16 @@ func commandName(document []byte) string {
 // mongod answered it with ok.
 func askHello(address string) error {
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return helloOn(conn)
+}
+
+// askHelloTLS is askHello over TLS.
+func askHelloTLS(address string, config *tls.Config) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 2 * time.Second}, "tcp", address, config)
 	if err != nil {
 		return err
 	}

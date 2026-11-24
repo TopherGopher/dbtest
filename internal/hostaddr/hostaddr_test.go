@@ -41,33 +41,34 @@ func TestWhereAContainerIsReached(t *testing.T) {
 		name     string
 		resolver hostResolver
 		want     string
+		chosen   bool
 	}{
 		{"WithHostIP wins over everything",
-			hostResolver{dockerHost: "tcp://build-host:2376", override: "10.0.0.5", getenv: func(string) string { return "10.9.9.9" }}, "10.0.0.5"},
+			hostResolver{dockerHost: "tcp://build-host:2376", override: "10.0.0.5", getenv: func(string) string { return "10.9.9.9" }}, "10.0.0.5", true},
 		{"then the environment variable",
-			hostResolver{dockerHost: "tcp://build-host:2376", getenv: func(string) string { return "10.9.9.9" }}, "10.9.9.9"},
+			hostResolver{dockerHost: "tcp://build-host:2376", getenv: func(string) string { return "10.9.9.9" }}, "10.9.9.9", true},
 		{"a remote daemon publishes on its own host",
-			hostResolver{dockerHost: "tcp://build-host:2376", getenv: noEnv}, "build-host"},
+			hostResolver{dockerHost: "tcp://build-host:2376", getenv: noEnv}, "build-host", false},
 		{"an ssh daemon, without the user",
-			hostResolver{dockerHost: "ssh://deploy@build-host", getenv: noEnv}, "build-host"},
+			hostResolver{dockerHost: "ssh://deploy@build-host", getenv: noEnv}, "build-host", false},
 		{"an http daemon, without the path",
-			hostResolver{dockerHost: "http://build-host:2375/v1", getenv: noEnv}, "build-host"},
+			hostResolver{dockerHost: "http://build-host:2375/v1", getenv: noEnv}, "build-host", false},
 		{"an https daemon",
-			hostResolver{dockerHost: "https://build-host:2376", getenv: noEnv}, "build-host"},
+			hostResolver{dockerHost: "https://build-host:2376", getenv: noEnv}, "build-host", false},
 		{"a scheme in upper case",
-			hostResolver{dockerHost: "TCP://build-host:2376", getenv: noEnv}, "build-host"},
+			hostResolver{dockerHost: "TCP://build-host:2376", getenv: noEnv}, "build-host", false},
 		{"an IPv6 daemon, without the brackets",
-			hostResolver{dockerHost: "tcp://[fd00::1]:2376", getenv: noEnv}, "fd00::1"},
+			hostResolver{dockerHost: "tcp://[fd00::1]:2376", getenv: noEnv}, "fd00::1", false},
 		{"a daemon bound to every interface is this machine",
-			hostResolver{dockerHost: "tcp://0.0.0.0:2375", getenv: noEnv}, "127.0.0.1"},
+			hostResolver{dockerHost: "tcp://0.0.0.0:2375", getenv: noEnv}, "127.0.0.1", false},
 		{"a local daemon, from the host",
-			hostResolver{dockerHost: socket, getenv: noEnv, detect: onAHost}, "127.0.0.1"},
+			hostResolver{dockerHost: socket, getenv: noEnv, detect: onAHost}, "127.0.0.1", false},
 		{"a local daemon, from a container on the host's network",
-			hostResolver{dockerHost: socket, getenv: noEnv, detect: inAContainer, bridge: bridgeVisible, gateway: gatewayAt("192.168.2.1")}, "127.0.0.1"},
+			hostResolver{dockerHost: socket, getenv: noEnv, detect: inAContainer, bridge: bridgeVisible, gateway: gatewayAt("192.168.2.1")}, "127.0.0.1", false},
 		{"a local daemon, from a container with its own network",
-			hostResolver{dockerHost: socket, getenv: noEnv, detect: inAContainer, bridge: noBridge, gateway: gatewayAt("172.17.0.1")}, "172.17.0.1"},
+			hostResolver{dockerHost: socket, getenv: noEnv, detect: inAContainer, bridge: noBridge, gateway: gatewayAt("172.17.0.1")}, "172.17.0.1", false},
 		{"a daemon address with no scheme, as a test double has",
-			hostResolver{dockerHost: "mock", getenv: noEnv, detect: onAHost}, "127.0.0.1"},
+			hostResolver{dockerHost: "mock", getenv: noEnv, detect: onAHost}, "127.0.0.1", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,6 +77,7 @@ func TestWhereAContainerIsReached(t *testing.T) {
 			require.NoError(t, err, "the address can be worked out")
 			assert.Equal(t, tc.want, got.Host, "the address to dial")
 			assert.NotEmpty(t, got.Source, "and what chose it, for the error a failed start returns")
+			assert.Equal(t, tc.chosen, got.Chosen, "only WithHostIP and the variable count as the caller's choice")
 		})
 	}
 }

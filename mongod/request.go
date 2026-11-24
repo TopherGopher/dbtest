@@ -8,23 +8,32 @@ import (
 	"github.com/tophergopher/dbtest/internal/hostaddr"
 )
 
-// containerConfig builds the create request. host is the address the caller
-// will dial, which decides the interface the port is published on.
-func (c config) containerConfig(host string) dockerclient.ContainerConfig {
-	publishOn := "" // empty asks the daemon to choose the port
-	if c.port != 0 {
-		publishOn = strconv.Itoa(c.port)
-	}
+// containerConfig builds the create request for how mongod will be
+// reached.
+func (c config) containerConfig(r reach) dockerclient.ContainerConfig {
 	return dockerclient.ContainerConfig{
 		Image:        c.image.Reference(),
 		Cmd:          c.command(),
 		Env:          c.credentialEnv(),
 		Labels:       maps.Clone(c.labels),
 		ExposedPorts: map[string]struct{}{mongoPort: {}},
-		HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
-			mongoPort: {{HostIP: hostaddr.BindIP(host), HostPort: publishOn}},
-		}},
+		HostConfig:   c.hostConfig(r),
 	}
+}
+
+// hostConfig puts the container on the shared network, or publishes its
+// port on the interface that the address to dial needs.
+func (c config) hostConfig(r reach) *dockerclient.HostConfig {
+	if r.shared() {
+		return &dockerclient.HostConfig{NetworkMode: r.network}
+	}
+	publishOn := "" // empty asks the daemon to choose the port
+	if c.port != 0 {
+		publishOn = strconv.Itoa(c.port)
+	}
+	return &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
+		mongoPort: {{HostIP: hostaddr.BindIP(r.host), HostPort: publishOn}},
+	}}
 }
 
 // command returns the mongod flags. The image's entrypoint supplies the
@@ -73,37 +82,41 @@ func (c config) credentialEnv() []string {
 }
 
 // withCredentialsIfExposed generates a root user when the caller chose none
-// and the port is about to be published where other machines can reach it.
-func (c config) withCredentialsIfExposed(host string) config {
-	if !c.needsGeneratedCredentials(host) {
+// and more than this process will be able to connect.
+func (c config) withCredentialsIfExposed(r reach) config {
+	if !c.needsGeneratedCredentials(r) {
 		return c
 	}
 	c.username, c.password = DefaultUsername, randomHex(secretRandomBytes)
 	return c
 }
 
-// announceExposure logs that other machines will be able to reach mongod.
-// The same call is loopback-only on a laptop, so the change is worth saying.
-func (c config) announceExposure(host string) {
-	if hostaddr.BindIP(host) != hostaddr.AllInterfaces {
+// announceExposure logs that more than this process will be able to reach
+// mongod. The same call is loopback-only on a laptop, so the change is worth
+// saying.
+func (c config) announceExposure(r reach) {
+	if !r.exposed() {
 		return
+	}
+	attrs := []any{"container", c.name}
+	if r.shared() {
+		attrs = append(attrs, "network", r.network)
 	}
 	if c.noAuth {
-		c.logger.Warn("This mongod has no password, and its port is open on every network interface of the Docker host. "+
-			"Anyone who can reach that host can read and change its data. Leave out WithoutAuth unless you trust the network.",
-			"container", c.name)
+		c.logger.Warn("This mongod has no password, and "+r.where()+". "+
+			"Anyone who can reach it can read and change its data. Leave out WithoutAuth unless you trust the network.",
+			attrs...)
 		return
 	}
-	c.logger.Info("This mongod's port is open on every network interface of the Docker host, because it is reached from another machine or container. "+
-		"It asks for a username and password, which Container.URI() includes.",
-		"container", c.name, "username", c.username)
+	c.logger.Info("This mongod asks for a username and password because "+r.where()+". Container.URI() includes them.",
+		append(attrs, "username", c.username)...)
 }
 
 // needsGeneratedCredentials reports whether the caller chose neither
-// credentials nor WithoutAuth, and the port will be on every interface.
-func (c config) needsGeneratedCredentials(host string) bool {
+// credentials nor WithoutAuth, and more than this process can connect.
+func (c config) needsGeneratedCredentials(r reach) bool {
 	chosen := c.noAuth || c.username != ""
-	return !chosen && hostaddr.BindIP(host) == hostaddr.AllInterfaces
+	return !chosen && r.exposed()
 }
 
 // needsKeyFile reports whether mongod must be given a key file: a replica

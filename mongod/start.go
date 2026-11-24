@@ -7,7 +7,6 @@ import (
 	"github.com/tophergopher/dbtest/dockerapi"
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/internal/container"
-	"github.com/tophergopher/dbtest/internal/hostaddr"
 	"github.com/tophergopher/dbtest/internal/reaper"
 )
 
@@ -31,27 +30,25 @@ func StartWithOptions(ctx context.Context, opts Options) (*Container, error) {
 	}
 	// Worked out before anything is created, so failing to leaves no
 	// container behind.
-	address, err := hostaddr.Resolve(docker.Host(), cfg.hostIP)
+	r, err := cfg.reach(ctx, docker)
 	if err != nil {
 		return nil, err
 	}
-	// The host decides which interface the port is published on, and so
-	// whether the container needs credentials.
-	host := address.Host
-	cfg = cfg.withCredentialsIfExposed(host)
-	cfg.hostSource = address.Source
-	cfg.announceExposure(host)
+	// Who else can connect decides whether the container needs credentials.
+	cfg = cfg.withCredentialsIfExposed(r)
+	cfg.hostSource, cfg.network, cfg.publishHost = r.source, r.network, r.publishHost
+	cfg.announceExposure(r)
 
-	certs, err := cfg.certificatesFor(host)
+	certs, err := cfg.certificatesFor(r.host)
 	if err != nil {
 		return nil, err
 	}
-	c := newContainer(host, cfg, docker, certs)
-	port, err := c.ctr.Start(ctx, c.spec(cfg))
-	c.port = port
+	c := newContainer(r.host, cfg, docker, certs)
+	reached, err := c.ctr.Start(ctx, c.spec(cfg, r))
 	if err != nil {
 		return nil, err
 	}
+	c.host, c.port = reached.Host, reached.Port
 	c.logger.Info(c.readyMessage(), "container", c.Name(), "id", container.ShortID(c.ID()), "uri", c.uri(redactedPassword))
 	return c, nil
 }
@@ -175,9 +172,9 @@ func (c *Container) startError(op string, err error) error {
 }
 
 // spec fills in the generic start for mongod.
-func (c *Container) spec(cfg config) container.Spec {
+func (c *Container) spec(cfg config, r reach) container.Spec {
 	return container.Spec{
-		Request: cfg.containerConfig(c.host), Port: mongoPort,
+		Request: cfg.containerConfig(r), Port: mongoPort, Network: r.network, NetworkPort: cfg.portOnNetwork(),
 		Host: c.host, HostSource: cfg.hostSource, GeneratedName: cfg.generatedName,
 		StartTimeout: cfg.startTimeout,
 		Pull:         c.pullFor(cfg),
@@ -225,12 +222,12 @@ func (c *Container) beforeStart(cfg config) func(context.Context, string, string
 	}
 }
 
-// ready asks mongod, through the published port, whether it is serving and
-// whether it enforces the credentials the container was created with.
-func (c *Container) ready(cfg config) func(context.Context, int) error {
-	return func(ctx context.Context, port int) error {
+// ready asks mongod, where the caller will connect, whether it is serving
+// and whether it enforces the credentials the container was created with.
+func (c *Container) ready(cfg config) func(context.Context, string, int) error {
+	return func(ctx context.Context, host string, port int) error {
 		probe := readyProbe{
-			name: c.Name(), id: c.ID(), host: c.host, port: port,
+			name: c.Name(), id: c.ID(), host: host, port: port,
 			requireAuth: cfg.username != "",
 			tlsConfig:   c.probeTLSConfig(),
 		}

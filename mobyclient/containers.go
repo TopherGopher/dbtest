@@ -141,7 +141,10 @@ func toMobyConfig(cfg dockerclient.ContainerConfig) (*container.Config, *contain
 	if cfg.HostConfig == nil {
 		return mcfg, nil, nil
 	}
-	hostCfg := &container.HostConfig{AutoRemove: cfg.HostConfig.AutoRemove}
+	hostCfg := &container.HostConfig{
+		AutoRemove:  cfg.HostConfig.AutoRemove,
+		NetworkMode: container.NetworkMode(cfg.HostConfig.NetworkMode),
+	}
 	if len(cfg.HostConfig.PortBindings) > 0 {
 		pm := make(network.PortMap, len(cfg.HostConfig.PortBindings))
 		for k, bindings := range cfg.HostConfig.PortBindings {
@@ -187,7 +190,28 @@ func toDockerclientInspect(ci container.InspectResponse) dockerclient.ContainerI
 		out.Config = dockerclient.InspectedConfig{Image: ci.Config.Image, Labels: ci.Config.Labels}
 	}
 	if ci.NetworkSettings != nil {
-		out.NetworkSettings = dockerclient.NetworkSettings{Ports: toDockerclientPorts(ci.NetworkSettings.Ports)}
+		out.NetworkSettings = dockerclient.NetworkSettings{
+			Ports:    toDockerclientPorts(ci.NetworkSettings.Ports),
+			Networks: toDockerclientNetworks(ci.NetworkSettings.Networks),
+		}
+	}
+	return out
+}
+
+// toDockerclientNetworks translates the moby client's per-network endpoints
+// into the shape dockerclient.NetworkSettings uses. An address that is not
+// valid, as on the host network, becomes "".
+func toDockerclientNetworks(networks map[string]*network.EndpointSettings) map[string]dockerclient.NetworkEndpoint {
+	if len(networks) == 0 {
+		return nil
+	}
+	out := make(map[string]dockerclient.NetworkEndpoint, len(networks))
+	for name, endpoint := range networks {
+		var ip string
+		if endpoint != nil && endpoint.IPAddress.IsValid() {
+			ip = endpoint.IPAddress.String()
+		}
+		out[name] = dockerclient.NetworkEndpoint{IPAddress: ip}
 	}
 	return out
 }

@@ -5,6 +5,36 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Tests in a container reach mongod on their own network
+
+- **When your tests run in a container on the Docker daemon dbtest uses,
+  `mongod.Start` now puts mongod on the test container's network and
+  publishes no port.** `Container.Host()` is mongod's address on that
+  network, and `Container.Port()` is 27017. Before, the port was published
+  on every interface of the Docker host and reached through the default
+  gateway. Other containers on that network can connect, so mongod still
+  gets a generated password, which `URI()` includes.
+- If you set `WithHostIP`, `DBTEST_HOST_IP`, `WithPort` or `WithTLS`, mongod
+  is published on a host port as before. `WithPort` is also the way to get
+  a port you can reach from outside the container, for example from a
+  laptop running a devcontainer.
+- If containers on your network cannot reach each other (`icc=false`), the
+  start times out with `ErrNotReady`. Its error names the address to set
+  instead, such as `172.17.0.1`: set `WithHostIP("172.17.0.1")` or
+  `DBTEST_HOST_IP=172.17.0.1`.
+- A `dockermock.Mock` passed with `WithDocker` now gets one more
+  `ContainerInspect` call before the create, for the test's own container,
+  when the tests run in a container. If it fails, the start publishes a port
+  as before. A mock that answers inspect calls in order must allow for it,
+  or set one of the options above.
+- `dockerclient.HostConfig` gains `NetworkMode`, and
+  `dockerclient.NetworkSettings` gains `Networks`. `dockerapi`, `mobyclient`
+  and the `dockermock` fake set them. If you implement `dockerclient.Client`
+  yourself, send `NetworkMode` on create and report `Networks` on inspect:
+  the conformance suite in `dockerclient/dockerclienttest` now checks both.
+  Against a real daemon, create a network named
+  `dockerclienttest.TestNetwork` first.
+
 ### Tests that share a server each get a database of their own
 
 Only code that names a database after `t.Name()`, as the guides used to

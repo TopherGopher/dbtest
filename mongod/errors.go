@@ -236,10 +236,23 @@ func (c config) notReadyAdvice(lastErr error) string {
 		return "" // the error from the credentials check says what to do
 	case !addressInDoubt(lastErr):
 		return allowLonger
+	case c.network != "":
+		return "The address came from " + c.hostSource + ". " + allowLonger + ". " + c.publishInsteadAdvice()
 	case c.hostSource != "":
 		return "The address came from " + c.hostSource + ". " + allowLonger + ", or correct the address with WithHostIP or " + EnvHostIP
 	}
 	return allowLonger + ", or correct the address with WithHostIP or " + EnvHostIP
+}
+
+// publishInsteadAdvice says how to publish the port when containers on the
+// shared network cannot reach each other, naming the address to use when it
+// is known.
+func (c config) publishInsteadAdvice() string {
+	when := "If containers on " + c.network + " cannot reach each other, as on a bridge with icc=false, publish the port instead: set "
+	if c.publishHost == "" {
+		return when + "WithHostIP or " + EnvHostIP + " to the Docker host's address as this container sees it, usually its default gateway"
+	}
+	return when + `WithHostIP("` + c.publishHost + `") or ` + EnvHostIP + "=" + c.publishHost
 }
 
 // allowLonger is the advice for a start that may only have been slow.

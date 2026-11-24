@@ -115,6 +115,10 @@ type HostConfig struct {
 	PortBindings map[string][]PortBinding `json:"PortBindings,omitempty"`
 	// AutoRemove asks the daemon to delete the container when it exits.
 	AutoRemove bool `json:"AutoRemove,omitzero"`
+	// NetworkMode is the network the container joins: "bridge", "host",
+	// "none", "container:<id>", or the name of a network. Empty means the
+	// default bridge.
+	NetworkMode string `json:"NetworkMode,omitempty"`
 }
 
 // PortBinding is one published host address for a container port.
@@ -172,11 +176,22 @@ type InspectedConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
-// NetworkSettings holds the published ports of a container.
+// NetworkSettings holds the published ports of a container and the
+// networks it is on.
 type NetworkSettings struct {
 	// Ports maps a container port such as "27017/tcp" to the host addresses
 	// it is published on, and is nil for ports that are not published.
 	Ports map[string][]PortBinding `json:"Ports"`
+	// Networks maps the name of each network the container is on to its
+	// address there. A container that has not started has no address yet.
+	Networks map[string]NetworkEndpoint `json:"Networks"`
+}
+
+// NetworkEndpoint is a container's address on one network.
+type NetworkEndpoint struct {
+	// IPAddress is the container's IPv4 address on the network, or "" when
+	// it has none, as on the host network.
+	IPAddress string `json:"IPAddress"`
 }
 
 // HostPort returns the first host port that containerPort is published on,

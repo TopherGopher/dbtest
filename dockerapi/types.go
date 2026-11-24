@@ -24,8 +24,10 @@ type (
 	ContainerState = dockerclient.ContainerState
 	// InspectedConfig is the configuration inspect reports back.
 	InspectedConfig = dockerclient.InspectedConfig
-	// NetworkSettings holds the published ports of a container.
+	// NetworkSettings holds the published ports and networks of a container.
 	NetworkSettings = dockerclient.NetworkSettings
+	// NetworkEndpoint is a container's address on one network.
+	NetworkEndpoint = dockerclient.NetworkEndpoint
 	// Top is the process listing inside a container.
 	Top = dockerclient.Top
 	// ImageInspect is the image metadata dbtest uses.
