@@ -141,6 +141,33 @@ git push --atomic origin vX.Y.Z mongotest/vX.Y.Z mongotestv2/vX.Y.Z mongotest/ex
 
 `--atomic` pushes all five or none.
 
+## Image copies
+
+The Copy images workflow (`.github/workflows/copy-images.yml`) copies each
+MongoDB image the library uses by default to this repository's packages on
+ghcr.io. The copies are a last resort for the library's pulls, after Docker
+Hub and its mirror; the library starts using them in a follow-up to #111,
+once they are published. Each copy keeps its Docker Hub path: `mongo:8.0`,
+whose full path is `library/mongo:8.0`, becomes
+`ghcr.io/tophergopher/dbtest/library/mongo:8.0`. Each copy has the same
+digest as its source. The workflow runs twice a day, and can be started by
+hand from the Actions page.
+
+- **After a run creates a new package,** make it public. GitHub may create
+  packages as private, and a private package cannot be pulled without
+  logging in. On the repository's page, open the package under Packages,
+  then "Package settings", and change its visibility to public. Under
+  "Manage Actions access" on the same page, check that only this repository
+  has Write.
+- **When a default image in `mongod/image.go` changes,** change the list in
+  `.github/scripts/copy-images.sh` to match. Make the new package public
+  after the next run.
+- **If a run fails,** its log names each image that was not copied, and why.
+  The other images are still copied. The images are copied from ECR Public
+  and quay.io; if either is unavailable, the next run tries again. If a
+  copy's digest differs from its source's, the log names the package version
+  to delete.
+
 ## The standard
 
 A change is reviewed against
