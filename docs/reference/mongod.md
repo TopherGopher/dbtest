@@ -185,10 +185,24 @@ its own limit, ten minutes by default; see `WithPullTimeout`.
 ## Many containers at once
 
 Containers can be started in parallel, and each is its own server with its
-own data. How many a machine manages at once depends on its CPUs, because
-every `mongod` has to be ready within the start timeout; issue
-[#82](https://github.com/TopherGopher/dbtest/issues/82) will make extra
-starts wait their turn.
+own data. At most 8 containers per CPU start at once in a process; further
+starts wait their turn. A start counts against the limit until it returns,
+so the limit caps how many containers are starting, not how many are
+running. `mongod.SetMaxConcurrentStarts(n)` sets the limit to n starts in
+total, not per CPU, and returns the previous limit. Call it before the
+first start, for example in `TestMain`.
+
+The wait counts against the context passed to the start, not against the
+start timeout. If that context ends first, the start fails with
+`ErrNotReady`. Give the context a later deadline.
+
+Each test binary has its own limit, and `go test ./...` runs several
+binaries at once, so a machine can be starting more containers than one
+limit allows. On a small machine, lower `-p` as well.
+
+A start that runs out of time says in its error how many containers were
+starting at once. If they filled the limit, the error says they may have
+slowed it, and advises lowering the limit.
 
 ## Who can connect
 

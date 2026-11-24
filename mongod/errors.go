@@ -229,11 +229,14 @@ type UnpublishedPortError = container.UnpublishedPortError
 type NotReadyError = container.NotReadyError
 
 // notReadyAdvice says what to do when the start timeout passed, given the
-// last failure the start saw.
-func (c config) notReadyAdvice(lastErr error) string {
+// last failure the start saw and whether other starts and this one filled
+// the limit on starts at once.
+func (c config) notReadyAdvice(lastErr error, crowded bool) string {
 	switch {
 	case errors.Is(lastErr, ErrAuthNotEnforced):
 		return "" // the error from the credentials check says what to do
+	case crowded:
+		return crowdedAdvice
 	case !addressInDoubt(lastErr):
 		return allowLonger
 	case c.network != "":
@@ -257,6 +260,13 @@ func (c config) publishInsteadAdvice() string {
 
 // allowLonger is the advice for a start that may only have been slow.
 const allowLonger = "Allow longer with WithStartTimeout or " + EnvStartTimeout
+
+// crowdedAdvice is the advice for a start that ran out of time while it and
+// others filled the limit. Starts at once slow each other, and a slow mongod
+// looks just like a wrong address, so the address is not mentioned. The
+// setter is named with its package because mongotest users call it too.
+const crowdedAdvice = "The other starts may have slowed this one. " +
+	"Lower the limit on starts at once with mongod.SetMaxConcurrentStarts, or allow longer with WithStartTimeout or " + EnvStartTimeout
 
 // addressInDoubt reports whether the last attempt failed in a way a wrong
 // address would explain: nothing answered there, or something that is not

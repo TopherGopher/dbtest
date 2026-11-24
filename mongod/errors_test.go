@@ -67,10 +67,18 @@ func TestEveryErrorNamesWhatItIsAbout(t *testing.T) {
 // address is in doubt only when nothing, or something other than mongod,
 // answered; and a mongod that ignores its credentials needs no longer wait.
 func TestTheAdviceForAStartThatRanOutOfTimeSuitsTheFailure(t *testing.T) {
-	inDoubt := func(lastErr error) bool { return strings.Contains(mongod.NotReadyAdvice(lastErr), mongod.EnvHostIP) }
+	inDoubt := func(lastErr error) bool {
+		return strings.Contains(mongod.NotReadyAdvice(lastErr, false), mongod.EnvHostIP)
+	}
 	assert.True(t, inDoubt(mongod.ErrNoReply), "nothing answered: maybe the address")
 	assert.True(t, inDoubt(mongod.ErrNotMongod), "not mongod: maybe the address")
 	assert.False(t, inDoubt(mongod.ErrHelloRefused), "mongod answered: the address is right")
-	assert.NotEmpty(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused), "a longer wait may help")
-	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}), "no advice to wait for an open mongod")
+	assert.NotEmpty(t, mongod.NotReadyAdvice(mongod.ErrHelloRefused, false), "a longer wait may help")
+	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}, false), "no advice to wait for an open mongod")
+	assert.Equal(t, mongod.CrowdedAdvice, mongod.NotReadyAdvice(mongod.ErrNoReply, true),
+		"others filled the limit: the load is the likelier cause, not the address")
+	assert.Equal(t, mongod.CrowdedAdvice, mongod.NotReadyAdvice(mongod.ErrHelloRefused, true),
+		"others filled the limit: starting fewer may help whatever the last failure was")
+	assert.Empty(t, mongod.NotReadyAdvice(&mongod.AuthNotEnforcedError{Name: "orders-db"}, true),
+		"an open mongod is no less wrong when the machine is busy")
 }

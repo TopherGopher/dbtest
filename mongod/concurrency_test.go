@@ -12,18 +12,24 @@ import (
 	"github.com/tophergopher/dbtest/mongod"
 )
 
-// fanOut is how many containers the test below starts at the same moment:
-// enough to prove each is its own server, quickly and without depending on
-// how busy a shared CI runner is. Issue #82 covers how many a machine can
-// start at once.
-const fanOut = 16
+// fanOut is how many containers the test below starts at the same moment,
+// and fanOutLimit how many of them may start at once. The rest have to wait
+// their turn. Every container stays up until the end, and each takes about
+// 200 MB of disk for its journal, so fanOut is kept small enough for a CI
+// runner.
+const (
+	fanOut      = 16
+	fanOutLimit = 4
+)
 
-// Tests that run in parallel each call Start, so starts arrive together.
-// Every one has to succeed, and every one has to be given a server of its
-// own: a container no other start was given, published on a port no other
-// has, with a mongod answering at the address the container reports.
+// Tests that run in parallel each call Start, so starts arrive together,
+// more than the start limit allows. Every one has to succeed, waiting its
+// turn if need be, and every one has to be given a server of its own: a
+// container no other start was given, published on a port no other has,
+// with a mongod answering at the address the container reports.
 func TestIntegrationContainersStartedTogetherAreEachTheirOwnServer(t *testing.T) {
 	docker, ctx := liveDocker(t)
+	limitStarts(t, fanOutLimit)
 	key, value := runLabel(t)
 	requireImage(t, ctx, docker, mongod.ImageDockerHub)
 	opts := mongod.DefaultOptions().WithDocker(docker).WithLabel(key, value)

@@ -106,6 +106,9 @@ type NotReadyError struct {
 	// check, or the error of a step that was cut short, or nil.
 	Cause   error
 	LastErr error
+	// starting is how many containers this process was starting when the
+	// start ended, itself included once it had its turn.
+	starting int
 	// advice is what to do once the start timeout passed, from the image's
 	// package, which knows the options it offers.
 	advice string
@@ -130,11 +133,23 @@ func (e *NotReadyError) Error() string {
 		return fmt.Sprintf("the caller's context ended before %s was ready: %v%s. If that context has a deadline, make it later",
 			where, e.Cause, e.lastFailure())
 	}
-	msg := fmt.Sprintf("%s was not ready within %s%s", where, e.Timeout, e.lastFailure())
+	msg := fmt.Sprintf("%s was not ready within %s%s%s", where, e.Timeout, e.alongside(), e.lastFailure())
 	if e.advice == "" {
 		return msg
 	}
 	return msg + ". " + e.advice
+}
+
+// alongside says how many containers were starting at once, since many
+// starts slow each other.
+func (e *NotReadyError) alongside() string {
+	switch e.starting {
+	case 0:
+		return ""
+	case 1:
+		return ", with no other container starting"
+	}
+	return fmt.Sprintf(", with %d containers starting at once", e.starting)
 }
 
 // lastFailure returns ": " and the last failure, or "" if there was none.

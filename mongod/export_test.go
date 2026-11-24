@@ -34,8 +34,14 @@ var (
 )
 
 // NotReadyAdvice is the advice a start that ran out of time gives, after
-// lastErr.
-func NotReadyAdvice(lastErr error) string { return config{}.notReadyAdvice(lastErr) }
+// lastErr, and whether others filled the limit on starts at once.
+func NotReadyAdvice(lastErr error, crowded bool) string {
+	return config{}.notReadyAdvice(lastErr, crowded)
+}
+
+// CrowdedAdvice is the advice for a start that ran out of time while it and
+// others filled the limit on starts at once.
+const CrowdedAdvice = crowdedAdvice
 
 // NetworkLookup finds the network a start shares with this process's
 // container. A test replaces it to describe running in a container.

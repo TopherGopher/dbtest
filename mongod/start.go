@@ -136,6 +136,21 @@ func ReapRunningContainers(ctx context.Context) error { return reaper.Reap(ctx) 
 // running.
 func DisableSignalHandler() { reaper.Disable() }
 
+// SetMaxConcurrentStarts sets how many containers this process may be
+// starting at once, in total rather than per CPU, and returns the previous
+// limit. A value below 1 restores the default, 8 per CPU.
+//
+// A start counts against the limit until it returns, so the limit caps how
+// many containers are starting, not how many are running. A start beyond
+// the limit waits for another to return. The wait counts against the
+// context passed to the start, not against the start timeout.
+//
+// Call it before the first start, for example in TestMain. Starts already
+// running or waiting when it is called keep the old limit. A test that
+// needs a different limit briefly can put the old one back with
+// defer SetMaxConcurrentStarts(SetMaxConcurrentStarts(n)).
+func SetMaxConcurrentStarts(n int) int { return container.SetMaxConcurrentStarts(n) }
+
 // defaultClient finds the daemon the way the docker CLI does, once for the
 // process. A client keeps connections open and has no Close, so a client
 // per start would leak one for every container.
