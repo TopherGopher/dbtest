@@ -5,6 +5,18 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Tests on driver v2 get a package of their own
+
+Nothing changes for code on driver v1.
+
+- **`github.com/tophergopher/dbtest/mongotestv2` gives a test a connected
+  client of MongoDB's Go driver v2** (`go.mongodb.org/mongo-driver/v2`, at
+  v2.10.0 or later). It has the same API as `mongotest`. It is its own
+  module, so a caller on driver v2 builds no part of driver v1. Its version
+  always matches the other dbtest modules'.
+- **Import `bson` from driver v2 too.** A v1 `bson` value passed to a v2
+  client compiles, but is stored as the wrong type or refused.
+
 ### Data can be kept between runs
 
 Nothing changes unless you use the new option, or read the replica set
@@ -21,7 +33,7 @@ member's address from the server.
     volume name, such as a host directory.
   - `ErrVolumeNeedsCredentials` where the start would generate a password,
     which the volume could not keep. Pass `WithAuth` or `WithoutAuth`.
-  - `ErrVolumeCredentialsChanged` when the volume keeps other credentials
+  - `ErrVolumeCredentialsChanged` when the volume holds credentials other
     than the ones given.
   - `ErrUnsupportedForImage` for Atlas Local.
 - **The member of a replica set from `WithReplicaSet` is now
@@ -110,8 +122,7 @@ Nothing needs to change in your code.
 
 ### Tests that share a server each get a database of their own
 
-Only code that names a database after `t.Name()`, as the guides used to
-show, needs to change.
+Only code that names a database after `t.Name()` needs to change.
 
 - **`Instance.DatabaseFor(t)` is new.** It returns a new database that only
   that test uses, and drops it when the test ends. The name is built from the

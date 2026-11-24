@@ -1,3 +1,7 @@
+// mongotest/database.go and mongotestv2/database.go are copies. They differ
+// only in the package's name and the driver's import path. A change to one
+// belongs in the other too.
+
 package mongotest
 
 import (

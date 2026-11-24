@@ -6,18 +6,16 @@ status: current
 
 # Reference
 
-The authoritative API reference is generated from the source by pkg.go.dev.
-This section is a map, not a copy: it tells you what exists and where it is
-explained, and links out for signatures.
+pkg.go.dev has the full API, generated from the source. This page lists
+what exists and links to where each part is explained.
 
 <div class="grid cards" markdown>
 
--   :fontawesome-brands-golang:{ .lg .middle } **[dbtest on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/dbtest)**
+-   :fontawesome-brands-golang:{ .lg .middle } **[mongotest](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotest)** · **[mongotestv2](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotestv2)**
 
     ---
 
-    The root package: `Run`, `Start`, `Attach`, `Instance`, and the earlier
-    names kept as wrappers.
+    `Run`, `Start`, `Attach` and `Instance`, for driver v1 and driver v2.
 
 -   :material-database-export:{ .lg .middle } **[exporter on pkg.go.dev](https://pkg.go.dev/github.com/tophergopher/dbtest/mongotest/exporter)**
 
@@ -34,7 +32,9 @@ explained, and links out for signatures.
 
 </div>
 
-## Root package surface
+## mongotest and mongotestv2 surface
+
+The two packages export the same names. Only the driver behind them differs.
 
 ### Entry points
 
@@ -43,7 +43,7 @@ explained, and links out for signatures.
 | `Run(tb)`, `RunWithOptions(tb, opts)` | [Starting a server](../guides/test-connection.md#in-a-test) |
 | `Start(ctx)`, `StartWithOptions(ctx, opts)` | [Starting a server](../guides/test-connection.md#outside-a-test) |
 | `Attach(ctx, uri)` | [Starting a server](../guides/test-connection.md#a-server-you-already-run) |
-| `Options` (`mongod.Options`), `DefaultOptions()` | [The mongod package](mongod.md#options) |
+| `Options`, an alias of `mongod.Options`; `DefaultOptions()` | [The mongod package](mongod.md#options) |
 
 ### `Instance`
 

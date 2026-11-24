@@ -8,22 +8,25 @@ status: current
 
 ## Add the module
 
-Most tests need only `mongotest`, which gives a test a connected client of
-MongoDB's Go driver:
+Add the module that matches the driver your `go.mod` requires:
 
 ```sh
-go get github.com/tophergopher/dbtest/mongotest
+go get github.com/tophergopher/dbtest/mongotest    # you import go.mongodb.org/mongo-driver
+go get github.com/tophergopher/dbtest/mongotestv2  # you import go.mongodb.org/mongo-driver/v2
 ```
 
-The other modules are for particular needs, so that you download only what you
-use:
+Starting a new project with no driver yet? Use `mongotestv2`: driver v1 is
+in maintenance.
+
+Each module is separate, so you download only what you use:
 
 | Module | Use it for |
 | --- | --- |
-| `github.com/tophergopher/dbtest/mongotest` | Tests that use MongoDB's Go driver, v1. `mongotest.Run(t)` returns a connected client. |
-| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) package, which starts MongoDB without importing a driver, and the Docker client packages. `mongotest` requires it, so you rarely add it yourself. |
+| `github.com/tophergopher/dbtest/mongotest` | Tests on driver v1, v1.17.10 or later. `mongotest.Run(t)` returns a connected client. |
+| `github.com/tophergopher/dbtest/mongotestv2` | Tests on driver v2, v2.10.0 or later. Same API as `mongotest`: `mongotestv2.Run(t)` returns a connected v2 client. |
+| `github.com/tophergopher/dbtest` | The [`mongod`](../reference/mongod.md) package, which starts MongoDB without importing a driver, and the Docker client packages. `mongotest` and `mongotestv2` require it, so you rarely add it yourself. |
 | `github.com/tophergopher/dbtest/mobyclient` | Code that already uses Docker's Go client, moby, and wants dbtest to share it. See [`mobyclient`](../docker-clients/mobyclient.md). |
-| `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. See [Exporting data](../guides/exporting-data.md). |
+| `github.com/tophergopher/dbtest/mongotest/exporter` | Writing a collection out as JSON or CSV. It takes a connection string, so it works with either driver. See [Exporting data](../guides/exporting-data.md). |
 
 ## Check the daemon
 
@@ -32,7 +35,7 @@ current docker context, then the usual Docker and Podman sockets. Check that
 a daemon is running:
 
 ```sh
-docker version
+docker version   # with Podman: podman version
 ```
 
 If that prints a server version, dbtest finds the same daemon, except on
@@ -84,10 +87,25 @@ Windows; see the Docker Desktop tab.
 
 ## Pull the image once
 
-The first start on a machine pulls the image. To keep that download out of
-the tests, call `mongod.PullImage` in `TestMain`. It pulls the image a start
-would run, `MONGOTEST_IMAGE` included, and leaves one the daemon already has
-alone; see [Which image](../reference/mongod.md#which-image).
+This step is optional. The first test run on a machine downloads the
+MongoDB image. Tests wait for the download, which does not count against
+their start timeout, and fail if it fails. To download the image before any
+test starts, call `mongod.PullImage` from `TestMain`:
+
+```go
+import "github.com/tophergopher/dbtest/mongod"
+
+func TestMain(m *testing.M) {
+	if err := mongod.PullImage(context.Background(), mongod.DefaultOptions()); err != nil {
+		log.Fatal(err)
+	}
+	os.Exit(m.Run())
+}
+```
+
+It pulls the image the tests would use, including one set by
+`MONGOTEST_IMAGE`, and does nothing if the daemon already has it; see
+[Which image](../reference/mongod.md#which-image).
 
 ## Check the installation
 
@@ -107,8 +125,8 @@ Run the [quickstart](quickstart.md) test.
     ```
 
 ??? failure "The container starts, but `mongod` exits or is not ready in time"
-    The error names the step that failed and matches a `mongod` sentinel,
-    such as `mongod.ErrNotReady` or `mongod.ErrContainerExited`, and says
-    what to do. When the container exits, the error ends with what `mongod`
-    wrote last, which usually says why. If it shows nothing, run the image by
-    hand with the same flags.
+    The error names the step that failed and says what to do. Test for it
+    with `errors.Is` against a sentinel from the `mongod` package, such as
+    `mongod.ErrNotReady` or `mongod.ErrContainerExited`. When the container
+    exits, the error ends with the server's last log lines, which usually say
+    why.

@@ -1,6 +1,6 @@
 #!/bin/bash
 # tag-modules.sh tags the modules other than the root for a release whose root
-# tag, vX.Y.Z, already exists, and pushes the three tags together. The release
+# tag, vX.Y.Z, already exists, and pushes their tags together. The release
 # workflow runs it; see "Releasing" in docs/project/contributing.md.
 #
 #	.github/scripts/tag-modules.sh vX.Y.Z
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 root=github.com/tophergopher/dbtest
-modules="mongotest mongotest/exporter mobyclient"
+modules="mongotest mongotestv2 mongotest/exporter mobyclient"
 version=${1:-}
 
 fail() {
@@ -45,7 +45,7 @@ if [ "$(highest)" != "$version" ]; then
 fi
 for m in $modules; do
 	if [ "$(required "$commit" "$m")" != "$version" ]; then
-		fail "$m/go.mod at $version does not require $root $version; open a pull request that makes the three modules require the next patch version, merge it, and release that version"
+		fail "$m/go.mod at $version does not require $root $version; open a pull request that makes every module require the next patch version, merge it, and release that version"
 	fi
 	if git rev-parse --quiet --verify "refs/tags/$m/$version" >/dev/null; then
 		fail "the tag $m/$version already exists; if it names $commit, an earlier run pushed it, and only the proxy step may need repeating"
@@ -55,6 +55,6 @@ done
 for m in $modules; do
 	git tag -a "$m/$version" -m "$m/$version" "$commit"
 done
-# --atomic pushes all three tags or none.
+# --atomic pushes all the tags or none.
 git push --atomic origin $(for m in $modules; do printf '%s ' "$m/$version"; done)
 echo "tagged and pushed $(for m in $modules; do printf '%s ' "$m/$version"; done)at $commit"
