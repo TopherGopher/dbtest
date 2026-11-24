@@ -170,7 +170,11 @@ func TestMain(m *testing.M) {
 A start returns once `mongod` has answered a command on the address in the
 URI, so the first command you send works. Some images start a temporary
 `mongod`, create the user, then restart it. The start waits for the restarted
-one, and for the image's health check if it has one.
+one, and for the image's health check if it has one. That check can pass
+while the temporary `mongod` still answers. So once it passes, the start
+waits a few seconds and asks again on the same connection. If that
+connection has dropped, the temporary `mongod` has gone, and the start keeps
+waiting.
 
 A start that fails removes the container it created. The error says which
 step failed, and matches a sentinel such as `ErrNotReady` or

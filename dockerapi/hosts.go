@@ -11,34 +11,34 @@ import (
 	"github.com/tophergopher/dbtest/dockerclient"
 )
 
-// resolveHost finds the daemon; tests replace it.
-var resolveHost = dockerclient.ResolveHost
+// resolveDaemon finds the daemon; tests replace it.
+var resolveDaemon = dockerclient.ResolveDaemon
 
-// resolveHostFromEnv finds the daemon as dockerclient.ResolveHost does.
-// This client cannot open a named pipe, so in place of Docker's default one
-// it finds an endpoint it can dial, or returns ErrNoWindowsEndpoint. A pipe
-// the caller chose is kept, so that parsing it says it cannot be used.
-func resolveHostFromEnv() (string, error) {
-	host, err := resolveHost()
-	if err != nil || host != dockerDefaultPipe {
-		return host, err
+// discover finds the daemon as dockerclient.ResolveDaemon does. This client
+// cannot open a named pipe, so in place of Docker's default one it finds an
+// endpoint it can dial, or returns ErrNoWindowsEndpoint. That endpoint is
+// not the context's, so the context's TLS files are not used for it. A pipe
+// the caller chose is kept, so that New reports that this client cannot use
+// it.
+func discover() (dockerclient.Daemon, error) {
+	daemon, err := resolveDaemon()
+	if err != nil || daemon.Host != dockerDefaultPipe {
+		return daemon, err
 	}
-	return windowsFallback(probeWindows())
+	host, err := windowsFallback(probeWindows())
+	return dockerclient.Daemon{Host: host}, err
 }
 
 // dockerDefaultPipe is the Docker daemon's default address on Windows.
 const dockerDefaultPipe = "npipe:////./pipe/docker_engine"
 
 // defaultTLSConfig returns the TLS settings for a tcp endpoint with no
-// WithTLSConfig: those of the docker context the host was discovered
-// through, else those from the environment, else TLS against the system's
-// roots for an https:// address, else none.
-func defaultTLSConfig(ep endpoint, discovered bool) (*tls.Config, error) {
-	if discovered {
-		dir, err := dockerclient.ContextTLSDir()
-		if err != nil || dir != "" {
-			return tlsConfigFromContext(dir, err)
-		}
+// WithTLSConfig: those in contextTLSDir, the TLS directory of the docker
+// context the host was discovered through, else those from the environment,
+// else TLS against the system's roots for an https:// address, else none.
+func defaultTLSConfig(ep endpoint, contextTLSDir string) (*tls.Config, error) {
+	if contextTLSDir != "" {
+		return tlsConfigFromContext(contextTLSDir)
 	}
 	cfg, err := tlsConfigFromEnv(os.Getenv)
 	if cfg == nil && err == nil && ep.tls {
@@ -49,16 +49,12 @@ func defaultTLSConfig(ep endpoint, discovered bool) (*tls.Config, error) {
 
 // contextTLSFix is what to do about a docker context's TLS file that
 // cannot be used.
-const contextTLSFix = "update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` " +
+const contextTLSFix = "Update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` " +
 	"(`docker context ls` shows which is current), or set DOCKER_CONTEXT=default to stop using it"
 
-// tlsConfigFromContext loads the TLS files in a docker context's directory,
-// or returns err from finding it. As with the docker CLI, ca.pem is
-// optional.
-func tlsConfigFromContext(dir string, err error) (*tls.Config, error) {
-	if err != nil {
-		return nil, err
-	}
+// tlsConfigFromContext loads the TLS files in a docker context's
+// directory. As with the docker CLI, ca.pem is optional.
+func tlsConfigFromContext(dir string) (*tls.Config, error) {
 	return tlsConfigFromDir(dir, false, func(problem, _ string) error {
 		return invalidArg("docker context TLS files", dir, problem, contextTLSFix)
 	})
@@ -92,11 +88,11 @@ func tlsConfigFromDir(dir string, caRequired bool, invalid func(problem, fix str
 	case errors.Is(err, fs.ErrNotExist) && !caRequired:
 	case err != nil:
 		return nil, invalid("ca.pem could not be read ("+err.Error()+")",
-			"point DOCKER_CERT_PATH at the directory holding the daemon's ca.pem, and cert.pem and key.pem if it wants a client certificate, or unset DOCKER_TLS_VERIFY")
+			"Point DOCKER_CERT_PATH at the directory holding the daemon's ca.pem, and cert.pem and key.pem if it wants a client certificate, or unset DOCKER_TLS_VERIFY")
 	default:
 		cfg.RootCAs = x509.NewCertPool()
 		if !cfg.RootCAs.AppendCertsFromPEM(caPEM) {
-			return nil, invalid("no certificates were found in ca.pem", "replace ca.pem with the daemon's PEM-encoded CA certificate")
+			return nil, invalid("no certificates were found in ca.pem", "Replace ca.pem with the daemon's PEM-encoded CA certificate")
 		}
 	}
 	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
@@ -106,7 +102,7 @@ func tlsConfigFromDir(dir string, caRequired bool, invalid func(problem, fix str
 	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		return nil, invalid("cert.pem and key.pem do not form a valid key pair ("+err.Error()+")",
-			"regenerate the client certificate, or remove cert.pem and key.pem to connect without one")
+			"Regenerate the client certificate, or remove cert.pem and key.pem to connect without one")
 	}
 	cfg.Certificates = []tls.Certificate{pair}
 	return cfg, nil

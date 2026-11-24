@@ -197,7 +197,7 @@ func ExampleContainerConfig_Validate() {
 	fmt.Println(dockerclient.ContainerConfig{}.Validate())
 	// Output:
 	// <nil>
-	// docker: invalid ContainerConfig.Image: the image is required. set Image to a reference such as "mongo:8"
+	// docker: invalid ContainerConfig.Image: the image is required. Set Image to a reference such as "mongo:8"
 }
 
 func ExampleExecConfig_Validate() {

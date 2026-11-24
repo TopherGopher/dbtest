@@ -63,6 +63,9 @@ var (
 	// errAuthUnknown: mongod answered the hello but did not say whether it
 	// enforces the credentials.
 	errAuthUnknown = errors.New("mongod did not say whether it enforces the credentials")
+	// errMongodGone: mongod answered, then went away before a second hello
+	// on the same connection, as a temporary mongod does.
+	errMongodGone = errors.New("mongod answered, then went away, as a temporary mongod does")
 )
 
 // helloMessage returns a complete hello command.
@@ -86,9 +89,11 @@ func commandMessage(id uint32, elements string) []byte {
 // port for a moment after the container starts, then accepts them and hangs
 // up while no mongod is listening behind it.
 //
-// When the container has credentials, the same connection then sends
-// getCmdLineOpts without them, to learn whether mongod enforces them.
-func (p readyProbe) ask(ctx context.Context) error {
+// When whileOpen is not nil, it runs once mongod has answered, then it sends
+// a second hello on the same connection (see helloAgain). When the container
+// has credentials, the same connection then sends getCmdLineOpts without
+// them, to learn whether mongod enforces them.
+func (p readyProbe) ask(ctx context.Context, whileOpen func(context.Context) error) error {
 	conn, err := p.dial(ctx)
 	if err != nil {
 		return err
@@ -99,13 +104,38 @@ func (p readyProbe) ask(ctx context.Context) error {
 	defer stop()
 	_ = conn.SetDeadline(time.Now().Add(helloTimeout))
 
-	if _, err := conn.Write(helloMessage()); err != nil {
-		return fmt.Errorf("%w: %w", errNoReply, err)
+	err = hello(conn)
+	if err == nil && whileOpen != nil {
+		err = helloAgain(ctx, conn, whileOpen)
 	}
-	if err := readHelloReply(conn); err != nil || !p.requireAuth {
+	if err != nil || !p.requireAuth {
 		return err
 	}
 	return p.checkAuth(conn)
+}
+
+// hello sends a hello on conn and reads the reply.
+func hello(conn net.Conn) error {
+	if _, err := conn.Write(helloMessage()); err != nil {
+		return fmt.Errorf("%w: %w", errNoReply, err)
+	}
+	return readHelloReply(conn)
+}
+
+// helloAgain runs whileOpen, then sends a second hello on the same
+// connection. If the mongod that answered the first hello was a temporary
+// one, the connection has dropped and the second fails with errMongodGone.
+func helloAgain(ctx context.Context, conn net.Conn, whileOpen func(context.Context) error) error {
+	if err := whileOpen(ctx); err != nil {
+		return err
+	}
+	_ = conn.SetDeadline(time.Now().Add(helloTimeout))
+	if err := hello(conn); err != nil {
+		// %v, not %w: mongod answered the first hello at this address, so
+		// this must not match errNoReply and put the address in doubt.
+		return fmt.Errorf("%w: %v", errMongodGone, err)
+	}
+	return nil
 }
 
 // checkAuth sends getCmdLineOpts on a connection that has not

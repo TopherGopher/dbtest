@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -263,6 +264,78 @@ func TestStartWaitsForTheHealthCheckAnImageDeclares(t *testing.T) {
 	_, err := start(t, m, mongod.DefaultOptions())
 
 	require.NoError(t, err, "the check passes inside the timeout")
+	assert.True(t, *healthy, "returned only once the image reported healthy")
+}
+
+// Atlas Local's health check can pass for a moment while a mongod it is
+// about to replace still answers. That mongod soon goes, and its connections
+// with it, so Start waits for one whose connection stays open.
+func TestStartWaitsPastAMongodThatGoesAsTheHealthCheckPasses(t *testing.T) {
+	passed := make(chan struct{})
+	var connections atomic.Int32
+	m, port := servingMock(t, func(conn net.Conn) {
+		if connections.Add(1) > 1 {
+			openMongod(conn) // the final mongod
+			return
+		}
+		defer conn.Close() // the temporary mongod goes
+		answerOne(conn, func(string) string { return okField })
+		select {
+		case <-passed:
+		case <-time.After(10 * time.Second):
+		}
+		// It still answers for a moment after the health check passes.
+		_ = conn.SetDeadline(time.Now().Add(300 * time.Millisecond))
+		for answerOne(conn, func(string) string { return okField }) {
+		}
+	})
+	var inspections atomic.Int32
+	var once sync.Once
+	m.ContainerInspectFunc = func(context.Context, string) (dockerclient.ContainerInspect, error) {
+		info := running(port)
+		info.State.Health.Status = "starting"
+		if inspections.Add(1) > 1 { // the first inspect only reads the published port
+			info.State.Health.Status = "healthy"
+			once.Do(func() { close(passed) })
+		}
+		return info, nil
+	}
+
+	_, err := start(t, m, mongod.DefaultOptions())
+
+	require.NoError(t, err, "the final mongod answers inside the timeout")
+	assert.GreaterOrEqual(t, connections.Load(), int32(2), "Start did not return on the connection that dropped")
+}
+
+// A connection that drops between the two hellos reached a temporary mongod.
+// If the start runs out of time then, the error says so, and does not
+// suggest that the address is wrong.
+func TestAMongodThatGoesBetweenTheTwoHellosDoesNotPutTheAddressInDoubt(t *testing.T) {
+	m, port := servingMock(t, func(conn net.Conn) {
+		defer conn.Close() // answers the first hello, then goes
+		answerOne(conn, func(string) string { return okField })
+	})
+	health(m, port, 2)
+
+	_, err := start(t, m, mongod.DefaultOptions().WithStartTimeout(4*time.Second))
+
+	require.ErrorIs(t, err, mongod.ErrNotReady, "no connection stayed open, so the start ran out of time")
+	assert.ErrorIs(t, err, mongod.ErrMongodGone, "the error says the mongod that answered went away")
+	assert.NotErrorIs(t, err, mongod.ErrNoReply, "mongod did answer at that address")
+	var notReady *mongod.NotReadyError
+	require.ErrorAs(t, err, &notReady, "the error is a NotReadyError")
+	assert.False(t, mongod.AddressInDoubt(notReady), "the error does not blame the address")
+}
+
+// With credentials, the check that mongod enforces them comes after the
+// health check, on the same connection.
+func TestAnImageWithAHealthCheckAndCredentialsIsReady(t *testing.T) {
+	m, port := authMock(t)
+	healthy := health(m, port, 2)
+
+	_, err := start(t, m, mongod.DefaultOptions().WithAuth("admin", "secret"))
+
+	require.NoError(t, err, "the check passes and mongod enforces the credentials")
 	assert.True(t, *healthy, "returned only once the image reported healthy")
 }
 

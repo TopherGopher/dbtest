@@ -77,7 +77,7 @@ func (v *versionState) noteRuntime(rt Runtime, product string) {
 func WithAPIVersion(v string) Option {
 	return func(c *Client) error {
 		if !versionRe.MatchString(v) {
-			return invalidArg("API version", v, "it must be major.minor", `use a value like "1.44", or unset DOCKER_API_VERSION to negotiate automatically`)
+			return invalidArg("API version", v, "it must be major.minor", `Use a value like "1.44", or unset DOCKER_API_VERSION to negotiate automatically`)
 		}
 		c.apiVersion = v
 		c.versionPinned = true

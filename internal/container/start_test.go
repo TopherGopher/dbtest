@@ -90,7 +90,7 @@ func TestAContainerOnASharedNetworkIsReachedAtItsAddressThere(t *testing.T) {
 	s := spec(time.Second)
 	s.Network, s.NetworkPort, s.Host = "ci-net", 6000, ""
 	var asked container.Endpoint
-	s.Ready = func(_ context.Context, host string, port int) error {
+	s.Ready = func(_ context.Context, host string, port int, _ func(context.Context) error) error {
 		asked = container.Endpoint{Host: host, Port: port}
 		return nil
 	}
@@ -138,6 +138,24 @@ func TestAStartWaitsForADeclaredHealthCheck(t *testing.T) {
 	assert.GreaterOrEqual(t, len(m.CallsTo("ContainerInspect")), 4, "and not before")
 }
 
+// A Ready hook that never calls whileOpen does not skip the image's health
+// check.
+func TestAReadyHookThatIgnoresWhileOpenStillWaitsForTheHealthCheck(t *testing.T) {
+	m := daemon(func(calls int) (dockerclient.ContainerInspect, error) {
+		if calls < 4 {
+			return inspected("starting"), nil
+		}
+		return inspected("healthy"), nil
+	})
+	s := spec(10 * time.Second)
+	s.Ready = func(context.Context, string, int, func(context.Context) error) error { return nil }
+
+	_, err := newContainer(m).Start(t.Context(), s)
+
+	require.NoError(t, err, "the start succeeds once the health check passes")
+	assert.GreaterOrEqual(t, len(m.CallsTo("ContainerInspect")), 4, "and not before")
+}
+
 func TestAHealthCheckThatNeverPassesIsNotReady(t *testing.T) {
 	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return inspected("starting"), nil })
 
@@ -179,15 +197,16 @@ func TestWithNoPullAMissingImageFailsTheCreate(t *testing.T) {
 }
 
 // The advice an image's package gives is about the last failure the start
-// saw, and ends the error a caller reads.
-func TestTheAdviceIsGivenTheLastFailureAndEndsTheError(t *testing.T) {
+// saw, and reaches the error a caller reads.
+func TestTheAdviceIsGivenTheLastFailureAndReachesTheError(t *testing.T) {
+	const advice = "Try the image package's own option."
 	stillStarting := errors.New("the server is still starting")
 	var givenLastErr error
 	s := spec(150 * time.Millisecond)
-	s.Ready = func(context.Context, string, int) error { return stillStarting }
+	s.Ready = func(context.Context, string, int, func(context.Context) error) error { return stillStarting }
 	s.Advice = func(lastErr error, _ bool) string {
 		givenLastErr = lastErr
-		return "Try the image package's own option."
+		return advice
 	}
 	m := daemon(func(int) (dockerclient.ContainerInspect, error) { return inspected(""), nil })
 
@@ -195,7 +214,7 @@ func TestTheAdviceIsGivenTheLastFailureAndEndsTheError(t *testing.T) {
 
 	require.ErrorIs(t, err, container.ErrNotReady, "the start runs out of time")
 	assert.ErrorIs(t, givenLastErr, stillStarting, "the advice is asked about the last failure")
-	assert.Contains(t, err.Error(), "Try the image package's own option.", "and the error a caller reads ends with it")
+	assert.Contains(t, err.Error(), advice, "and the error a caller reads carries it")
 }
 
 // A container removed between start and its first inspect, by a reap or by

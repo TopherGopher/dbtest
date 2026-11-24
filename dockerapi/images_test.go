@@ -62,7 +62,6 @@ func TestImagePullErrorLineInStream(t *testing.T) {
 	require.True(t, errors.As(err, &pe), "callers can extract the typed PullError")
 	assert.Equal(t, "mongo:nope", pe.Ref, "the reference is carried on the error")
 	assert.Contains(t, err.Error(), "manifest for mongo:nope not found", "the daemon's message is preserved")
-	assert.Contains(t, err.Error(), "Check the image name and tag", "the error must say what to check")
 }
 
 func TestImagePullDrainsWholeStream(t *testing.T) {

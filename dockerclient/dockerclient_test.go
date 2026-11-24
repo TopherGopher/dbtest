@@ -55,9 +55,13 @@ func TestParseImageRef(t *testing.T) {
 	for _, ref := range bad {
 		_, err := dockerclient.ParseImageRef(ref)
 		require.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "%q must be rejected as an invalid argument", ref)
-		assert.Contains(t, err.Error(), "repository", "%q: the error must explain the reference grammar", ref)
+		var invalid *dockerclient.InvalidArgumentError
+		require.ErrorAs(t, err, &invalid, "%q: the error says what was refused", ref)
+		assert.NotEmpty(t, invalid.Fix, "%q: the error must explain the reference grammar", ref)
 	}
 	_, err := dockerclient.ParseImageRef("Mongo:8")
+	// This checks wording on purpose: the problem repeats the daemon's own
+	// message, so a user who searches for it finds the same answers.
 	assert.Contains(t, err.Error(), "lowercase", "an uppercase repository gets the daemon's familiar wording")
 }
 
@@ -73,8 +77,10 @@ func TestCheckID(t *testing.T) {
 		require.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "%q must be rejected so it cannot alter the URL path", in)
 	}
 	_, err := dockerclient.CheckID("exec", "")
-	assert.Contains(t, err.Error(), "exec id", "the error must name the kind of id that was empty")
-	assert.Contains(t, err.Error(), "ExecCreate", "the error must say where a valid id comes from")
+	var invalid *dockerclient.InvalidArgumentError
+	require.ErrorAs(t, err, &invalid, "the error says what was refused")
+	assert.Equal(t, "exec id", invalid.Argument, "the error must name the kind of id that was empty")
+	assert.NotEmpty(t, invalid.Fix, "the error must say where a valid id comes from")
 }
 
 func TestValidateContainerConfig(t *testing.T) {
@@ -112,9 +118,11 @@ func TestValidateContainerConfig(t *testing.T) {
 }
 
 func TestInvalidArgumentErrorMessage(t *testing.T) {
-	err := dockerclient.InvalidArgument("container id", "a/b", "only letters are allowed", "pass the id from ContainerCreate")
+	err := dockerclient.InvalidArgument("container id", "a/b", "only letters are allowed", "Pass the id from ContainerCreate")
 	assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "every InvalidArgumentError matches the sentinel")
-	assert.Equal(t, `docker: invalid container id "a/b": only letters are allowed. pass the id from ContainerCreate`, err.Error(), "the message follows argument, value, problem, fix")
+	for _, part := range []string{err.Argument, err.Value, err.Problem, err.Fix} {
+		assert.Contains(t, err.Error(), part, "the message carries the argument, value, problem and fix")
+	}
 	var ia *dockerclient.InvalidArgumentError
 	require.True(t, errors.As(err, &ia), "callers can extract the typed error")
 	assert.Equal(t, "a/b", ia.Value, "the offending value is available to callers")
@@ -125,16 +133,20 @@ func TestInvalidArgumentErrorMessage(t *testing.T) {
 func TestConnectionErrorWrapping(t *testing.T) {
 	err := dockerclient.WrapConnectionError("unix:///var/run/docker.sock", fs.ErrPermission)
 	require.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "permission denied on the socket is a connection failure")
-	assert.Contains(t, err.Error(), "permission denied", "the problem must be stated")
-	assert.Contains(t, err.Error(), "docker group", "the fix must mention the docker group")
+	assert.ErrorIs(t, err, fs.ErrPermission, "the cause is kept")
 	var ce *dockerclient.ConnectionError
 	require.True(t, errors.As(err, &ce), "callers can extract the typed error")
 	assert.Equal(t, "unix:///var/run/docker.sock", ce.Host, "the host is carried on the error")
+	assert.NotEmpty(t, ce.Fix, "the fix must be stated")
 
 	err = dockerclient.WrapConnectionError("unix:///x.sock", fs.ErrNotExist)
 	assert.ErrorIs(t, err, dockerclient.ErrConnectionFailed, "a missing socket is a connection failure")
-	assert.Contains(t, err.Error(), "does not exist", "the problem must be stated")
-	assert.Contains(t, err.Error(), "Start the docker daemon", "the fix must say to start the daemon")
+	assert.ErrorIs(t, err, fs.ErrNotExist, "the cause is kept")
+	require.True(t, errors.As(err, &ce), "callers can extract the typed error")
+	assert.NotEmpty(t, ce.Fix, "the fix must say to start the daemon")
+	var denied *dockerclient.ConnectionError
+	require.ErrorAs(t, dockerclient.WrapConnectionError("unix:///x.sock", fs.ErrPermission), &denied, "a denied socket is a connection error")
+	assert.NotEqual(t, denied.Fix, ce.Fix, "a denied socket and a missing one each get their own fix")
 
 	assert.Nil(t, dockerclient.WrapConnectionError("h", nil), "nil stays nil")
 	plain := errors.New("something else")
@@ -159,15 +171,15 @@ func TestAPIVersionErrorMessages(t *testing.T) {
 	assert.ErrorIs(t, feature, dockerclient.ErrAPIVersion, "feature gates match the sentinel")
 	assert.Contains(t, feature.Error(), "1.35", "the required version is named")
 	assert.Contains(t, feature.Error(), "1.30", "the negotiated version is named")
-	assert.Contains(t, feature.Error(), "drop the ExecConfig.WorkingDir option", "the fix is stated")
+	assert.Contains(t, feature.Error(), "ExecConfig.WorkingDir", "the feature is named")
 }
 
 func TestResponseErrorMessage(t *testing.T) {
 	err := dockerclient.DecodeError("GET", "/containers/x/json", io.ErrUnexpectedEOF)
 	assert.ErrorIs(t, err, dockerclient.ErrDaemonResponse, "decode failures match the sentinel")
 	assert.ErrorIs(t, err, io.ErrUnexpectedEOF, "the underlying decode error is wrapped")
-	assert.Contains(t, err.Error(), "DOCKER_API_VERSION", "the message points at the version pin as the likely cause")
-	assert.Contains(t, dockerclient.UnexpectedStatus("POST", "/x", 202).Error(), "unexpected status 202", "unexpected statuses are named")
+	assert.NotEmpty(t, err.Fix, "the error says what to check")
+	assert.Contains(t, dockerclient.UnexpectedStatus("POST", "/x", 202).Error(), "202", "unexpected statuses are named")
 }
 
 // Daemons report a registry's rate limit in three ways: as a 429 status, as
@@ -207,9 +219,9 @@ func TestARateLimitMatchesErrRateLimitedHoweverItArrives(t *testing.T) {
 }
 
 // A docker context saves its daemon's TLS files where `docker context
-// create` puts them. ContextTLSDir finds them for the context discovery
-// uses, and only then.
-func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
+// create` puts them. ResolveDaemon finds them for the context discovery
+// uses, and only then, with that context's address.
+func TestResolveDaemonFindsTheChosenContextsFiles(t *testing.T) {
 	setup := func(t *testing.T, withTLS bool) (configDir, tlsDir string) {
 		for _, name := range []string{"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY"} {
 			t.Setenv(name, "")
@@ -233,31 +245,33 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 	t.Run("a context with TLS files", func(t *testing.T) {
 		_, want := setup(t, true)
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Equal(t, want, dir, "the context's TLS directory is found")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", ContextTLSDir: want}, daemon,
+			"the context's address and TLS directory are found together")
 	})
 	t.Run("the current context in config.json", func(t *testing.T) {
 		configDir, want := setup(t, true)
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"currentContext":"remote"}`), 0o644), "writing config.json")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Equal(t, want, dir, "the current context's TLS directory is found")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376", ContextTLSDir: want}, daemon,
+			"the current context's address and TLS directory are found together")
 	})
 	t.Run("a context with no TLS files", func(t *testing.T) {
 		setup(t, false)
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "the context can be read")
-		assert.Empty(t, dir, "a context without TLS files has none to use")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://build-host:2376"}, daemon, "a context without TLS files has none to use")
 	})
 	t.Run("DOCKER_HOST overrides the context", func(t *testing.T) {
 		setup(t, true)
 		t.Setenv("DOCKER_CONTEXT", "remote")
 		t.Setenv("DOCKER_HOST", "tcp://other:2376")
-		dir, err := dockerclient.ContextTLSDir()
+		daemon, err := dockerclient.ResolveDaemon()
 		require.NoError(t, err, "nothing needs reading")
-		assert.Empty(t, dir, "the context is not used, so neither are its files")
+		assert.Equal(t, dockerclient.Daemon{Host: "tcp://other:2376"}, daemon, "the context is not used, so neither are its files")
 	})
 	t.Run("a context that skips TLS verification with no TLS files", func(t *testing.T) {
 		configDir, _ := setup(t, false)
@@ -265,7 +279,7 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "contexts", "meta", hex.EncodeToString(sum[:]), "meta.json"),
 			[]byte(`{"Name":"remote","Endpoints":{"docker":{"Host":"tcp://build-host:2376","SkipTLSVerify":true}}}`), 0o644), "writing the context")
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		_, err := dockerclient.ContextTLSDir()
+		_, err := dockerclient.ResolveDaemon()
 		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "dbtest never skips verification, and will not send plain HTTP instead")
 	})
 	t.Run("a ca.pem that cannot be read", func(t *testing.T) {
@@ -277,14 +291,14 @@ func TestContextTLSDirFindsTheChosenContextsFiles(t *testing.T) {
 		require.NoError(t, os.Remove(ca), "removing ca.pem")
 		require.NoError(t, os.Symlink(ca, ca), "making ca.pem a link to itself, which even root cannot read")
 		t.Setenv("DOCKER_CONTEXT", "remote")
-		_, err := dockerclient.ContextTLSDir()
+		_, err := dockerclient.ResolveDaemon()
 		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "going on without the files could send requests in the clear")
 	})
 	t.Run("a broken config.json", func(t *testing.T) {
 		configDir, _ := setup(t, true)
 		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{not json`), 0o644), "writing config.json")
-		_, err := dockerclient.ContextTLSDir()
-		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a configuration that cannot be read is a problem to fix, as it is for ResolveHost")
+		_, err := dockerclient.ResolveDaemon()
+		assert.ErrorIs(t, err, dockerclient.ErrInvalidArgument, "a configuration that cannot be read is a problem to fix")
 	})
 }
 

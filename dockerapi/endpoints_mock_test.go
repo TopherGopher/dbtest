@@ -82,7 +82,9 @@ func TestMockContainerCreate(t *testing.T) {
 	require.Error(t, err, "a 400 must be an error")
 	assert.False(t, IsNotFound(err), "a 400 must not look like not found")
 	assert.Contains(t, err.Error(), "invalid port specification", "the daemon's message is preserved")
-	assert.Contains(t, err.Error(), "names the field to fix", "a 400 carries a hint")
+	var status *StatusError
+	require.ErrorAs(t, err, &status, "a 400 is the daemon's status error")
+	assert.NotEmpty(t, status.Hint(), "a 400 carries a hint")
 }
 
 func TestMockContainerInspectAndTop(t *testing.T) {

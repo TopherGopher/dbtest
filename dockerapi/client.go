@@ -98,13 +98,13 @@ func New(opts ...Option) (*Client, error) {
 			}
 		}
 	}
-	discovered := c.host == ""
-	if discovered {
-		h, err := resolveHostFromEnv()
+	var contextTLSDir string
+	if c.host == "" {
+		daemon, err := discover()
 		if err != nil {
 			return nil, err
 		}
-		c.host = h
+		c.host, contextTLSDir = daemon.Host, daemon.ContextTLSDir
 	}
 	ep, err := parseHost(c.host)
 	if err != nil {
@@ -112,7 +112,7 @@ func New(opts ...Option) (*Client, error) {
 	}
 	c.endpoint = ep
 	if ep.scheme == "tcp" && c.tlsConfig == nil {
-		cfg, err := defaultTLSConfig(ep, discovered)
+		cfg, err := defaultTLSConfig(ep, contextTLSDir)
 		if err != nil {
 			return nil, err
 		}

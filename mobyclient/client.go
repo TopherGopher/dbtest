@@ -56,7 +56,7 @@ func WithMobyClient(cli *client.Client) Option {
 	return func(cfg *clientConfig) error {
 		if cli == nil {
 			return dockerclient.InvalidArgument("mobyclient client", "", "the value is nil",
-				"pass a client built with client.New, or omit WithMobyClient to let mobyclient build one")
+				"Pass a client built with client.New, or omit WithMobyClient to let mobyclient build one")
 		}
 		cfg.mobyClient = cli
 		return nil
@@ -80,7 +80,7 @@ func WithLogger(l dockerclient.Logger) Option {
 // New creates a Client. Without WithHost or WithMobyClient it finds the
 // daemon as the docker CLI does: DOCKER_HOST, then the docker context, and
 // otherwise the first Docker or Podman socket that answers (see
-// dockerclient.ResolveHost). Whether the address is passed or found,
+// dockerclient.ResolveDaemon). Whether the address is passed or found,
 // DOCKER_TLS_VERIFY turns on TLS for a tcp:// daemon, and DOCKER_API_VERSION,
 // when set, pins the API version.
 //
@@ -114,17 +114,16 @@ func New(opts ...Option) (*Client, error) {
 
 // hostOptions returns the daemon's address, the directory of the docker
 // context's TLS files if they are used, and the moby options that reach it.
-// The address is the one given, or else the one dockerclient.ResolveHost
+// The address is the one given, or else the one dockerclient.ResolveDaemon
 // finds.
 func hostOptions(given string) (host, contextDir string, opts []client.Opt, err error) {
 	host = given
 	if host == "" {
-		if host, err = dockerclient.ResolveHost(); err != nil {
+		var daemon dockerclient.Daemon
+		if daemon, err = dockerclient.ResolveDaemon(); err != nil {
 			return "", "", nil, err
 		}
-		if contextDir, err = dockerclient.ContextTLSDir(); err != nil {
-			return "", "", nil, err
-		}
+		host, contextDir = daemon.Host, daemon.ContextTLSDir
 	}
 	opts = []client.Opt{client.WithHost(host), client.WithAPIVersionFromEnv()}
 	switch {
@@ -224,18 +223,18 @@ func constructError(host, contextDir string, err error) error {
 	switch {
 	case refuses(client.WithHost(host)):
 		return dockerclient.InvalidArgument("docker host", host, err.Error(),
-			`use a host like "unix:///var/run/docker.sock" or "tcp://host:2375"`)
+			`Use a host like "unix:///var/run/docker.sock" or "tcp://host:2375"`)
 	case refuses(client.WithAPIVersionFromEnv()):
 		return dockerclient.InvalidArgument("DOCKER_API_VERSION", os.Getenv("DOCKER_API_VERSION"), err.Error(),
-			"set an API version such as 1.44, or unset it to negotiate one with the daemon")
+			"Set an API version such as 1.44, or unset it to negotiate one with the daemon")
 	}
 	if contextDir != "" {
 		return dockerclient.InvalidArgument("docker context TLS files", contextDir, err.Error(),
-			"update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` "+
+			"Update the current context with `docker context update <name> --docker \"host=...,ca=...,cert=...,key=...\"` "+
 				"(`docker context ls` shows which is current), or set DOCKER_CONTEXT=default to stop using it")
 	}
 	return dockerclient.InvalidArgument("DOCKER_CERT_PATH", certDir(), err.Error(),
-		"point DOCKER_CERT_PATH at the directory holding ca.pem, and cert.pem and key.pem if the daemon wants a client certificate, "+
+		"Point DOCKER_CERT_PATH at the directory holding ca.pem, and cert.pem and key.pem if the daemon wants a client certificate, "+
 			"or unset DOCKER_TLS_VERIFY to connect without TLS")
 }
 

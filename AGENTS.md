@@ -43,6 +43,11 @@ Work is planned in GitHub issues and nowhere else. There is no plan file.
 - **Errors are typed and actionable.** Every error is a package-level
   sentinel, or a typed value that matches one, so callers use `errors.Is` and
   never parse a message. The message says what went wrong and what to do.
+  Its first word is lowercase, as Go's convention says, and every sentence
+  after a full stop starts with a capital. The fix comes after a full stop,
+  so it starts with a capital; the problem comes after a colon, so it does
+  not. If a sentence would start with a lowercase name such as `ca.pem` or
+  `dbtest`, reword it.
 
 ## Tests
 

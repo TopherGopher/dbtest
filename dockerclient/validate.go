@@ -50,7 +50,7 @@ var (
 	refNamePattern   = regexp.MustCompile(`^` + refName + `$`)
 )
 
-const refFix = `use the form [registry[:port]/]repository[:tag|@digest] with a lowercase repository, for example "mongo:8" or "localhost:5000/team/mongo@sha256:..."`
+const refFix = `Use the form [registry[:port]/]repository[:tag|@digest] with a lowercase repository, for example "mongo:8" or "localhost:5000/team/mongo@sha256:..."`
 
 // ImageRef is a parsed image reference.
 type ImageRef struct {
@@ -80,7 +80,7 @@ func ParseImageRef(ref string) (ImageRef, error) {
 	}
 	r := ImageRef{Name: m[1], Tag: m[2], Digest: m[3]}
 	if len(r.Name) > RefNameMaxLength {
-		return ImageRef{}, InvalidArgument("image reference", ref, "the repository name is longer than 255 characters", "shorten the repository path")
+		return ImageRef{}, InvalidArgument("image reference", ref, "the repository name is longer than 255 characters", "Shorten the repository path")
 	}
 	if r.Tag == "" && r.Digest == "" {
 		r.Tag = "latest"
@@ -93,10 +93,10 @@ func ParseImageRef(ref string) (ImageRef, error) {
 func CheckID(kind, id string) (string, error) {
 	trimmed := strings.TrimPrefix(strings.TrimSpace(id), "/")
 	if trimmed == "" {
-		return "", InvalidArgument(kind+" id", "", "the value is empty", "pass the id returned by ContainerCreate or ExecCreate, or the container name")
+		return "", InvalidArgument(kind+" id", "", "the value is empty", "Pass the id returned by ContainerCreate or ExecCreate, or the container name")
 	}
 	if !idPattern.MatchString(trimmed) {
-		return "", InvalidArgument(kind+" id", id, "only letters, digits, '_', '.' and '-' are allowed", "pass the id returned by ContainerCreate or ExecCreate, or the container name")
+		return "", InvalidArgument(kind+" id", id, "only letters, digits, '_', '.' and '-' are allowed", "Pass the id returned by ContainerCreate or ExecCreate, or the container name")
 	}
 	return trimmed, nil
 }
@@ -109,7 +109,7 @@ func CheckContainerName(name string) (string, error) {
 		return "", nil
 	}
 	if !containerNamePattern.MatchString(trimmed) {
-		return "", InvalidArgument("container name", name, "names need at least two characters from [a-zA-Z0-9][a-zA-Z0-9_.-]", `choose a name like "mongotest-1a2b" or pass "" to let the daemon pick one`)
+		return "", InvalidArgument("container name", name, "names need at least two characters from [a-zA-Z0-9][a-zA-Z0-9_.-]", `Choose a name like "mongotest-1a2b" or pass "" to let the daemon pick one`)
 	}
 	return trimmed, nil
 }
@@ -132,13 +132,13 @@ func CheckPortKey(field, key string) error {
 	port, proto, _ := strings.Cut(key, "/")
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
-		return InvalidArgument(field, key, "the port must be a number from 1 to 65535", `use keys like "27017/tcp"`)
+		return InvalidArgument(field, key, "the port must be a number from 1 to 65535", `Use keys like "27017/tcp"`)
 	}
 	switch strings.ToLower(proto) {
 	case "", "tcp", "udp", "sctp":
 		return nil
 	}
-	return InvalidArgument(field, key, "the protocol must be tcp, udp or sctp", `use keys like "27017/tcp"`)
+	return InvalidArgument(field, key, "the protocol must be tcp, udp or sctp", `Use keys like "27017/tcp"`)
 }
 
 // checkHostPort validates a PortBinding.HostPort: empty (daemon assigns),
@@ -154,12 +154,12 @@ func CheckHostPort(field, hp string) error {
 	}
 	l, ok := parse(lo)
 	if !ok {
-		return InvalidArgument(field, hp, "the host port must be a number from 0 to 65535", `use "" to let the daemon choose, "34819" to pin a port, or "40000-40010" for a range`)
+		return InvalidArgument(field, hp, "the host port must be a number from 0 to 65535", `Use "" to let the daemon choose, "34819" to pin a port, or "40000-40010" for a range`)
 	}
 	if isRange {
 		h, ok := parse(hi)
 		if !ok || h < l {
-			return InvalidArgument(field, hp, "the host port range must be low-high with low <= high", `use "40000-40010"`)
+			return InvalidArgument(field, hp, "the host port range must be low-high with low <= high", `Use "40000-40010"`)
 		}
 	}
 	return nil
@@ -168,19 +168,19 @@ func CheckHostPort(field, hp string) error {
 // Validate checks a ContainerConfig before it is sent to a daemon.
 func (cfg ContainerConfig) Validate() error {
 	if strings.TrimSpace(cfg.Image) == "" {
-		return InvalidArgument("ContainerConfig.Image", "", "the image is required", `set Image to a reference such as "mongo:8"`)
+		return InvalidArgument("ContainerConfig.Image", "", "the image is required", `Set Image to a reference such as "mongo:8"`)
 	}
 	if _, err := CheckImageRefOrID(cfg.Image); err != nil {
 		return err
 	}
 	for i, arg := range cfg.Cmd {
 		if arg == "" {
-			return InvalidArgument("ContainerConfig.Cmd["+strconv.Itoa(i)+"]", "", "an empty argument was given", "remove the empty element; the image entrypoint prepends mongod, so pass flags only")
+			return InvalidArgument("ContainerConfig.Cmd["+strconv.Itoa(i)+"]", "", "an empty argument was given", "Remove the empty element; the image entrypoint prepends mongod, so pass flags only")
 		}
 	}
 	for k := range cfg.Labels {
 		if strings.TrimSpace(k) == "" {
-			return InvalidArgument("ContainerConfig.Labels", "", "a label has an empty key", `use keys like "mongotest"`)
+			return InvalidArgument("ContainerConfig.Labels", "", "a label has an empty key", `Use keys like "mongotest"`)
 		}
 	}
 	for k := range cfg.ExposedPorts {
@@ -196,7 +196,7 @@ func (cfg ContainerConfig) Validate() error {
 			field := "HostConfig.PortBindings[" + k + "]"
 			for _, b := range bindings {
 				if b.HostIP != "" && net.ParseIP(b.HostIP) == nil {
-					return InvalidArgument(field+".HostIP", b.HostIP, "it is not an IP address", `use "127.0.0.1" to publish on loopback only, or "" for all interfaces`)
+					return InvalidArgument(field+".HostIP", b.HostIP, "it is not an IP address", `Use "127.0.0.1" to publish on loopback only, or "" for all interfaces`)
 				}
 				if err := CheckHostPort(field+".HostPort", b.HostPort); err != nil {
 					return err
@@ -215,7 +215,7 @@ func (cfg ExecConfig) Validate(apiVersion string) error {
 	}
 	for _, e := range cfg.Env {
 		if !strings.Contains(e, "=") || strings.HasPrefix(e, "=") {
-			return InvalidArgument("ExecConfig.Env entry", e, "it is not in KEY=value form", `use entries like "MONGO_INITDB_DATABASE=test"`)
+			return InvalidArgument("ExecConfig.Env entry", e, "it is not in KEY=value form", `Use entries like "MONGO_INITDB_DATABASE=test"`)
 		}
 	}
 	if len(cfg.Env) > 0 && compareAPIVersions(apiVersion, "1.25") < 0 {
@@ -223,7 +223,7 @@ func (cfg ExecConfig) Validate(apiVersion string) error {
 	}
 	if cfg.WorkingDir != "" {
 		if !strings.HasPrefix(cfg.WorkingDir, "/") {
-			return InvalidArgument("ExecConfig.WorkingDir", cfg.WorkingDir, "it must be an absolute path inside the container", `use "/tmp" or another absolute path`)
+			return InvalidArgument("ExecConfig.WorkingDir", cfg.WorkingDir, "it must be an absolute path inside the container", `Use "/tmp" or another absolute path`)
 		}
 		if compareAPIVersions(apiVersion, "1.35") < 0 {
 			return &APIVersionError{Feature: "ExecConfig.WorkingDir", Required: "1.35", Negotiated: apiVersion}
@@ -241,17 +241,17 @@ func ValidateFiles(files []File) error {
 	for _, f := range files {
 		name := path.Clean(f.Name)
 		if name == "." || name == "" || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "../") || name == ".." {
-			return InvalidArgument("file name", f.Name, "it must be relative to the destination directory and must not contain '..'", `use names like "ca.pem" or "mongo-tls/server.pem"`)
+			return InvalidArgument("file name", f.Name, "it must be relative to the destination directory and must not contain '..'", `Use names like "ca.pem" or "mongo-tls/server.pem"`)
 		}
 		// archive/tar cannot encode a path containing a control character,
 		// and discovering that inside writeTar would fail the upload after
 		// the request had already started.
 		if strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 			return InvalidArgument("file name", strconv.Quote(f.Name), "it contains a control character, which cannot be stored in a tar archive",
-				`use a plain relative path such as "mongo-tls/server.pem"`)
+				`Use a plain relative path such as "mongo-tls/server.pem"`)
 		}
 		if f.Mode&^fs.ModePerm != 0 {
-			return InvalidArgument("file mode", f.Mode.String(), "only permission bits are allowed (no type, setuid, setgid or sticky bits)", "use a value like 0o644 or 0o600, or 0 for the default 0o644")
+			return InvalidArgument("file mode", f.Mode.String(), "only permission bits are allowed (no type, setuid, setgid or sticky bits)", "Use a value like 0o644 or 0o600, or 0 for the default 0o644")
 		}
 	}
 	return nil
@@ -268,17 +268,17 @@ func CheckDestDir(destDir string) (string, error) {
 	dest := filepath.ToSlash(destDir)
 	if dest == "" {
 		return "", InvalidArgument("destination directory", destDir,
-			"no destination was given", `pass a path inside the container, for example "/etc/mongo-tls"`)
+			"no destination was given", `Pass a path inside the container, for example "/etc/mongo-tls"`)
 	}
 	if !strings.HasPrefix(dest, "/") {
 		return "", InvalidArgument("destination directory", destDir,
 			"it must be an absolute path inside the container",
-			`use a path like "/etc/mongo-tls" or "/tmp"`)
+			`Use a path like "/etc/mongo-tls" or "/tmp"`)
 	}
 	if dest == "/.." || strings.Contains(dest, "/../") || strings.HasSuffix(dest, "/..") {
 		return "", InvalidArgument("destination directory", destDir,
 			"it walks outside itself with ..",
-			"give the destination directly, without .. segments")
+			"Give the destination directly, without .. segments")
 	}
 	return dest, nil
 }

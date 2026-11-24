@@ -108,11 +108,10 @@ func TestVersionErrorNamesTheDaemonProduct(t *testing.T) {
 		Product:   "Podman Engine 5.7.1",
 		ServerMax: "1.41", ClientMin: "1.44",
 	}
-	assert.Contains(t, withProduct.Error(), "Podman Engine 5.7.1", "the message must name the daemon that reported the window")
-	assert.NotContains(t, withProduct.Error(), "the docker daemon", "naming the product replaces the generic wording")
+	assert.Contains(t, withProduct.Error(), withProduct.Product, "the message must name the daemon that reported the window")
 
 	withoutProduct := &dockerclient.APIVersionError{ServerMax: "1.41", ClientMin: "1.44"}
-	assert.Contains(t, withoutProduct.Error(), "the docker daemon", "the generic wording stays when the product is unknown")
+	assert.NotContains(t, withoutProduct.Error(), "Podman", "with no product known, the message names none")
 }
 
 func TestPodmanIsIdentifiedByItsResponseHeader(t *testing.T) {

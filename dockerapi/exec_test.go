@@ -289,7 +289,9 @@ func TestExecCombinesAndWaitsForExit(t *testing.T) {
 
 	_, err = c.Exec(context.Background(), "abc")
 	assert.Same(t, ErrNoCommand, err, "Exec without a command returns the predeclared ErrNoCommand")
-	assert.Contains(t, err.Error(), `Exec(ctx, containerID, "mongosh"`, "the error shows how to call it")
+	var invalid *InvalidArgumentError
+	require.ErrorAs(t, err, &invalid, "the error says what was refused")
+	assert.NotEmpty(t, invalid.Fix, "the error shows how to call it")
 }
 
 func TestDemuxEmptyStream(t *testing.T) {

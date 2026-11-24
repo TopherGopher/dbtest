@@ -124,7 +124,9 @@ func TestCopyToContainerErrors(t *testing.T) {
 	assert.Same(t, ErrNoFiles, err, "no files returns the predeclared ErrNoFiles before any request")
 	err = c.CopyToContainer(context.Background(), "abc", "/tmp", []File{{Name: "/abs"}})
 	assert.ErrorIs(t, err, ErrInvalidArgument, "absolute file names are rejected before any request")
-	assert.Contains(t, err.Error(), "relative to the destination directory", "the error explains what a valid name looks like")
+	var invalid *InvalidArgumentError
+	require.ErrorAs(t, err, &invalid, "the error says what was refused")
+	assert.NotEmpty(t, invalid.Fix, "the error explains what a valid name looks like")
 }
 
 func TestCopyToContainerDefaultMode(t *testing.T) {
@@ -144,6 +146,8 @@ func TestFileModeValidation(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidArgument, "the setuid bit must be rejected")
 	err = validateFiles([]File{{Name: "x", Mode: 0o1777}})
 	assert.ErrorIs(t, err, ErrInvalidArgument, "the sticky bit written as an octal literal must be rejected")
-	assert.Contains(t, err.Error(), "0o644", "the mode error must show an example of a valid value")
+	var invalid *InvalidArgumentError
+	require.ErrorAs(t, err, &invalid, "the error says what was refused")
+	assert.NotEmpty(t, invalid.Fix, "the mode error must show an example of a valid value")
 	assert.NoError(t, validateFiles([]File{{Name: "x", Mode: 0o600}}), "plain permission bits are accepted")
 }

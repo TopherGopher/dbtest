@@ -2,8 +2,10 @@ package dockerapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"io"
@@ -22,13 +24,17 @@ import (
 )
 
 func TestNewRequiresValidHost(t *testing.T) {
-	_, err := New(WithHost("bogus"))
-	require.ErrorIs(t, err, ErrInvalidArgument, "a host without a scheme must be rejected as an invalid argument")
-	assert.Contains(t, err.Error(), "use unix:///var/run/docker.sock", "the error must tell the caller which host forms are accepted")
-
-	_, err = New(WithHost("npipe:////./pipe/docker_engine"))
-	require.ErrorIs(t, err, ErrInvalidArgument, "npipe hosts must be rejected as an invalid argument")
-	assert.Contains(t, err.Error(), "DOCKER_HOST=tcp://localhost:2375", "the npipe error must say how to switch Docker Desktop to TCP")
+	fixes := map[string]bool{}
+	for _, host := range []string{"bogus", "npipe:////./pipe/docker_engine"} {
+		_, err := New(WithHost(host))
+		require.ErrorIs(t, err, ErrInvalidArgument, "%s must be rejected as an invalid argument", host)
+		var invalid *InvalidArgumentError
+		require.ErrorAs(t, err, &invalid, "%s: the error says what was refused", host)
+		assert.Equal(t, host, invalid.Value, "the error quotes the host it refused")
+		assert.NotEmpty(t, invalid.Fix, "%s: the error says what to use instead", host)
+		fixes[invalid.Fix] = true
+	}
+	assert.Len(t, fixes, 2, "a named pipe gets its own fix, not the one for a host with no scheme")
 }
 
 func TestNewUsesDiscoveryWhenNoHostOption(t *testing.T) {
@@ -139,6 +145,56 @@ func TestWithLoggerReceivesRequestRecords(t *testing.T) {
 	assert.Equal(t, "docker request", last.msg, "request records use a fixed message so log filters can match it")
 	assert.Equal(t, "/v1.44/_ping", last.kv["path"], "the record must carry the versioned path")
 	assert.Equal(t, 200, last.kv["status"], "the record must carry the status code")
+}
+
+// writeTLSContext makes a docker context named remote, current through
+// DOCKER_CONTEXT, that reaches host with ca.pem as its TLS file.
+func writeTLSContext(t *testing.T, host string, caPEM []byte) {
+	t.Helper()
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+		t.Setenv(name, "")
+	}
+	configDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", configDir)
+	t.Setenv("DOCKER_CONTEXT", "remote")
+	sum := sha256.Sum256([]byte("remote"))
+	id := hex.EncodeToString(sum[:])
+	meta := filepath.Join(configDir, "contexts", "meta", id)
+	require.NoError(t, os.MkdirAll(meta, 0o755), "creating the context")
+	require.NoError(t, os.WriteFile(filepath.Join(meta, "meta.json"),
+		[]byte(`{"Name":"remote","Endpoints":{"docker":{"Host":"`+host+`"}}}`), 0o644), "writing the context")
+	tlsDir := filepath.Join(configDir, "contexts", "tls", id, "docker")
+	require.NoError(t, os.MkdirAll(tlsDir, 0o700), "creating the context's TLS directory")
+	require.NoError(t, os.WriteFile(filepath.Join(tlsDir, "ca.pem"), caPEM, 0o600), "writing ca.pem")
+}
+
+// A daemon found through a docker context with TLS files is reached over
+// TLS with them, with no TLS variables set.
+func TestAContextsTLSFilesAreUsed(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"ApiVersion":"1.44"}`)
+	}))
+	defer srv.Close()
+
+	t.Run("a context whose ca.pem signed the daemon", func(t *testing.T) {
+		writeTLSContext(t, "tcp://"+strings.TrimPrefix(srv.URL, "https://"),
+			pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}))
+		c, err := New()
+		require.NoError(t, err, "a client for the context")
+
+		resp, err := c.do(context.Background(), http.MethodGet, "/version", nil, nil)
+
+		require.NoError(t, err, "the daemon is trusted through the context's ca.pem")
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "the request went over TLS")
+	})
+	t.Run("a context whose ca.pem holds no certificate", func(t *testing.T) {
+		writeTLSContext(t, "tcp://"+strings.TrimPrefix(srv.URL, "https://"), []byte("not a certificate"))
+
+		_, err := New()
+
+		assert.ErrorIs(t, err, ErrInvalidArgument, "a TLS file that cannot be used is a configuration problem to fix")
+	})
 }
 
 // TLS: a DOCKER_CERT_PATH directory built from an httptest TLS server.

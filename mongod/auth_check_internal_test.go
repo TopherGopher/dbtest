@@ -24,7 +24,7 @@ func TestIntegrationTheCredentialsCheckSeesARealOpenMongod(t *testing.T) {
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
 	probe := readyProbe{name: c.Name(), id: c.ID(), host: c.Host(), port: c.Port(), requireAuth: true}
-	err = probe.ask(ctx)
+	err = probe.ask(ctx, nil)
 
 	var open *AuthNotEnforcedError
 	assert.ErrorAs(t, err, &open, "an open mongod is seen as open")

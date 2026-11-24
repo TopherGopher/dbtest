@@ -69,7 +69,7 @@ func holdTurn(t *testing.T, hook func(s *container.Spec, block func())) (release
 
 // whileReady holds a start's turn in its readiness check.
 func whileReady(s *container.Spec, block func()) {
-	s.Ready = func(context.Context, string, int) error { block(); return nil }
+	s.Ready = func(context.Context, string, int, func(context.Context) error) error { block(); return nil }
 }
 
 // holdSlot starts a container that keeps its turn until release is called.
@@ -121,7 +121,7 @@ func TestWaitingForASlotDoesNotUseUpTheStartTimeout(t *testing.T) {
 	release, first := holdSlot(t)
 	time.AfterFunc(1500*time.Millisecond, release)
 	s := spec(500 * time.Millisecond)
-	s.Ready = func(ctx context.Context, _ string, _ int) error { return ctx.Err() }
+	s.Ready = func(ctx context.Context, _ string, _ int, _ func(context.Context) error) error { return ctx.Err() }
 
 	_, err := newContainer(readyDaemon()).Start(shortContext(t), s)
 
@@ -199,7 +199,9 @@ func TestTheAdviceIsToldWhenOtherStartsFilledTheLimit(t *testing.T) {
 				t.Cleanup(func() { release(); <-done })
 			}
 			s := spec(100 * time.Millisecond)
-			s.Ready = func(context.Context, string, int) error { return errors.New("nothing answered") }
+			s.Ready = func(context.Context, string, int, func(context.Context) error) error {
+				return errors.New("nothing answered")
+			}
 			var crowded bool
 			s.Advice = func(_ error, filled bool) string {
 				crowded = filled

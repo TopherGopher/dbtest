@@ -98,7 +98,9 @@ func TestNegotiateServerTooOld(t *testing.T) {
 	require.ErrorIs(t, err, ErrAPIVersion, "a daemon below our minimum is an API version problem")
 	assert.Contains(t, err.Error(), "1.20", "the error must state the daemon's maximum")
 	assert.Contains(t, err.Error(), MinSupportedAPIVersion, "the error must state our minimum")
-	assert.Contains(t, err.Error(), "Upgrade the daemon", "the error must say what to do")
+	var mismatch *APIVersionError
+	require.ErrorAs(t, err, &mismatch, "the error is a version mismatch")
+	assert.Equal(t, "1.20", mismatch.ServerMax, "the error carries the daemon's maximum")
 }
 
 func TestNegotiateHappensOnce(t *testing.T) {
@@ -156,7 +158,10 @@ func TestPinnedVersionSkipsNegotiation(t *testing.T) {
 	t.Run("malformed pin is rejected", func(t *testing.T) {
 		_, err := New(WithHost(fd.Host()), WithAPIVersion("latest"))
 		require.ErrorIs(t, err, ErrInvalidArgument, "a non major.minor pin is an invalid argument")
-		assert.Contains(t, err.Error(), "1.44", "the error must show the expected form")
+		var invalid *InvalidArgumentError
+		require.ErrorAs(t, err, &invalid, "the error says what was refused")
+		assert.Equal(t, "latest", invalid.Value, "the error quotes the pin it refused")
+		assert.NotEmpty(t, invalid.Fix, "the error must show the expected form")
 	})
 }
 

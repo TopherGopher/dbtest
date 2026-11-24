@@ -393,7 +393,7 @@ func (f *Fake) CopyArchiveToContainer(ctx context.Context, id, destDir string, a
 	}
 	if archive == nil {
 		return dockerclient.InvalidArgument("archive", "", "no tar stream was given",
-			"pass an io.Reader that yields a tar archive")
+			"Pass an io.Reader that yields a tar archive")
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()

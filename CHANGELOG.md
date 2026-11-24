@@ -5,6 +5,29 @@ what to do if it affects you.
 
 ## Unreleased
 
+### Starting Atlas Local waits for its final mongod
+
+Nothing needs to change in your code.
+
+- **`mongod.Start` no longer returns while the temporary mongod of Atlas
+  Local (`mongodb/mongodb-atlas-local`) is still answering.** The image's
+  health check can pass for a moment before that mongod stops. A connection
+  your test opened at that moment was dropped soon after, with an error that
+  did not point to the start.
+- **Starting Atlas Local takes a few seconds longer.** Once its health check
+  passes, the start waits a few seconds and asks mongod again on the same
+  connection. Only images that declare a health check wait; the official
+  `mongo` image and MongoDB's community and enterprise images declare none.
+
+### Invalid-argument errors capitalise their advice
+
+- **The sentence that says what to do in a `dockerclient.InvalidArgumentError`
+  now starts with a capital letter,** as it already did in every other
+  error. For example, `… the image is required. set Image …` is now
+  `… the image is required. Set Image …`.
+- If you compare an error's message text, use `errors.Is` or the error's
+  fields, such as `InvalidArgumentError.Fix`, instead.
+
 ### Starts beyond a limit wait their turn
 
 - **At most 8 containers per CPU now start at once in a process, and further
@@ -115,6 +138,12 @@ If you check for `ErrDaemonResponse` to catch these, check for
   made with `skip-tls-verify=true`, a `tcp://` address and no TLS files is
   refused with `ErrInvalidArgument` before anything is sent, rather than
   sent plain HTTP, unless `DOCKER_TLS_VERIFY` turns TLS on.
+- **`dockerclient.ResolveDaemon` is new, and `ResolveHost` is deprecated.**
+  `ResolveDaemon` returns the daemon's address and the docker context's TLS
+  directory together, from the same configuration. When the directory is
+  empty, take TLS settings from `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`.
+  If you implement `dockerclient.Client` yourself, call it in place of
+  `ResolveHost` so that your client uses the context's TLS files too.
 
 If you set `DOCKER_CERT_PATH` to files other than the context's, the
 context's files are now used: fix the context, or set `DOCKER_HOST` so that

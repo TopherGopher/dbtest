@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 // On Windows the daemon's default is a named pipe, which this client cannot
@@ -71,13 +73,13 @@ func TestANamedPipeFallsBackToAnEndpointThisClientCanDial(t *testing.T) {
 // Only a named pipe sends discovery to the fallback; any other address is
 // used as found.
 func TestOnlyANamedPipeIsReplaced(t *testing.T) {
-	saved := resolveHost
-	t.Cleanup(func() { resolveHost = saved })
+	saved := resolveDaemon
+	t.Cleanup(func() { resolveDaemon = saved })
 
-	resolveHost = func() (string, error) { return "tcp://build-host:2375", nil }
-	got, err := resolveHostFromEnv()
+	resolveDaemon = func() (dockerclient.Daemon, error) { return dockerclient.Daemon{Host: "tcp://build-host:2375"}, nil }
+	got, err := discover()
 	require.NoError(t, err, "a tcp address")
-	assert.Equal(t, "tcp://build-host:2375", got, "a dialable address is kept")
+	assert.Equal(t, "tcp://build-host:2375", got.Host, "a dialable address is kept")
 
 	savedProbe := probeWindows
 	t.Cleanup(func() { probeWindows = savedProbe })
@@ -85,21 +87,34 @@ func TestOnlyANamedPipeIsReplaced(t *testing.T) {
 		return windowsProbe{getenv: env(nil), listening: func(string) bool { return false },
 			dialable: func(string) bool { return false }, glob: func(string) []string { return nil }}
 	}
-	resolveHost = func() (string, error) { return "npipe:////./pipe/docker_engine", nil }
-	_, err = resolveHostFromEnv()
+	resolveDaemon = func() (dockerclient.Daemon, error) {
+		return dockerclient.Daemon{Host: "npipe:////./pipe/docker_engine", ContextTLSDir: "/ctx/tls"}, nil
+	}
+	_, err = discover()
 	assert.ErrorIs(t, err, ErrConnectionFailed, "a named pipe is replaced by an endpoint this client can dial, or an error saying so")
+
+	probeWindows = func() windowsProbe {
+		return windowsProbe{getenv: env(nil), listening: func(addr string) bool { return addr == dockerDesktopTCP },
+			dialable: func(string) bool { return false }, glob: func(string) []string { return nil }}
+	}
+	got, err = discover()
+	require.NoError(t, err, "Docker Desktop's TCP endpoint answers")
+	assert.Equal(t, dockerclient.Daemon{Host: "tcp://" + dockerDesktopTCP}, got,
+		"the context's TLS files belong to the pipe, so they are not used for the endpoint that replaces it")
 }
 
 // A pipe the caller chose, such as Podman's, is not swapped for whatever
 // answers on Docker Desktop's port: that could be another daemon. It is
 // left for parsing to reject, with advice.
 func TestAChosenPipeIsNotReplaced(t *testing.T) {
-	saved := resolveHost
-	t.Cleanup(func() { resolveHost = saved })
-	resolveHost = func() (string, error) { return "npipe:////./pipe/podman-machine-default", nil }
+	saved := resolveDaemon
+	t.Cleanup(func() { resolveDaemon = saved })
+	resolveDaemon = func() (dockerclient.Daemon, error) {
+		return dockerclient.Daemon{Host: "npipe:////./pipe/podman-machine-default"}, nil
+	}
 
-	got, err := resolveHostFromEnv()
+	got, err := discover()
 
 	require.NoError(t, err, "resolving gives the pipe back")
-	assert.Equal(t, "npipe:////./pipe/podman-machine-default", got, "a chosen pipe is kept, so the caller learns this client cannot open it")
+	assert.Equal(t, "npipe:////./pipe/podman-machine-default", got.Host, "a chosen pipe is kept, so the caller learns this client cannot open it")
 }

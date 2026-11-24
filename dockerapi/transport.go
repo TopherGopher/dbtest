@@ -38,7 +38,7 @@ type endpoint struct {
 	tls bool
 }
 
-const hostFix = "use unix:///var/run/docker.sock, tcp://host:2375, http://host:2375 or https://host:2376"
+const hostFix = "Use unix:///var/run/docker.sock, tcp://host:2375, http://host:2375 or https://host:2376"
 
 // parseHost parses a DOCKER_HOST style string.
 func parseHost(host string) (endpoint, error) {
@@ -63,11 +63,11 @@ func parseHost(host string) (endpoint, error) {
 			if u.Path == "" {
 				return endpoint{}, invalidArg("docker host", host,
 					"the socket path "+strconv.Quote(u.Host)+" is relative",
-					"give an absolute path, for example unix:///var/run/docker.sock")
+					"Give an absolute path, for example unix:///var/run/docker.sock")
 			}
 			return endpoint{}, invalidArg("docker host", host,
 				"a unix socket has no host component, but this names "+strconv.Quote(u.Host),
-				"drop the host and give the socket path alone, for example unix://"+u.Path+", or use tcp:// to reach a remote daemon")
+				"Drop the host and give the socket path alone, for example unix://"+u.Path+", or use tcp:// to reach a remote daemon")
 		}
 		if u.Path == "" {
 			return endpoint{}, invalidArg("docker host", host, "it has no socket path", hostFix)
@@ -116,7 +116,7 @@ func parseHost(host string) (endpoint, error) {
 		return endpoint{scheme: "tcp", addr: addr, tls: useTLS}, nil
 	case "npipe":
 		return endpoint{}, invalidArg("docker host", host, "Windows named pipes are not supported by this client",
-			`enable "Expose daemon on tcp://localhost:2375 without TLS" in Docker Desktop settings and set DOCKER_HOST=tcp://localhost:2375`)
+			`Enable "Expose daemon on tcp://localhost:2375 without TLS" in Docker Desktop settings and set DOCKER_HOST=tcp://localhost:2375`)
 	default:
 		return endpoint{}, invalidArg("docker host", host, "the scheme "+u.Scheme+":// is not supported", hostFix)
 	}
