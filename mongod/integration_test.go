@@ -302,24 +302,33 @@ func TestIntegrationAtlasLocalAlreadyRunsAReplicaSet(t *testing.T) {
 		"which the image declares")
 }
 
-// Atlas Local answers commands from a mongod it then replaces, so a Start
-// that returned on the first answer would hand back a server about to go
-// away. The first command through the published port has to work, and so
-// does every one after it.
+// Atlas Local starts mongod three times, and the second answers commands
+// for several seconds before it is stopped. A connection opened as soon as
+// Start returns must reach the last mongod and keep getting answers. The
+// test holds that one connection because it breaks as soon as its mongod
+// stops. A new connection for each command would fail only if it arrived
+// while no mongod was listening.
 func TestIntegrationAtlasLocalKeepsAnsweringOnceStartReturns(t *testing.T) {
 	docker, ctx := liveDocker(t)
 	key, value := runLabel(t)
 	requireImage(t, ctx, docker, mongod.ImageAtlasLocal)
 
 	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker).WithMongoImage(mongod.ImageAtlasLocal).WithLabel(key, value))
-	require.NoError(t, err, "mongod integration: Atlas Local must start")
+	require.NoError(t, err, "Atlas Local starts")
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
-	address := net.JoinHostPort(c.Host(), strconv.Itoa(c.Port()))
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(c.Host(), strconv.Itoa(c.Port())), 2*time.Second)
+	require.NoError(t, err, "a connection opens as soon as Start returns")
+	t.Cleanup(func() { _ = conn.Close() })
 
-	require.NoError(t, askHello(address), "the first command is answered")
-	for range 5 {
-		time.Sleep(2 * time.Second)
-		assert.NoError(t, askHello(address), "and mongod is still answering")
+	// Wait longer than the second mongod serves, even on a slow daemon.
+	// Once the connection drops, every later hello fails the same way, so
+	// the first failure ends the loop.
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if !assert.NoError(t, helloOn(conn), "the connection Start's mongod accepted is still answered") {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 
