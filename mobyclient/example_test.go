@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -15,12 +16,13 @@ import (
 	"github.com/tophergopher/dbtest/dockerclient"
 	"github.com/tophergopher/dbtest/dockermock"
 	"github.com/tophergopher/dbtest/mobyclient"
+	"github.com/tophergopher/dbtest/mongod"
 )
 
 // The examples in this file talk to an in-process stand-in for the Docker
 // Engine API (see exampleDaemon at the bottom of the file), so they run
 // anywhere and produce the same output with no Docker daemon installed.
-// Real code gets its client from mobyclient.FromEnv instead.
+// Real code gets its client from mobyclient.New instead.
 
 func ExampleFromEnv() {
 	// FromEnv finds the daemon as the docker CLI does: DOCKER_HOST, then the
@@ -46,7 +48,7 @@ func ExampleNew() {
 	// Output: true
 }
 
-func ExampleWithHost() {
+func ExampleWithHost() /* --8<-- [start:with-host] */ {
 	// A unix socket, a TCP endpoint, or an http/https URL.
 	c, err := mobyclient.New(mobyclient.WithHost("unix:///var/run/docker.sock"))
 	if err != nil {
@@ -54,7 +56,23 @@ func ExampleWithHost() {
 	}
 	fmt.Println(c.Host())
 	// Output: unix:///var/run/docker.sock
-}
+} // --8<-- [end:with-host]
+
+// The mongod and mongotest packages take any client through WithDocker, so
+// they can start MongoDB through this one. This example is compiled but not
+// run, because it talks to a real Docker daemon.
+func ExampleNew_mongod() /* --8<-- [start:with-mongod] */ {
+	docker, err := mobyclient.New()
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx := context.Background()
+	c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithDocker(docker))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Stop(ctx)
+} // --8<-- [end:with-mongod]
 
 func ExampleWithMobyClient() {
 	// Wrap a *client.Client the caller already built, instead of letting
@@ -316,7 +334,7 @@ func ExampleClient_Exec() {
 // file, so they run anywhere with no Docker installed and always produce the
 // same output. ServeDefaults answers every endpoint with the fixed values
 // dockermock documents; servePing adds the /_ping route the moby client
-// negotiates against. Real code has no stub: it calls mobyclient.FromEnv.
+// negotiates against. Real code has no stub: it calls mobyclient.New.
 var exampleDaemon = sync.OnceValue(func() *dockermock.Daemon {
 	d := dockermock.NewDaemon(dockermock.OverTCP())
 	d.ServeDefaults()

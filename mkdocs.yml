@@ -1,5 +1,5 @@
-# Documentation site for dbtest.
-# Build locally with:   pip install -r docs/requirements.txt && mkdocs serve
+# Documentation site for dbtest, built with Zensical.
+# Build locally with:   pip install -r docs/requirements.txt && zensical serve
 # Published to GitHub Pages by .github/workflows/docs.yml on every push to main.
 
 site_name: dbtest
@@ -20,6 +20,8 @@ strict: true
 
 theme:
   name: material
+  # The classic look is the one docs/stylesheets/extra.css was written for.
+  variant: classic
   custom_dir: docs/overrides
   language: en
   logo: assets/logo.svg
@@ -89,7 +91,7 @@ extra:
       link: https://pkg.go.dev/github.com/tophergopher/dbtest
       name: API reference on pkg.go.dev
   # Page status, set per page in front matter. The nav shows an icon; the
-  # page shows a banner (see overrides/main.html). Keep these four.
+  # page shows a banner (see overrides/main.html). Keep these three.
   status:
     current: Describes what is on main today
     changing: Works today, but is about to change
@@ -120,7 +122,14 @@ markdown_extensions:
   - pymdownx.keys
   - pymdownx.mark
   - pymdownx.smartsymbols
-  - pymdownx.snippets
+  # Pages include their Go from the repository's examples and tests, so CI
+  # compiles what the site shows. A missing file or section fails the build.
+  # Includes come only from files inside the repository, never from a URL.
+  - pymdownx.snippets:
+      check_paths: true
+      dedent_subsections: true
+      restrict_base_path: true
+      url_download: false
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true

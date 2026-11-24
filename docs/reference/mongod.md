@@ -17,13 +17,7 @@ connection with the driver already set up, use
 [`mongotest.Run`](../guides/test-connection.md).
 
 ```go
-c, err := mongod.Start(ctx)
-if err != nil {
-    return err
-}
-defer c.Stop(context.Background())
-
-client, err := mongo.Connect(options.Client().ApplyURI(c.URI())) // driver v2 here; v1 takes a ctx first
+--8<-- "mongod/example_test.go:start"
 ```
 
 `Start` runs `docker.io/library/mongo:8.0`, publishes `mongod` on a host port
@@ -36,7 +30,7 @@ is published: `mongod` joins the network of the tests' container instead.
 `StartWithOptions` takes an `Options` value. Begin with `DefaultOptions` and
 chain the `With` methods:
 
-```go
+```go title="Illustration, not compiled"
 base := mongod.DefaultOptions().WithImage("7.0")
 c, err := mongod.StartWithOptions(ctx, base.WithReplicaSet("rs0"))
 ```
@@ -111,7 +105,7 @@ A start refuses these mistakes about the image before it creates anything:
 An image the package does not know is treated like the official one. To pull
 from your own registry or mirror, name the image there:
 
-```go
+```go title="Illustration, not compiled"
 mongod.DefaultOptions().WithImage("mirror.corp.example/mongo")
 ```
 
@@ -150,10 +144,7 @@ and no test's own deadline has to allow for it:
 
 ```go
 func TestMain(m *testing.M) {
-    if err := mongod.PullImage(context.Background(), mongod.DefaultOptions()); err != nil {
-        log.Fatal(err)
-    }
-    os.Exit(m.Run())
+	--8<-- "mongod/example_test.go:pull-test-main"
 }
 ```
 
@@ -250,7 +241,7 @@ Give a driver both the URI, which includes `tls=true`, and `TLSConfig()`,
 which trusts the container's certificate authority. Apply the URI first: a URI
 applied afterwards replaces the TLS configuration.
 
-```go
+```go title="Illustration, not compiled"
 client, err := mongo.Connect(options.Client().ApplyURI(c.URI()).SetTLSConfig(c.TLSConfig()))
 ```
 
@@ -275,7 +266,7 @@ where the image has only that. An image with neither fails with
 By default the data goes when the container goes. To load a large data set
 once and keep it for later runs, keep the data in a named Docker volume:
 
-```go
+```go title="Illustration, not compiled"
 c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithNamedVolume("cart-fixtures"))
 ```
 
@@ -321,7 +312,7 @@ not an error: read `ExitCode` in the result.
 which for a one-line script is the value of its last expression:
 
 ```go
-ok, err := c.RunScript(ctx, "db.runCommand({ping: 1}).ok") // "1"
+--8<-- "mongod/example_test.go:run-script"
 ```
 
 `db` is the `test` database; use `db.getSiblingDB("app")` for another. Each
@@ -346,10 +337,7 @@ To remove whatever is left when a run ends normally, call
 
 ```go
 func TestMain(m *testing.M) {
-    m.Run()
-    if err := mongod.ReapRunningContainers(context.Background()); err != nil {
-        log.Print(err)
-    }
+	--8<-- "mongod/example_test.go:reap-test-main"
 }
 ```
 

@@ -19,6 +19,8 @@ func newConformanceClient(tb testing.TB) dockerclient.Client {
 	d := dockermock.NewDaemon()
 	tb.Cleanup(d.Close)
 	f := dockermock.NewFake()
+	// The suite cannot configure its test image through the client, so the
+	// fake is told what that image reports.
 	f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
 	f.Log, f.ErrLog = dockerclienttest.TestContainerLog, dockerclienttest.TestContainerErrLog
 	d.ServeFake(f)
@@ -37,8 +39,7 @@ func TestConformance(t *testing.T) {
 }
 
 // BenchmarkClient measures the calls in the interface on the same scale as
-// every other implementation. The detailed, dockerapi-specific benchmarks
-// live in benchmark_test.go.
+// every other implementation.
 func BenchmarkClient(b *testing.B) {
 	dockerclienttest.Benchmarks(b, func(b *testing.B) dockerclient.Client {
 		return newConformanceClient(b)

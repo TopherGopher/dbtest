@@ -13,20 +13,17 @@ implements exactly the endpoints dbtest needs.
 ## Getting a client
 
 ```go
-c, err := dockerapi.FromEnv()
-if err != nil {
-    return err // the message names the variable or setting to fix
-}
+--8<-- "dockerapi/example_test.go:from-env"
 ```
 
 `FromEnv` locates the daemon the way the `docker` CLI does, in this order:
 
 1. `DOCKER_HOST`, if set.
 2. `DOCKER_CONTEXT`, or the `currentContext` recorded in the Docker config
-   directory (`DOCKER_CONFIG` or `~/.docker`), resolved through the context's
-   `meta.json`. If the context has TLS files, they are used for TLS instead
-   of `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH`, and the daemon's
-   certificate is always verified.
+   directory (`DOCKER_CONFIG` or `~/.docker`). If the context has TLS files,
+   they are used for TLS instead of `DOCKER_TLS_VERIFY` and
+   `DOCKER_CERT_PATH`, and the daemon's certificate is always verified, even
+   when the context was made with `skip-tls-verify=true`.
 3. With nothing configured, a probe of the well-known sockets, taking the
    first that answers:
 
@@ -38,21 +35,26 @@ if err != nil {
     ```
 
     `/run/user/$UID` stands in when `XDG_RUNTIME_DIR` is unset. On macOS the
-    `podman machine` sockets are searched too. On Windows the optional Docker
-    Desktop TCP endpoint is probed, then the AF_UNIX socket `podman machine`
-    exposes.
+    `podman machine` sockets are searched too.
+
+    On Windows the client cannot open Docker Desktop's named pipe. It tries
+    `tcp://localhost:2375`, which Docker Desktop serves only if you turn it
+    on, then the socket `podman machine` exposes. The
+    [`mobyclient`](mobyclient.md) client can open the pipe.
 
 The probe connects rather than checking that the file exists, so a socket
-left behind by a stopped daemon never shadows a running one. When nothing
-answers, `FromEnv` still returns a client pointed at the Docker default, and
-the failure surfaces on the first call as a `ConnectionError` naming the
-socket. Building a client never depends on a daemon being up.
+left behind by a stopped daemon never shadows a running one. On Linux and
+macOS, when nothing answers, `FromEnv` still returns a client, pointed at
+`/var/run/docker.sock`, and the failure surfaces on the first call as a
+`ConnectionError` naming the socket. On Windows, when nothing answers,
+`FromEnv` returns `ErrNoWindowsEndpoint`, which says how to expose one.
 
 ## Options
 
-`New` takes options for a fixed host and more:
+`New()` with no options does the same as `FromEnv`. Its options change
+where the client connects and what it sends:
 
-```go
+```go title="Illustration, not compiled"
 c, err := dockerapi.New(
     dockerapi.WithHost("tcp://build-host:2376"),
     dockerapi.WithTLSConfig(&tls.Config{RootCAs: pool}),
@@ -67,68 +69,68 @@ c, err := dockerapi.New(
 | `WithHost(h)` | `unix:///path`, `tcp://host:port`, `http://` or `https://`. A host without a scheme is refused before anything is dialled. Skips discovery. |
 | `WithHTTPClient(hc)` | Supply your own `*http.Client`. Useful for an in-process stub in unit tests. |
 | `WithTLSConfig(cfg)` | Trust a daemon's CA explicitly. Without it, the TLS files of the docker context the daemon was found through are used, or else `DOCKER_CERT_PATH` when `DOCKER_TLS_VERIFY` is set. |
-| `WithAPIVersion(v)` | Pin the API version instead of negotiating. |
+| `WithAPIVersion(v)` | Pin the API version instead of negotiating. `DOCKER_API_VERSION` does the same. |
 | `WithUserAgent(ua)` | Sent on every request. Defaults to `mongotest-dockerapi/1`. |
-| `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies the interface. |
+| `WithLogger(l)` | One `Debug` record per request. `*slog.Logger` satisfies `dockerclient.Logger`, the type it takes. |
 
 ## Version negotiation
 
-Negotiation is mandatory with the daemons in the wild: Podman's compatible API
-topped out at 1.41 until 5.8, and recent Docker Engines accept 1.24 through
-1.5x but are stricter about what each version allows.
-
+Daemons differ in which API versions they accept, so the client negotiates.
 `dockerapi` asks for its preferred version (1.44) and accepts anything down to
 1.24. The first request to a daemon triggers a `GET /version`; the client then
 uses the highest version both sides support. Call `Negotiate` to do it
-eagerly, and `APIVersion` to read the result:
+eagerly, and `APIVersion` to read the result. Here `c` is any
+`*dockerapi.Client`, such as one from `FromEnv`:
 
 ```go
-if err := c.Negotiate(ctx); err != nil {
-    var ve *dockerclient.APIVersionError
-    if errors.As(err, &ve) {
-        // ve names the product (docker or podman) and both version windows
-    }
-}
-fmt.Println(c.APIVersion()) // for example "1.44"
+--8<-- "dockerapi/example_test.go:negotiate"
 ```
+
+When the two version ranges do not overlap, `Negotiate` returns an
+`*APIVersionError` that names the product, Docker or Podman, and both ranges.
 
 ## Which engine answered
 
-```go
-switch c.Runtime() {
-case dockerapi.RuntimeDocker:
-case dockerapi.RuntimePodman:
-case dockerapi.RuntimeUnknown: // not yet negotiated, or an engine that is neither
-}
-fmt.Println(c.ServerProduct()) // how the daemon described itself
-```
+Once the client has negotiated, `Runtime` says which engine answered:
+`RuntimeDocker`, `RuntimePodman`, or `RuntimeUnknown` for an engine that is
+neither. Before then it is `RuntimeUnknown`. Use it where Docker and Podman
+need different handling, or to name the right engine in a message.
+`ServerProduct` returns the name the daemon reports, such as
+`Docker Engine - Community`.
 
-Podman is identified by the `Libpod-API-Version` header it sets on every
-response, falling back to the component list in `GET /version`.
+This example builds a client against a
+[`dockermock.Daemon`](dockermock.md), a fake daemon for tests, that answers
+as Podman does:
+
+```go
+--8<-- "dockerapi/example_test.go:runtime"
+```
 
 ## Operations
 
 All methods of the [interface](index.md#the-interface) are implemented, plus
-`ExecStart`, which buffers the output that `ExecStartTo` streams:
+`ExecStart`, which returns stdout and stderr as byte slices instead of
+streaming them as `ExecStartTo` does:
 
 ```go
-stdout, stderr, err := c.ExecStart(ctx, execID)
+--8<-- "dockerapi/example_test.go:exec-start"
 ```
 
-A few behaviours worth knowing:
+Behaviour to know:
 
-- **`ImagePull`** drains the progress stream and surfaces an `error` line
-  from the daemon as a `*PullError`, so a failed pull is an error and not a
-  silent half-image.
-- **`CopyToContainer`** builds the tar archive with `archive/tar` and streams
-  it through an `io.Pipe`; nothing is buffered beyond the files you passed.
-  It works on a container that has been created but not yet started, which is
-  how the `mongod` package places its TLS files before the server starts.
+- **`ImagePull`** reads the whole progress stream. The daemon reports a
+  failed pull inside a successful response, so `ImagePull` returns that
+  report as a `*PullError`, and a failed pull is never taken for success.
+- **`CopyToContainer`** streams the archive instead of building it in
+  memory. It works on a container that has been created but not yet
+  started, which is how the `mongod` package places its TLS files before the
+  server starts.
 - **`Exec`** captures stdout and stderr separately through the multiplexed
   stream, waits for the process to exit, and reports a non-zero exit code in
   `ExecResult.ExitCode` rather than as an error.
-- **`ContainerTop`** is how you know `mongod` is actually running: a published
-  port is bound before the process inside is ready.
+- **`ContainerTop`** shows whether a process is running in the container. A
+  published port is bound before the process starts, so an open port does
+  not show that `mongod` is running.
 
 ## Unit testing code that uses dockerapi
 

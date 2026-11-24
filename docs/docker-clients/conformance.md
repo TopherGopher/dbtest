@@ -10,66 +10,32 @@ status: current
 test suite and one benchmark suite. `dockerapi`, `mobyclient` and
 `dockermock.Fake` all run them, so the three are held to the same behaviour
 and measured on the same scale. A new implementation of the interface is
-finished when it passes `Conformance`.
+finished when it passes `dockerclienttest.Conformance`.
 
 ## Running it against your implementation
 
 The suite takes a factory that returns a fresh client for each case. The
-client should be pointed at a double, so the suite runs anywhere with no
-daemon installed. The pattern `dockerapi` and `mobyclient` use is a real
-client talking to a `dockermock.Daemon` whose routes are backed by a `Fake`,
-so the whole HTTP path is exercised against state that actually changes:
+client should be pointed at a fake daemon such as `dockermock.Daemon`, so the
+suite runs anywhere with no daemon installed. The pattern `dockerapi` and
+`mobyclient` use is a real client talking to a `dockermock.Daemon` whose
+routes are backed by a `Fake`, so the whole HTTP path is exercised against
+state that actually changes. This is `dockerapi`'s own conformance test,
+which runs both suites, `Conformance` and `Benchmarks`. For your client,
+change the package and import, and call your constructor where this calls
+`dockerapi.New`:
 
 ```go
-package myclient_test
-
-import (
-    "testing"
-
-    "github.com/stretchr/testify/require"
-    "github.com/tophergopher/dbtest/dockerclient"
-    "github.com/tophergopher/dbtest/dockerclient/dockerclienttest"
-    "github.com/tophergopher/dbtest/dockermock"
-
-    "example.com/myclient"
-)
-
-func newConformanceClient(tb testing.TB) dockerclient.Client {
-    tb.Helper()
-    d := dockermock.NewDaemon()
-    tb.Cleanup(d.Close)
-    f := dockermock.NewFake()
-    // What the suite expects of its test image, which it cannot set itself.
-    f.ImageUser, f.Health = dockerclienttest.TestImageUser, dockerclienttest.TestImageHealth
-    f.Log, f.ErrLog = dockerclienttest.TestContainerLog, dockerclienttest.TestContainerErrLog
-    d.ServeFake(f)
-
-    c, err := myclient.New(myclient.WithHost(d.Host()))
-    require.NoError(tb, err, "a client against the fake daemon must construct")
-    return c
-}
-
-func TestConformance(t *testing.T) {
-    dockerclienttest.Conformance(t, func(t *testing.T) dockerclient.Client {
-        return newConformanceClient(t)
-    })
-}
-
-func BenchmarkClient(b *testing.B) {
-    dockerclienttest.Benchmarks(b, func(b *testing.B) dockerclient.Client {
-        return newConformanceClient(b)
-    })
-}
+--8<-- "dockerapi/conformance_test.go"
 ```
 
-A `dockerclient.Client` that is itself a double can be passed straight in;
+A client that is itself a fake can be passed straight in;
 `dockermock.Fake` runs the suite that way.
 
 ## What is checked
 
-The suite is eight groups of subtests, each assertion carrying a message that
-says what the expectation protects. The image it works with is
-`dockerclienttest.TestImage` (`mongo:8`); nothing is downloaded.
+The suite is eight groups of subtests. The image it works with is
+`dockerclienttest.TestImage` (`mongo:8`), which the fake daemon already has,
+so nothing is downloaded.
 
 | Group | What it proves |
 | --- | --- |
@@ -85,7 +51,7 @@ says what the expectation protects. The image it works with is
 Behaviour that depends on the wire, such as the exact request shape, pull
 progress parsing, exec frame demultiplexing across split reads and the
 negotiation window, is tested in each implementation's own package against
-`dockermock.Daemon`, since a double like `Fake` has no wire.
+`dockermock.Daemon`, since a fake client such as `Fake` has no wire.
 
 ## What is benchmarked
 
@@ -97,10 +63,9 @@ construction). Run them with:
 
 ```sh
 go test ./dockerapi/ -run='^$' -bench=. -benchmem
-cd mobyclient && go test -run='^$' -bench=. -benchmem
+cd mobyclient && go test -run='^$' -bench=. -benchmem  # mobyclient is its own module
 ```
 
-Comparing two implementations is a matter of running the same suite with the
-same daemon, which is how the
-[dockerapi against mobyclient numbers](mobyclient.md#choosing-between-dockerapi-and-mobyclient)
-were produced.
+To run it against your client, call `dockerclienttest.Benchmarks` from a
+benchmark, as `BenchmarkClient` above does. To compare two implementations,
+run the benchmark suite for each against the same daemon.

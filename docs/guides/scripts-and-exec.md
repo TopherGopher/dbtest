@@ -9,7 +9,7 @@ status: current
 The container an instance started can run a script in MongoDB's shell, or
 any command in the image.
 
-```go
+```go title="Illustration, not compiled"
 inst := mongotest.Run(t)
 
 ok, err := inst.Container.RunScript(t.Context(), "db.runCommand({ping: 1}).ok")
@@ -29,16 +29,9 @@ value of the last expression, so a script ending in an expression returns
 that value:
 
 ```go
-out, err := inst.Container.RunScript(t.Context(), `
-    const app = db.getSiblingDB('app');
-    app.roster.insertMany([
-        { name: 'Diana', city: 'Themyscira' },
-        { name: 'Bruce', city: 'Gotham' },
-    ]);
-    app.roster.countDocuments()
-`)
-require.NoError(t, err)
-require.Equal(t, "2", out)
+func TestSeedWithAScript(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:script"
+}
 ```
 
 `db` is the `test` database; use `db.getSiblingDB(name)` for another. Each
@@ -62,18 +55,15 @@ with `Stdout`, `Stderr` and `ExitCode`. A non-zero exit is reported in
 
 ## Seeding a few documents with mongoimport
 
-`Exec` cannot feed a file to a command's standard input, so write the data
-inline. The shell quoting means the data must not contain a single quote:
+`Exec` cannot feed a file to a command's standard input, so pass the data
+as an argument. The shell reads it as `$1`, so quotes in the data need no
+escaping:
 
 ```go
-docs := `{"name":"Diana","city":"Themyscira"}
-{"name":"Bruce","city":"Gotham"}`
-
-result, err := inst.Container.Exec(t.Context(),
-    "sh", "-c", "printf '%s' '"+docs+"' | mongoimport --quiet --db app --collection roster")
-require.NoError(t, err)
-require.Zero(t, result.ExitCode, result.Stderr)
+func TestSeedWithMongoimport(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:mongoimport"
+}
 ```
 
-For anything larger than a few lines, insert through the driver instead; it
-is faster and avoids quoting.
+For anything larger than a few lines, insert through the driver instead. It
+is faster, and the data does not pass through a shell.

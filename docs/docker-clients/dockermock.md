@@ -27,26 +27,7 @@ Leave a field nil and the method succeeds with a zero result, so a test
 scripts only the calls it cares about.
 
 ```go
-func TestStartMongoPullsOnceWhenImageIsMissing(t *testing.T) {
-    creates := 0
-    docker := &dockermock.Mock{
-        ContainerCreateFunc: func(ctx context.Context, name string, cfg dockerclient.ContainerConfig) (string, []string, error) {
-            creates++
-            if creates == 1 {
-                return "", nil, dockerclient.ErrNotFound // first attempt: no image
-            }
-            return "c1", nil, nil
-        },
-    }
-
-    id, err := StartMongo(context.Background(), docker)
-    require.NoError(t, err, "a missing image must be pulled and the create retried")
-    assert.Equal(t, "c1", id, "the id from the second create must be returned")
-
-    assert.Len(t, docker.CallsTo("ImagePull"), 1, "exactly one pull must follow the not-found")
-    assert.Equal(t, []string{"ContainerCreate", "ImagePull", "ContainerCreate", "ContainerStart"},
-        docker.Methods(), "the sequence must be create, pull, create again, start")
-}
+--8<-- "dockermock/example_test.go:calls-to"
 ```
 
 | Method | Returns |
@@ -64,22 +45,7 @@ running, inspecting it reports the ports it published, removing it makes later
 calls return `ErrNotFound`. Nothing is scripted.
 
 ```go
-docker := dockermock.NewFake(dockermock.WithImages("mongo:8")) // pre-pulled
-
-id, _, err := docker.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
-    Image:        "mongo:8",
-    ExposedPorts: map[string]struct{}{"27017/tcp": {}},
-    HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
-        "27017/tcp": {{HostIP: "127.0.0.1"}},
-    }},
-})
-require.NoError(t, err)
-require.NoError(t, docker.ContainerStart(ctx, id))
-
-insp, err := docker.ContainerInspect(ctx, id)
-require.NoError(t, err)
-assert.True(t, insp.State.Running, "a started container must report running")
-assert.NotEmpty(t, insp.HostPort("27017/tcp"), "the fake must assign a host port like a daemon would")
+--8<-- "dockermock/example_test.go:fake"
 ```
 
 `Fake` applies the same validation as a real client, so a bad image reference
@@ -100,18 +66,7 @@ It records every request, matches routes with `{id}` placeholders, and ignores
 the `/v1.xx` version prefix so tests work before and after negotiation.
 
 ```go
-d := dockermock.NewDaemon()
-defer d.Close()
-d.ServeDefaults() // answer every endpoint with fixed, sensible data
-
-c, err := dockerapi.New(dockerapi.WithHost(d.Host()))
-require.NoError(t, err)
-
-_, err = c.ImageInspect(ctx, "mongo:8")
-require.NoError(t, err)
-
-reqs := d.RequestsTo("GET", "/images/mongo:8/json")
-require.Len(t, reqs, 1, "one inspect request must reach the daemon")
+--8<-- "dockermock/example_test.go:requests-to"
 ```
 
 | Method | Purpose |
@@ -133,20 +88,11 @@ connection.
 ### Scripting an error
 
 ```go
-d.Handle("POST", "/containers/create", func(w http.ResponseWriter, r *http.Request) {
-    dockermock.Error(w, http.StatusConflict, "Conflict. The container name \"/mongo\" is already in use")
-})
-
-_, _, err := c.ContainerCreate(ctx, "mongo", cfg)
-assert.ErrorIs(t, err, dockerclient.ErrConflict, "a 409 must be classified as a conflict")
+--8<-- "dockermock/example_test.go:handle"
 ```
 
 ### Looking like Podman
 
 ```go
-d.ServePodmanVersion("1.41", "4.9.0")
-c, _ := dockerapi.New(dockerapi.WithHost(d.Host()))
-require.NoError(t, c.Negotiate(ctx))
-assert.Equal(t, dockerapi.RuntimePodman, c.Runtime(), "the Libpod header must identify Podman")
-assert.Equal(t, "1.41", c.APIVersion(), "the client must negotiate down to Podman's cap")
+--8<-- "dockermock/example_test.go:podman"
 ```

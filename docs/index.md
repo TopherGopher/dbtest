@@ -14,11 +14,6 @@ hide:
 
 ```go title="orders_test.go"
 func TestOrders(t *testing.T) {
-    // Starts MongoDB in a container, connects, and removes the container
-    // when the test ends, pass or fail.
-    orders := mongotest.Run(t).Database("shop").Collection("orders")
-
-    _, err := orders.InsertOne(t.Context(), bson.M{"item": "book"})
-    require.NoError(t, err)
+	--8<-- "mongotest/guides_test.go:run"
 }
 ```

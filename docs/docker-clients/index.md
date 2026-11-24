@@ -59,7 +59,7 @@ complete, tested client for the endpoints above.
 
 ## The interface
 
-```go
+```go title="Illustration, not compiled"
 type Client interface {
     Host() string
 
@@ -91,44 +91,14 @@ from parallel tests.
 Take a `dockerclient.Client` and let the caller decide which one it is:
 
 ```go
-func StartMongo(ctx context.Context, docker dockerclient.Client) (string, error) {
-    cfg := dockerclient.ContainerConfig{
-        Image:        "mongo:8",
-        ExposedPorts: map[string]struct{}{"27017/tcp": {}},
-        HostConfig: &dockerclient.HostConfig{
-            PortBindings: map[string][]dockerclient.PortBinding{
-                "27017/tcp": {{HostIP: "127.0.0.1"}}, // empty HostPort: the daemon picks one
-            },
-        },
-    }
-    id, _, err := docker.ContainerCreate(ctx, "", cfg)
-    if dockerclient.IsNotFound(err) {
-        // The image is not local. Pull once and try again.
-        if err = docker.ImagePull(ctx, cfg.Image); err != nil {
-            return "", err
-        }
-        id, _, err = docker.ContainerCreate(ctx, "", cfg)
-    }
-    if err != nil {
-        return "", err
-    }
-    return id, docker.ContainerStart(ctx, id)
-}
+--8<-- "dockerclient/example_test.go:start-mongo"
 ```
 
 In production pass `dockerapi.FromEnv()`. In a unit test pass
 `dockermock.NewFake()` and the same code runs against an in-memory daemon:
 
 ```go
-func TestStartMongoPullsWhenMissing(t *testing.T) {
-    fake := dockermock.NewFake()
-    id, err := StartMongo(context.Background(), fake)
-    require.NoError(t, err, "a missing image must be pulled, not reported")
-
-    insp, err := fake.ContainerInspect(context.Background(), id)
-    require.NoError(t, err)
-    assert.True(t, insp.State.Running, "the container must be running after StartMongo")
-}
+--8<-- "dockerclient/example_test.go:client"
 ```
 
 ## Shared types

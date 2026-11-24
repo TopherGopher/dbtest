@@ -17,7 +17,7 @@ wrong, the value at fault and what to do about it, and are free to change.
 | --- | --- | --- |
 | `ErrInvalidArgument` | `*InvalidArgumentError` | A value was rejected before any request was sent. The error names the argument, the problem and the fix. |
 | `ErrConnectionFailed` | `*ConnectionError` | The daemon could not be reached, or no TLS connection could be made: a certificate was rejected, or plain HTTP was sent to a daemon that accepts only TLS. The error names the socket or address tried. |
-| `ErrAPIVersion` | `*APIVersionError` | The client's and daemon's API version windows do not overlap, or a feature needs a newer daemon. Names the product, so Podman users are not told to upgrade Docker. |
+| `ErrAPIVersion` | `*APIVersionError` | The client's and daemon's API version ranges do not overlap, or a feature needs a newer daemon. Names the product, so Podman users are not told to upgrade Docker. |
 | `ErrNotFound` | `*StatusError` | The daemon answered 404. For `ContainerCreate` this means the image is not local: pull and retry. |
 | `ErrConflict` | `*StatusError` | The daemon answered 409, for instance a container name already in use. |
 | `ErrUnauthorized` | `*StatusError` | The daemon, or a proxy in front of it, answered 401 or 403. `StatusError.FromProxy` is true when a proxy refused the request. |
@@ -38,18 +38,7 @@ directly:
 ## Branching
 
 ```go
-id, _, err := docker.ContainerCreate(ctx, "", cfg)
-switch {
-case err == nil:
-case dockerclient.IsNotFound(err):          // shorthand for errors.Is(err, ErrNotFound)
-    // pull the image and try again
-case errors.Is(err, dockerclient.ErrConflict):
-    // the name is taken; remove the old container or pick another name
-case errors.Is(err, dockerclient.ErrConnectionFailed):
-    // no daemon; tell the user where we looked
-default:
-    return err
-}
+--8<-- "dockerclient/example_test.go:branching"
 ```
 
 ## Reading the details
@@ -57,16 +46,13 @@ default:
 Each carrier exposes what it knows. `errors.As` gets you there:
 
 ```go
-var se *dockerclient.StatusError
-if errors.As(err, &se) {
-    log.Printf("%s %s returned %d: %s", se.Method, se.Path, se.StatusCode, se.Message)
-}
+--8<-- "dockerclient/example_test.go:status-fields"
+```
 
-var ve *dockerclient.APIVersionError
-if errors.As(err, &ve) {
-    log.Printf("%s supports %s to %s; this client supports %s to %s",
-        ve.Product, ve.ServerMin, ve.ServerMax, ve.ClientMin, ve.ClientMax)
-}
+An `*APIVersionError` says which API versions each side accepts:
+
+```go
+--8<-- "dockerclient/example_test.go:version-fields"
 ```
 
 `StatusError` also carries a hint, a sentence suggesting the usual fix for

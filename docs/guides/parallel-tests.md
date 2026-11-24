@@ -16,7 +16,7 @@ A test binary starts at most 8 containers per CPU at once, and further starts
 wait their turn; see
 [Many containers at once](../reference/mongod.md#many-containers-at-once).
 
-```go
+```go title="Illustration, not compiled"
 func TestFindByCity(t *testing.T) {
     t.Parallel()
     inst := mongotest.Run(t)
@@ -34,48 +34,22 @@ func TestFindByName(t *testing.T) {
 
 When a table has many small cases, start one container for the table and give
 each case its own database. Cases still cannot see each other's data, and the
-whole table pays one start-up.
+whole table pays one start-up. Here `hero` is a struct with `Name` and
+`City` fields:
 
 ```go
 func TestRosterQueries(t *testing.T) {
-    inst := mongotest.Run(t)
-
-    cases := []struct {
-        name   string
-        seed   []hero
-        filter bson.M
-        want   int
-    }{
-        {"by city", []hero{{Name: "Diana", City: "Themyscira"}}, bson.M{"city": "Themyscira"}, 1},
-        {"no match", []hero{{Name: "Diana", City: "Themyscira"}}, bson.M{"city": "Gotham"}, 0},
-        {"empty collection", nil, bson.M{}, 0},
-    }
-
-    for _, tc := range cases {
-        t.Run(tc.name, func(t *testing.T) {
-            t.Parallel()
-            // A database for this case alone, dropped when the case ends.
-            coll := inst.DatabaseFor(t).Collection("roster")
-            for _, h := range tc.seed {
-                _, err := coll.InsertOne(t.Context(), h)
-                require.NoError(t, err, "seeding %q must succeed", tc.name)
-            }
-
-            n, err := coll.CountDocuments(t.Context(), tc.filter)
-            require.NoError(t, err, "the query must run")
-            assert.EqualValues(t, tc.want, n, "the filter must match the seeded documents")
-        })
-    }
+	--8<-- "mongotest/guides_test.go:table"
 }
 ```
 
-`DatabaseFor` builds the database's name from the case's name, with anything
-but letters, digits, `-` and `_` replaced, cut to fit the server's limit. The
-name ends in a random part, so no two cases share one.
+`DatabaseFor` names the database after the case, with a random suffix, so
+no two cases share one.
 
-!!! note "Why cleanup order matters here"
-    `Run` registered the container's removal on the outer test, so it runs
-    after every subtest has finished and its database has been dropped.
+!!! note "The container outlives the subtests"
+    Parallel subtests run after the outer test function returns. The
+    container is still there, because `Run` registered its removal on the
+    outer test, and that cleanup waits for every subtest.
 
 ## A container per package
 
@@ -83,22 +57,14 @@ When a package has many small tests, start one container for all of them in
 `TestMain`, and give each test its own database.
 
 ```go
-var server *mongotest.Instance
+--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:test-main"
+```
 
-func TestMain(m *testing.M) {
-    ctx := context.Background()
-    var err error
-    if server, err = mongotest.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    defer server.Stop(ctx)
-    m.Run()
-}
+Each test then takes its own database from the shared server:
 
-func TestFindByCity(t *testing.T) {
-    t.Parallel()
-    roster := server.DatabaseFor(t).Collection("roster")
-    // ...
+```go
+func TestOrders(t *testing.T) {
+	--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:database-for"
 }
 ```
 
@@ -107,8 +73,9 @@ result of `m.Run`. Calling `os.Exit` yourself would skip the deferred `Stop`
 and leave the container running.
 
 A test that panics, or a run that `go test -timeout` ends, also exits without
-running the deferred `Stop`, so the container is left running.
-[The label](cleanup.md#3-the-label) finds it.
+running the deferred `Stop`, so the container is left running. Every dbtest
+container carries the label `mongotest=regression`, and
+[The label](cleanup.md#3-the-label) gives the command that removes them.
 
 ## Choosing
 
@@ -116,7 +83,7 @@ running the deferred `Stop`, so the container is left running.
 | --- | --- | --- | --- |
 | Isolation | Complete, including server state such as indexes and server parameters | Per database. Server-wide state is shared across cases | Per database. Server-wide state is shared across the package |
 | Start-up cost | One container per test | One container per table | One container per package |
-| `t.Parallel` | Safe at every level | Safe for subtests; the container outlives them | Safe at every level; the container outlives every test |
+| `t.Parallel` | Safe at every level | Safe at every level | Safe at every level |
 | A crashed `mongod` | Affects one test | Fails the whole table | Fails the rest of the package |
 | Good for | Integration tests of a feature | Many small query or codec cases | Many small tests that need no server state of their own |
 
@@ -125,7 +92,10 @@ running the deferred `Stop`, so the container is left running.
 `go test ./...` runs packages concurrently, and each package's test binary
 starts its own containers, under a limit of its own. If the machine runs
 short of memory, lower `-p` or `-parallel` rather than sharing containers
-between packages. Parallel tests in one package that need a missing image
-share one pull. Separate packages are separate processes, so each pulls a
-missing image on its own; see
+between packages.
+
+Parallel tests in one package that need a missing image share one pull.
+Separate packages are separate processes, so the first `go test ./...` on a
+machine may pull a missing image once per package. To pull it before any
+test starts, see
 [Which image](../reference/mongod.md#which-image).

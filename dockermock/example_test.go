@@ -29,7 +29,7 @@ func ExampleMock() {
 	// Output: [ContainerCreate ContainerStart ContainerRemove]
 }
 
-func ExampleMock_CallsTo() {
+func ExampleMock_CallsTo() /* --8<-- [start:calls-to] */ {
 	// A create that reports the image is missing, so the caller pulls once
 	// and retries: exactly the sequence worth asserting.
 	pulled := false
@@ -59,7 +59,7 @@ func ExampleMock_CallsTo() {
 	// err: <nil>
 	// pulls: 1
 	// creates: 2
-}
+} // --8<-- [end:calls-to]
 
 func ExampleMock_Calls() {
 	docker := &dockermock.Mock{}
@@ -69,7 +69,7 @@ func ExampleMock_Calls() {
 	// Output: ContainerStart [c1]
 }
 
-func ExampleFake() {
+func ExampleFake() /* --8<-- [start:fake] */ {
 	// A Fake behaves like a daemon, so nothing has to be scripted.
 	docker := dockermock.NewFake()
 	ctx := context.Background()
@@ -100,7 +100,7 @@ func ExampleFake() {
 	// created, running: false
 	// started, running: true
 	// after removing: true
-}
+} // --8<-- [end:fake]
 
 func ExampleNewFake() {
 	// WithImages skips the pull when the test is not about pulling.
@@ -222,7 +222,7 @@ func ExampleDaemon_ServeFake() {
 	// gone: true
 }
 
-func ExampleDaemon_Handle() {
+func ExampleDaemon_Handle() /* --8<-- [start:handle] */ {
 	// A route of your own, for the case a test needs a specific answer.
 	d := dockermock.NewDaemon()
 	defer d.Close()
@@ -238,7 +238,7 @@ func ExampleDaemon_Handle() {
 		fmt.Println(se.StatusCode, se.Message)
 	}
 	// Output: 500 the daemon fell over inspecting abc
-}
+} // --8<-- [end:handle]
 
 func ExampleOverTCP() {
 	// A TCP daemon, for exercising that transport or on a platform without
@@ -499,7 +499,7 @@ func ExampleMock_Host() {
 	// fake://dockermock
 }
 
-func ExampleDaemon_ServePodmanVersion() {
+func ExampleDaemon_ServePodmanVersion() /* --8<-- [start:podman] */ {
 	// Podman serves the Docker Engine API, so a client works against it
 	// unchanged. What differs is how it identifies itself and how far its
 	// version window reaches, and this is how to exercise both without
@@ -526,9 +526,9 @@ func ExampleDaemon_ServePodmanVersion() {
 	// product: Podman Engine 5.7.1
 	// negotiated: 1.41
 	// created: c0ffee1234ab <nil>
-}
+} // --8<-- [end:podman]
 
-func ExampleDaemon_RequestsTo() {
+func ExampleDaemon_RequestsTo() /* --8<-- [start:requests-to] */ {
 	// Requests returns the whole conversation; RequestsTo narrows it to one
 	// endpoint, which is usually what an assertion wants. The path is the
 	// version-stripped one, so a test never has to know which API version
@@ -555,4 +555,4 @@ func ExampleDaemon_RequestsTo() {
 	//   mongo:8
 	//   mongo:7
 	// version negotiations: 1
-}
+} // --8<-- [end:requests-to]

@@ -6,45 +6,36 @@ status: current
 
 # Starting a server
 
-`Run`, `Start` and `Attach` each return an `*Instance`. It holds a connected
-client of the official driver and the container, if it started one.
+`Run`, `Start` and `Attach` each return an `*Instance`. It holds a client of
+the official Go driver, already connected, and the container, if one was
+started.
 
 ## In a test
 
 ```go
-inst := mongotest.Run(t)
-db := inst.Database("app")
+func TestOrders(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:run"
+}
 ```
 
-`Run` starts a container, connects, and removes the container when the test
-ends. Any failure fails the test, including an unreachable Docker daemon. The
-test is never skipped.
+Any failure fails the test, including an unreachable Docker daemon; the test
+is never skipped.
 
 `RunWithOptions` takes [options](../reference/mongod.md#options). Start from
 `DefaultOptions()` and chain the settings you need:
 
-```go
+```go title="Illustration, not compiled"
 inst := mongotest.RunWithOptions(t, mongotest.DefaultOptions().WithReplicaSet("rs0"))
 ```
 
 ## Outside a test
 
-`Start` and `StartWithOptions` do the same outside a test, and the caller
-stops the instance. In `TestMain`, one server started this way can serve
+`Start` and `StartWithOptions` start and connect in the same way without a
+test. You call `Stop` when you are done. In `TestMain`, one server started this way can serve
 every test in the package:
 
 ```go
-var server *mongotest.Instance
-
-func TestMain(m *testing.M) {
-    ctx := context.Background()
-    var err error
-    if server, err = mongotest.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    defer server.Stop(ctx)
-    m.Run()
-}
+--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:test-main"
 ```
 
 Let `TestMain` return. Calling `os.Exit` would skip the deferred `Stop`.
@@ -58,7 +49,7 @@ service container, and starts nothing. Its instance has no container, and
 `Stop` only disconnects.
 
 ```go
-inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
+--8<-- "mongotest/example_test.go:attach"
 ```
 
 !!! warning "Shared server, shared data"
@@ -66,8 +57,9 @@ inst, err := mongotest.Attach(ctx, "mongodb://localhost:27017")
     own database with `DatabaseFor`, which drops it when the test ends:
 
     ```go
-    coll := inst.DatabaseFor(t).Collection("app")
-    // ...
+    func TestOrders(t *testing.T) {
+    	--8<-- "mongotest/internal/sharedserver/sharedserver_test.go:database-for"
+    }
     ```
 
 ## What an instance gives you
@@ -89,7 +81,7 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 
 === "URI"
 
-    ```go
+    ```go title="Illustration, not compiled"
     repo, err := NewRepository(inst.URI())
     ```
 
@@ -100,7 +92,7 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 
 === "*mongo.Client"
 
-    ```go
+    ```go title="Illustration, not compiled"
     repo := NewRepository(inst.Client)
     ```
 
@@ -108,23 +100,21 @@ Most application code takes a URI, a `*mongo.Client` or a `*mongo.Database`.
 
 === "*mongo.Database"
 
-    ```go
+    ```go title="Illustration, not compiled"
     svc := NewService(inst.Database("app"))
     ```
 
 ## Order of cleanup
 
 `t.Cleanup` functions run last-registered first. `Run` registers the
-container's removal as it starts. Cleanups the test registers later run
-before it, so a client the test creates is disconnected while the container
-still exists:
+container's removal as it starts. Cleanups registered after `Run` run before
+the removal, so a client the test creates is disconnected while the
+container still exists:
 
 ```go
-inst := mongotest.Run(t)
-
-client, err := mongo.Connect(t.Context(), options.Client().ApplyURI(inst.URI()))
-require.NoError(t, err)
-t.Cleanup(func() { _ = client.Disconnect(context.Background()) }) // runs first
+func TestOwnClient(t *testing.T) {
+	--8<-- "mongotest/guides_test.go:own-client"
+}
 ```
 
 ## Errors

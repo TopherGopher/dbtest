@@ -1,6 +1,6 @@
 ---
 title: Keeping the docs current
-description: How the site tracks a fast-moving codebase, and the checklist for updating it when an issue or pull request lands.
+description: What the status badge means, and what to update when a pull request merges.
 status: current
 ---
 
@@ -10,8 +10,8 @@ Each page says how current it is. This page says how to keep that true.
 
 ## The status badge
 
-Every page declares a status in its front matter, and the site renders it as
-a banner under the title and an icon in the navigation:
+Every page about the API declares a status in its front matter, and the
+site renders it as a banner under the title and an icon in the navigation:
 
 ```yaml
 ---
@@ -30,25 +30,28 @@ tracks: ["#40"]
 `tracks` lists the issues and pull requests the page follows. Write issues as
 `"#40"` and pull requests as `"PR #53"`; the banner links them. A page with
 no `status` shows no banner, which is fine for pages that are not about the
-API, such as this one.
+API, such as the license.
 
 ## When a pull request merges
 
-Search the docs for its number and work through the hits:
+Search the docs for the pull request's number and for each issue it closes,
+and work through the hits:
 
 ```sh
-grep -rn 'PR #53' docs/ mkdocs.yml
+grep -rnE 'PR #53|#40\b' docs/ mkdocs.yml
 ```
 
 1. **Pages badged `landing` on that PR** become `current`. Replace prose that
    says "lands in" or "will" with the present tense.
-2. **Pages badged `changing`** that the PR affects: rewrite the "today"
-   description to the new behaviour, delete the known-limit admonitions the
-   PR fixed, and drop the number from `tracks` or set `status: current`.
-3. **Code samples.** Any snippet that used a workaround for the old
-   behaviour should become the straightforward version.
+2. **Pages badged `changing`** that the PR affects: rewrite the description
+   of current behaviour to the new behaviour, delete the known-limit
+   admonitions the PR fixed, drop its number from `tracks`, and set
+   `status: current` once `tracks` is empty.
+3. **Code samples.** The Go on a page comes from an example or a test, so
+   change it there. An example that works around the old behaviour should
+   become the straightforward version.
 
-To see which pages a merge touches, list the front matter:
+To list every page's status and what it tracks:
 
 ```sh
 grep -rn '^status:\|^tracks:' docs/
@@ -56,8 +59,10 @@ grep -rn '^status:\|^tracks:' docs/
 
 ## Checking before you push
 
-`mkdocs build --strict` fails on a broken link or a page missing from the
-navigation, and the Pages workflow runs it on every pull request. It does not
-compile Go snippets. When a snippet is meant to be exact, prefer copying it
-from a runnable `Example` test in the repository, which CI does compile, and
-say which file it came from.
+`zensical build --strict` fails on a broken link or anchor, or an included
+file or section that is missing. The Pages workflow,
+`.github/workflows/docs.yml`, runs it on every pull request that changes
+the site. `go test` in the repository root fails if `nav` in `mkdocs.yml`
+names a page that does not exist, or if a block of Go neither includes its
+code nor is marked as an illustration; see
+[Writing a new page](../reference/writing-docs.md#go-on-a-page).

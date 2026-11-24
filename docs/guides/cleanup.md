@@ -47,10 +47,7 @@ not remove:
 
 ```go
 func TestMain(m *testing.M) {
-    m.Run()
-    if err := mongod.ReapRunningContainers(context.Background()); err != nil {
-        log.Print(err)
-    }
+	--8<-- "mongod/example_test.go:reap-test-main"
 }
 ```
 
