@@ -21,9 +21,8 @@
 // New with no options finds the daemon as the docker CLI does: DOCKER_HOST,
 // then the docker context, then the Docker and Podman sockets (see
 // dockerclient.ResolveHost). FromEnv is the same as New(); use New().
-// dockerapi finds
-// the same daemon, except on Windows, where it cannot open Docker's named
-// pipe and looks for another endpoint.
+// dockerapi finds the same daemon, except on Windows, where it cannot open
+// Docker's named pipe and looks for another endpoint.
 //
 //	c, err := mobyclient.New()
 //	if err != nil {
@@ -39,8 +38,15 @@
 //
 // DOCKER_TLS_VERIFY turns on TLS for a tcp:// daemon. The certificates come
 // from DOCKER_CERT_PATH, or from the Docker config directory when it is
-// unset. DOCKER_API_VERSION pins the API version. Both apply whether the
-// address comes from WithHost or is found.
+// unset. DOCKER_API_VERSION pins the API version. These apply whether the
+// address comes from WithHost or is found. When the daemon is found through
+// a docker context that has TLS files, those files are used instead of the
+// two TLS variables, as with the docker CLI. With WithHost no context is
+// used. The daemon's certificate is always verified, even when the context
+// sets SkipTLSVerify, because skipping it would let anyone on the network
+// pose as the daemon. A tcp:// context that sets SkipTLSVerify and has no
+// TLS files is refused rather than sent plain HTTP, unless DOCKER_TLS_VERIFY
+// is set.
 //
 // WithMobyClient wraps a *client.Client the caller already built, with its
 // own TLS, headers or transport. To use the moby client's own discovery,

@@ -16,12 +16,12 @@ wrong, the value at fault and what to do about it, and are free to change.
 | Sentinel | Carrier type | Meaning |
 | --- | --- | --- |
 | `ErrInvalidArgument` | `*InvalidArgumentError` | A value was rejected before any request was sent. The error names the argument, the problem and the fix. |
-| `ErrConnectionFailed` | `*ConnectionError` | The daemon could not be reached. Names the socket or address that was tried. |
+| `ErrConnectionFailed` | `*ConnectionError` | The daemon could not be reached, or no TLS connection could be made: a certificate was rejected, or plain HTTP was sent to a daemon that accepts only TLS. The error names the socket or address tried. |
 | `ErrAPIVersion` | `*APIVersionError` | The client's and daemon's API version windows do not overlap, or a feature needs a newer daemon. Names the product, so Podman users are not told to upgrade Docker. |
 | `ErrNotFound` | `*StatusError` | The daemon answered 404. For `ContainerCreate` this means the image is not local: pull and retry. |
 | `ErrConflict` | `*StatusError` | The daemon answered 409, for instance a container name already in use. |
-| `ErrUnauthorized` | `*StatusError` | The daemon answered 401 or 403. |
-| `ErrDaemonResponse` | `*ResponseError` | The daemon answered with a status or body the client could not interpret. |
+| `ErrUnauthorized` | `*StatusError` | The daemon, or a proxy in front of it, answered 401 or 403. `StatusError.FromProxy` is true when a proxy refused the request. |
+| `ErrDaemonResponse` | `*ResponseError` | The daemon's answer could not be used, or a request that reached the daemon broke off partway. |
 | `ErrStream` | `*StreamError` | An exec output stream reported a problem mid-way. |
 | `ErrPull` | `*PullError` | The pull progress stream carried an error line from the daemon. |
 | `ErrExecUnfinished` | | An exec process was still running when the client stopped waiting for its exit code. |

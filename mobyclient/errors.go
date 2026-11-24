@@ -2,6 +2,7 @@ package mobyclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -52,9 +53,10 @@ func mapError(host, method, path string, err error) error {
 	case cerrdefs.IsUnauthorized(err):
 		return statusError(http.StatusUnauthorized, method, path, err)
 	case cerrdefs.IsPermissionDenied(err):
-		return statusError(http.StatusForbidden, method, path, err)
+		return refusal(method, path, err)
 	case cerrdefs.IsInvalidArgument(err):
-		return statusError(http.StatusBadRequest, method, path, err)
+		// Go's answer to plain HTTP on a TLS port is a 400 too.
+		return dockerclient.WrapConnectionError(host, statusError(http.StatusBadRequest, method, path, err))
 	case cerrdefs.IsResourceExhausted(err):
 		return statusError(http.StatusTooManyRequests, method, path, err)
 	case cerrdefs.IsUnavailable(err):
@@ -95,8 +97,53 @@ func mapError(host, method, path string, err error) error {
 		return &dockerclient.StatusError{StatusCode: code, Method: method, Path: path,
 			Message: "the daemon did not upgrade the exec stream to a raw connection"}
 	}
+	if client.IsErrConnectionFailed(err) {
+		// The moby client's name for any request it could not complete,
+		// such as an upload the daemon cut off.
+		return dockerclient.RequestFailed(method, path, host, err)
+	}
 	return &dockerclient.ResponseError{Method: method, Path: path, Err: err,
-		Problem: "the docker daemon returned an error mobyclient could not classify"}
+		Problem: "the docker daemon returned an error mobyclient could not classify",
+		Fix:     "Check `docker version` against this client and any DOCKER_API_VERSION pin; the moby client's own message is above"}
+}
+
+// refusal builds the StatusError for a 403, and says whether a proxy in
+// front of the daemon sent it. The daemon puts its own refusals in its JSON
+// envelope, which the moby client reports as the bare message. A proxy's
+// HTML page is reported as it is, and an empty body or a JSON body with no
+// message gets the moby client's own sentence instead.
+func refusal(method, path string, err error) *dockerclient.StatusError {
+	e := statusError(http.StatusForbidden, method, path, err)
+	e.FromProxy = proxyMessage(e.Message)
+	return e
+}
+
+// proxyMessage reports whether the moby client's message for a 403 came
+// from something other than the daemon, by the rule dockerapi applies to the
+// body: an HTML page, an empty body, or JSON without the daemon's message.
+// The moby client passes a body through as it is unless its Content-Type is
+// exactly application/json, and otherwise replaces an empty body, broken
+// JSON or JSON with no message with a sentence of its own. A plain-text body
+// cannot be told from the daemon's own message, so it is not counted.
+func proxyMessage(msg string) bool {
+	if strings.HasPrefix(msg, "{") {
+		return !hasDaemonMessage(msg)
+	}
+	for _, mark := range []string{"<", "request returned ", "API returned a ", "error reading JSON"} {
+		if strings.HasPrefix(msg, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasDaemonMessage reports whether body is the daemon's JSON error, with a
+// message in it.
+func hasDaemonMessage(body string) bool {
+	var e struct {
+		Message string `json:"message"`
+	}
+	return json.Unmarshal([]byte(body), &e) == nil && e.Message != ""
 }
 
 // causeDropped reports whether err is a moby connection failure with no

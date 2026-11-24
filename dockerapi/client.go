@@ -12,6 +12,8 @@ import (
 	"os"
 	"reflect"
 	"strings"
+
+	"github.com/tophergopher/dbtest/dockerclient"
 )
 
 const defaultUserAgent = "dbtest-dockerapi/1"
@@ -96,7 +98,8 @@ func New(opts ...Option) (*Client, error) {
 			}
 		}
 	}
-	if c.host == "" {
+	discovered := c.host == ""
+	if discovered {
 		h, err := resolveHostFromEnv()
 		if err != nil {
 			return nil, err
@@ -109,12 +112,9 @@ func New(opts ...Option) (*Client, error) {
 	}
 	c.endpoint = ep
 	if ep.scheme == "tcp" && c.tlsConfig == nil {
-		cfg, err := tlsConfigFromEnv(os.Getenv)
+		cfg, err := defaultTLSConfig(ep, discovered)
 		if err != nil {
 			return nil, err
-		}
-		if cfg == nil && ep.tls {
-			cfg = &tls.Config{MinVersion: tls.VersionTLS12}
 		}
 		c.tlsConfig = cfg
 	}
@@ -175,7 +175,8 @@ func requestBody(method, path string, body any) (io.Reader, bool, error) {
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {
-		return nil, false, &ResponseError{Method: method, Path: path, Problem: "could not encode the request body", Err: err}
+		return nil, false, &ResponseError{Method: method, Path: path, Problem: "could not encode the request body", Err: err,
+			Fix: "Pass a value encoding/json can encode"}
 	}
 	return bytes.NewReader(buf), true, nil
 }
@@ -216,7 +217,8 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
-		return nil, &ResponseError{Method: method, Path: path, Problem: "could not build the request", Err: err}
+		return nil, &ResponseError{Method: method, Path: path, Problem: "could not build the request", Err: err,
+			Fix: "Check the daemon address in DOCKER_HOST or WithHost"}
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	if hasBody {
@@ -236,7 +238,7 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 		if werr := wrapConnError(c.host, err); werr != err {
 			return nil, werr
 		}
-		return nil, &ResponseError{Method: method, Path: path, Problem: "the request to " + c.host + " could not be completed", Err: err}
+		return nil, dockerclient.RequestFailed(method, path, c.host, err)
 	}
 	c.logger.Debug("docker request", "method", method, "path", path, "status", resp.StatusCode, "duration", since(start))
 	// Podman announces itself on every response, so a client that pinned its
