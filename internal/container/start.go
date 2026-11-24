@@ -281,9 +281,12 @@ func (s *start) wait(caller, bounded context.Context, hasHealthCheck bool) error
 }
 
 // check makes one attempt: the image package's readiness check, then the
-// image's own health check if it declares one. A failure is checked against
-// the container's state, since a container that has gone will never be
-// ready.
+// image's own health check if it declares one. The readiness check alone is
+// not enough: an image may answer it from a server it then stops and
+// replaces, as Atlas Local does with its mongod. Its health check passes
+// only once the image has finished setting up, which in practice is when the
+// last server is up. A failure is checked against the container's state,
+// since a container that has gone will never be ready.
 func (s *start) check(ctx context.Context, hasHealthCheck bool) error {
 	err := s.ready(ctx)
 	if err == nil && hasHealthCheck {

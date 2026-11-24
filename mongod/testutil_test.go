@@ -192,18 +192,25 @@ func commandName(document []byte) string {
 }
 
 // askHello sends one hello command to an address and reports whether a
-// mongod answered it with ok. It is written apart from the package's own
-// hello so that a mistake in one is not repeated in the other.
+// mongod answered it with ok.
 func askHello(address string) error {
-	const headerLen, opMsg, requestID = 16, 2013, 7
-	const document = "\x10hello\x00\x01\x00\x00\x00" + "\x02$db\x00\x06\x00\x00\x00admin\x00" + "\x00"
-	const okElement = "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
-
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	return helloOn(conn)
+}
+
+// helloOn sends one hello on an open connection and returns nil if mongod
+// answered it with ok. It sets the connection's deadline. It is written apart
+// from the package's own hello so that a mistake in one is not repeated in
+// the other.
+func helloOn(conn net.Conn) error {
+	const headerLen, opMsg, requestID = 16, 2013, 7
+	const document = "\x10hello\x00\x01\x00\x00\x00" + "\x02$db\x00\x06\x00\x00\x00admin\x00" + "\x00"
+	const okElement = "\x01ok\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 
 	le := binary.LittleEndian
