@@ -23,6 +23,9 @@ var (
 	idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 	// containerNamePattern is the daemon's rule for user-chosen names.
 	containerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
+	// volumeNamePattern is the daemon's rule for volume names. No host path
+	// matches it, so a mount that passes cannot mount a host directory.
+	volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 	// imageIDPattern matches a content digest or a (possibly truncated) hex
 	// image id, both accepted by image inspect.
 	imageIDPattern = regexp.MustCompile(`^(sha256:)?[0-9a-fA-F]{12,64}$`)
@@ -165,6 +168,19 @@ func CheckHostPort(field, hp string) error {
 	return nil
 }
 
+// checkVolumeMount validates one HostConfig.Volumes entry.
+func checkVolumeMount(v VolumeMount) error {
+	if !volumeNamePattern.MatchString(v.Name) {
+		return InvalidArgument("HostConfig.Volumes Name", v.Name,
+			"it is not a volume name: it needs at least two characters from [a-zA-Z0-9][a-zA-Z0-9_.-], and a host directory cannot be mounted",
+			`Name a volume, such as "cart-tests"`)
+	}
+	if !strings.HasPrefix(v.Path, "/") {
+		return InvalidArgument("HostConfig.Volumes Path", v.Path, "it must be an absolute path inside the container", `Use a path such as "/data/db"`)
+	}
+	return nil
+}
+
 // Validate checks a ContainerConfig before it is sent to a daemon.
 func (cfg ContainerConfig) Validate() error {
 	if strings.TrimSpace(cfg.Image) == "" {
@@ -201,6 +217,11 @@ func (cfg ContainerConfig) Validate() error {
 				if err := CheckHostPort(field+".HostPort", b.HostPort); err != nil {
 					return err
 				}
+			}
+		}
+		for _, v := range cfg.HostConfig.Volumes {
+			if err := checkVolumeMount(v); err != nil {
+				return err
 			}
 		}
 	}

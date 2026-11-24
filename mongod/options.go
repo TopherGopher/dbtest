@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -48,7 +49,14 @@ const (
 	nameRandomBytes = 4
 	// secretRandomBytes sizes a generated password and replica set key.
 	secretRandomBytes = 16
+	// dataDir is where every supported image keeps mongod's data.
+	dataDir = "/data/db"
 )
+
+// volumeNamePattern is the daemon's rule for volume names. A host path never
+// matches it, so a name that does cannot mount a directory of the daemon's
+// machine.
+var volumeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 
 // Options says how StartWithOptions runs a container. Begin with
 // DefaultOptions and chain the With methods. Each returns a changed copy, so
@@ -71,6 +79,7 @@ type Options struct {
 	password     string
 	noAuth       bool
 	tls          bool
+	volume       string
 	mongodArgs   []string
 	startTimeout time.Duration
 	pullTimeout  time.Duration
@@ -212,6 +221,31 @@ func (o Options) WithTLS() Options {
 	return o
 }
 
+// WithNamedVolume keeps mongod's data in the Docker volume with this name,
+// so a later start with the same name finds it again. Docker creates the
+// volume on first use. Nothing in this package removes it: remove it with
+// docker volume rm <name>, or pass a new name to start afresh.
+//
+// The root user and password are those of the first start, and a later
+// start with other credentials fails with [ErrVolumeCredentialsChanged]. A
+// volume works with one container at a time, and only with the MongoDB
+// release that created it and the next one; otherwise the start fails with
+// [ErrContainerExited].
+//
+// Inside a container, against a remote daemon, or with WithHostIP, pass
+// WithAuth or WithoutAuth as well. A start there would generate a password,
+// which the volume could not keep, so it returns [ErrVolumeNeedsCredentials].
+func (o Options) WithNamedVolume(name string) Options {
+	switch {
+	case name == "":
+		return o.refused(ErrEmptyVolumeName)
+	case !volumeNamePattern.MatchString(name):
+		return o.refused(invalidVolumeName(name))
+	}
+	o.volume = name
+	return o
+}
+
 // WithMongodArgs passes extra flags to mongod, after any given before.
 func (o Options) WithMongodArgs(args ...string) Options {
 	o.mongodArgs = append(slices.Clone(o.mongodArgs), args...)
@@ -267,9 +301,9 @@ func (o Options) Format(f fmt.State, _ rune) {
 		password = redactedPassword
 	}
 	fmt.Fprintf(f, "mongod.Options{image: %q, name: %q, port: %d, hostIP: %q, replicaSet: %q, username: %q, password: %q, "+
-		"noAuth: %t, tls: %t, mongodArgs: %q, startTimeout: %s, pullTimeout: %s, labels: %v}",
+		"noAuth: %t, tls: %t, volume: %q, mongodArgs: %q, startTimeout: %s, pullTimeout: %s, labels: %v}",
 		o.image.WithVersion(o.version).Reference(), o.name, o.port, o.hostIP, o.replicaSet, o.username, password,
-		o.noAuth, o.tls, o.mongodArgs, o.startTimeout, o.pullTimeout, o.labels)
+		o.noAuth, o.tls, o.volume, o.mongodArgs, o.startTimeout, o.pullTimeout, o.labels)
 }
 
 // refused remembers the first value a With method could not accept.
@@ -403,6 +437,8 @@ func (c config) validate() error {
 		return &UnsupportedForImageError{Image: c.image, Option: "WithMongodArgs", Reason: reasonCommandIsEntrypoint}
 	case c.tls && !c.image.acceptsMongodArgs():
 		return &UnsupportedForImageError{Image: c.image, Option: "WithTLS", Reason: reasonNoTLSFlags}
+	case c.volume != "" && c.image.ReplicaSetPreconfigured():
+		return &UnsupportedForImageError{Image: c.image, Option: "WithNamedVolume", Reason: reasonVolumeUntried}
 	}
 	return nil
 }

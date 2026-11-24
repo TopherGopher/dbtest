@@ -55,6 +55,7 @@ tests. `Start(ctx)` is `StartWithOptions(ctx, mongod.DefaultOptions())`.
 | `WithStartTimeout(d)` | How long a start waits, replica set initiation included. The default is one minute. |
 | `WithMongodArgs(args...)` | Extra flags for `mongod`. |
 | `WithTLS()` | Accept only TLS connections; see [TLS](#tls). |
+| `WithNamedVolume(name)` | Keep the data in a Docker volume that a later start finds again; see [Keeping data between runs](#keeping-data-between-runs). |
 | `WithName(name)`, `WithLabel(key, value)` | The container's name, and labels besides `mongotest=regression`. |
 | `WithLogger(l)` | Where a start is logged. `*slog.Logger` works; the default discards. |
 | `WithDocker(client)` | A specific Docker client, such as a [double](#testing-code-that-starts-containers). |
@@ -96,12 +97,15 @@ another, even when a later option changes the image. So
 `WithImage("mongo:7.0").WithMongoImage(mongod.ImageCommunity)` still asks for
 `7.0`, which the Community image does not publish, and the start is refused.
 
-A start refuses two mistakes before it creates anything:
+A start refuses these mistakes about the image before it creates anything:
 
 - A bare version such as `8` for `ImageCommunity` or `ImageEnterprise`, whose
   tags all name an OS variant such as `8.0-ubi9`: `ErrNoSuchVersion`.
 - `WithReplicaSet`, `WithMongodArgs` or `WithTLS` for `ImageAtlasLocal`, which
   runs its own replica set and takes no `mongod` flags:
+  `ErrUnsupportedForImage`.
+- `WithNamedVolume` for `ImageAtlasLocal`, which names its replica set after
+  the container and so may not start again on a kept volume:
   `ErrUnsupportedForImage`.
 
 An image the package does not know is treated like the official one. To pull
@@ -163,7 +167,8 @@ func TestMain(m *testing.M) {
 | `ID()`, `Name()`, `Image()` | What was started. |
 | `Username()`, `Password()` | The root user, or empty for a `mongod` that does not authenticate. `URI()` already includes them. |
 | `ReplicaSet()` | The name given to `WithReplicaSet`, or empty. |
-| `Stop(ctx)` | Removes the container and its volumes. Safe to call twice. |
+| `Volume()` | The volume that keeps the data, or empty when `Stop` removes it. |
+| `Stop(ctx)` | Removes the container and its anonymous volumes, keeping a volume from `WithNamedVolume`. Safe to call twice. |
 
 ## When a start returns
 
@@ -264,6 +269,48 @@ file `mongod` then requires. An empty name is refused with
 Initiating uses the shell in the image: `mongosh`, or the legacy `mongo`
 where the image has only that. An image with neither fails with
 `ErrNotInitiated`. A replica set adds about half a second to a start.
+
+## Keeping data between runs
+
+By default the data goes when the container goes. To load a large data set
+once and keep it for later runs, keep the data in a named Docker volume:
+
+```go
+c, err := mongod.StartWithOptions(ctx, mongod.DefaultOptions().WithNamedVolume("cart-fixtures"))
+```
+
+A later start with the same name finds the data again, and `c.Volume()`
+returns the name. To know whether a start found data, look for a marker
+document that the run which loaded the data left behind.
+
+Nothing in dbtest removes the volume: not `Stop`, not the signal handler and
+not `ReapRunningContainers`. Remove it with `docker volume rm <name>`, or
+pass a new name to start afresh. `Stop` shuts `mongod` down cleanly before
+it removes the container, so no acknowledged write is lost. A process killed
+with `SIGKILL` gets no such step.
+
+A kept volume has these limits:
+
+- The root user and password are those of the first start. A later
+  `WithAuth` with other credentials does not change them, and the start
+  fails with `ErrVolumeCredentialsChanged`.
+- The password guards the running `mongod`, not the volume. A later start
+  without `WithAuth` serves the kept data with no password, and anyone who
+  can use the Docker daemon can mount the volume.
+- The replica set name is that of the first start. Pass the same
+  `WithReplicaSet` name every time.
+- A volume works only with the MongoDB release that created it and the next
+  one. With another release the start fails with `ErrContainerExited`.
+- Only one container can use a volume at a time. A second start while the
+  first runs fails with `ErrContainerExited`, so tests that run at the same
+  time each need their own name.
+
+When the container would get a generated password (see
+[Who can connect](#who-can-connect)), the start returns
+`ErrVolumeNeedsCredentials`, because the next start would generate a
+different one. Pass `WithAuth` or `WithoutAuth` as well. An empty name is
+refused with `ErrEmptyVolumeName`, and a host directory is refused too,
+because a remote daemon would not have it.
 
 ## Commands and scripts
 

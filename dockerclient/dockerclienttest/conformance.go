@@ -66,6 +66,29 @@ func Conformance(t *testing.T, newClient Factory) {
 	t.Run("puts a container on the network it names", func(t *testing.T) {
 		conformanceNetwork(t, newClient(t))
 	})
+	t.Run("mounts the named volume it is given", func(t *testing.T) {
+		conformanceVolume(t, newClient(t))
+	})
+}
+
+// TestVolume is the named volume the conformance suite mounts. A double
+// keeps nothing in it; a real daemon would create it and keep it.
+const TestVolume = "dbtest-conformance"
+
+// conformanceVolume checks that a create that mounts a named volume is
+// accepted, which is how mongod keeps its data between containers.
+func conformanceVolume(t *testing.T, c dockerclient.Client) {
+	ctx := context.Background()
+	if err := c.ImagePull(ctx, TestImage); err != nil {
+		t.Fatalf("pulling %s: %v", TestImage, err)
+	}
+	_, _, err := c.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
+		Image:      TestImage,
+		HostConfig: &dockerclient.HostConfig{Volumes: []dockerclient.VolumeMount{{Name: TestVolume, Path: "/data/db"}}},
+	})
+	if err != nil {
+		t.Errorf("a create that mounts the volume %s must be accepted, got %v", TestVolume, err)
+	}
 }
 
 // TestNetwork is the network the conformance suite puts a container on. A
@@ -193,6 +216,13 @@ func conformanceValidation(t *testing.T, c dockerclient.Client) {
 				HostConfig: &dockerclient.HostConfig{PortBindings: map[string][]dockerclient.PortBinding{
 					"27017/tcp": {{HostIP: "not-an-ip"}},
 				}},
+			})
+			return err
+		},
+		"a volume named like a host directory": func() error {
+			_, _, err := c.ContainerCreate(ctx, "", dockerclient.ContainerConfig{
+				Image:      TestImage,
+				HostConfig: &dockerclient.HostConfig{Volumes: []dockerclient.VolumeMount{{Name: "/srv/data", Path: "/data/db"}}},
 			})
 			return err
 		},

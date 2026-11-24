@@ -81,6 +81,24 @@ a crashed run do not hold ports and memory the next run needs:
   run: docker ps -aq --filter label=mongotest=regression | xargs -r docker rm --force --volumes
 ```
 
+## Volumes that are kept on purpose
+
+A volume named with `WithNamedVolume` holds data the caller asked to keep,
+so none of the above removes it. `docker rm --volumes` removes only anonymous
+volumes, so the label command keeps it too, and the volume carries no
+`mongotest` label of its own. Remove it with `docker volume rm <name>`;
+`Container.Volume()` returns the name.
+
+On a runner that persists between jobs, kept volumes stay until removed.
+Give them names with a common prefix, such as `ci-cart-fixtures`, and remove
+them all when the job ends:
+
+```sh
+docker volume ls -q --filter name=ci- | xargs -r docker volume rm
+```
+
+Keep only data you would leave on that machine.
+
 ## What cannot be cleaned up
 
 If the Go process is killed with `SIGKILL`, or the machine loses power, none

@@ -56,6 +56,15 @@ type Spec struct {
 	// timeout, for example to initiate a replica set. Its error is returned
 	// as BeforeStart's is.
 	AfterReady func(ctx context.Context) error
+	// BeforeRemove runs once, before Stop or the reaper first removes a
+	// container whose start succeeded, for example to shut the server down
+	// cleanly when its data is on a volume that outlives the container. It
+	// gets at most half the time the removal has left, and the removal goes
+	// ahead whatever it does.
+	BeforeRemove func(ctx context.Context)
+	// ExitAdvice, if set, is what an ExitedError says to try, such as
+	// giving each container its own volume.
+	ExitAdvice string
 	// Advice returns the sentence a NotReadyError ends with when the start
 	// timeout passed, or "" for none. It is given the last failure the start
 	// saw, and whether other starts and this one filled the limit on starts
@@ -93,6 +102,7 @@ func (c *Container) Start(ctx context.Context, spec Spec) (Endpoint, error) {
 		c.removeAfterFailedStart(ctx)
 		return Endpoint{}, err
 	}
+	c.setBeforeRemove(spec.BeforeRemove)
 	return Endpoint{Host: s.host, Port: s.port}, nil
 }
 
@@ -252,7 +262,7 @@ func (s *start) run(ctx context.Context) (dockerclient.ContainerInspect, error) 
 	// the exit here: a stopped container publishes no port, so the port
 	// check below would blame the wrong thing.
 	if hasExited(info.State) {
-		return dockerclient.ContainerInspect{}, s.c.exitedError(ctx, info.State, nil)
+		return dockerclient.ContainerInspect{}, s.exitedError(ctx, info.State, nil)
 	}
 	if err := s.locate(info); err != nil {
 		return dockerclient.ContainerInspect{}, err
@@ -444,7 +454,14 @@ func (s *start) exited(ctx context.Context, cause error) error {
 		return nil // nothing is known, so keep waiting
 	}
 	if hasExited(info.State) {
-		return s.c.exitedError(ctx, info.State, cause)
+		return s.exitedError(ctx, info.State, cause)
 	}
 	return nil
+}
+
+// exitedError is the container's ExitedError with this start's advice.
+func (s *start) exitedError(ctx context.Context, state dockerclient.ContainerState, cause error) *ExitedError {
+	e := s.c.exitedError(ctx, state, cause)
+	e.Advice = s.spec.ExitAdvice
+	return e
 }

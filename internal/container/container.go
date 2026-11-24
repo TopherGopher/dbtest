@@ -23,14 +23,15 @@ type Container struct {
 	docker dockerclient.Client
 	logger dockerclient.Logger
 
-	// mu guards stopped and reaperHandle, and the writing of id, which
-	// Create does once; after that id is read without the lock. Stop can be
-	// called from a defer, a test cleanup and the reaper at once, and holds
-	// mu while it waits for the daemon; see lockContext.
+	// mu guards stopped, reaperHandle and beforeRemove, and the writing of
+	// id, which Create does once; after that id is read without the lock.
+	// Stop can be called from a defer, a test cleanup and the reaper at
+	// once, and holds mu while it waits for the daemon; see lockContext.
 	mu           sync.Mutex
 	id           string
 	stopped      bool
 	reaperHandle reaper.Handle
+	beforeRemove func(context.Context) // see Spec.BeforeRemove
 	// stopWanted says Stop has been called, by the caller or the reaper.
 	// Create's caller reads it to learn that Stop came while the daemon was
 	// creating the container.
@@ -95,6 +96,14 @@ func (c *Container) create(ctx context.Context, request dockerclient.ContainerCo
 	return nil
 }
 
+// setBeforeRemove records what to run before Stop or the reaper removes the
+// container.
+func (c *Container) setBeforeRemove(f func(context.Context)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.beforeRemove = f
+}
+
 // forget drops a container the daemon never created, so that nothing tries
 // to remove it.
 func (c *Container) forget() {
@@ -138,6 +147,7 @@ func (c *Container) stop(ctx context.Context) error {
 	if c.stopped {
 		return nil
 	}
+	c.runBeforeRemove(ctx)
 	if err := c.remove(ctx); err != nil {
 		return err
 	}
@@ -145,6 +155,23 @@ func (c *Container) stop(ctx context.Context) error {
 	reaper.Unregister(c.reaperHandle)
 	c.logger.Debug("Removed the container and its anonymous volumes.", "container", c.name, "id", ShortID(c.id))
 	return nil
+}
+
+// runBeforeRemove runs the hook Start set, once, with half the time ctx has
+// left, so that a hook that hangs cannot use up the removal's time, nor run
+// again on a Stop that is tried again. The caller holds mu.
+func (c *Container) runBeforeRemove(ctx context.Context) {
+	hook := c.beforeRemove
+	c.beforeRemove = nil
+	if hook == nil {
+		return
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Until(deadline)/2)
+		defer cancel()
+	}
+	hook(ctx)
 }
 
 // remove has the daemon remove the container. If Create got no id, there is

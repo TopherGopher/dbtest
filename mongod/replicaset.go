@@ -2,14 +2,26 @@ package mongod
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 )
 
 // initiateScript makes mongod the only member of its replica set, then waits
 // until it is primary, which is when it accepts writes. It checks the result
 // itself: the legacy shell reports a failure in a value and carries on.
-const initiateScript = `var r = rs.initiate(); if (!r.ok) throw new Error(tojson(r)); ` +
-	`while (!db.hello().isWritablePrimary) sleep(50);`
+//
+// The member is localhost:27017, not the container's hostname, which is new
+// for every container: a new container on a kept volume then finds itself in
+// the stored configuration and becomes primary, and initiating again fails
+// with code 23, AlreadyInitialized, which is success here. Clients are not
+// affected, because the URI always carries directConnection=true.
+func initiateScript(replicaSet string) string {
+	name, _ := json.Marshal(replicaSet) // a JSON string is a JavaScript string
+	return `var r; try { r = db.adminCommand({replSetInitiate: ` +
+		`{_id: ` + string(name) + `, members: [{_id: 0, host: "localhost:27017"}]}}); } catch (e) { r = e; } ` +
+		`if (!r.ok && r.code !== 23) throw new Error(JSON.stringify(r)); ` +
+		`while (!db.hello().isWritablePrimary) sleep(50);`
+}
 
 // errNoPrimary is why a start ran out of time during initiation, inside the
 // NotReadyError a caller sees.
@@ -21,7 +33,7 @@ var errNoPrimary = errors.New("the replica set had not accepted writes yet")
 // that is already there.
 func (c *Container) initiateReplicaSet(ctx context.Context) error {
 	c.logger.Debug("Initiating the replica set, so that mongod accepts writes.", "container", c.Name(), "replicaSet", c.replicaSet)
-	result, err := c.runShell(ctx, initiateScript)
+	result, err := c.runShell(ctx, initiateScript(c.replicaSet))
 	switch {
 	case errors.Is(err, ErrNoShell):
 		return c.startError(OpInitiate, &notInitiatedError{reason: reasonNoShell, err: err})

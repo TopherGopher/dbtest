@@ -2,6 +2,7 @@ package dockerclient
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -119,6 +120,31 @@ type HostConfig struct {
 	// "none", "container:<id>", or the name of a network. Empty means the
 	// default bridge.
 	NetworkMode string `json:"NetworkMode,omitempty"`
+	// Volumes mounts named volumes in the container. Docker creates a
+	// volume that does not exist yet, and keeps it when the container is
+	// removed.
+	Volumes []VolumeMount `json:"Mounts,omitempty"`
+}
+
+// VolumeMount mounts one named volume. Only named volumes can be mounted,
+// not host directories, because a remote daemon would not have them.
+type VolumeMount struct {
+	// Name is the volume's name: at least two characters from
+	// [a-zA-Z0-9][a-zA-Z0-9_.-].
+	Name string `json:"Source"`
+	// Path is the absolute path inside the container.
+	Path     string `json:"Target"`
+	ReadOnly bool   `json:"ReadOnly,omitzero"`
+}
+
+// MarshalJSON writes the mount the way the Engine API takes it, as a mount
+// of type "volume".
+func (v VolumeMount) MarshalJSON() ([]byte, error) {
+	type fields VolumeMount
+	return json.Marshal(struct {
+		Type string `json:"Type"`
+		fields
+	}{Type: "volume", fields: fields(v)})
 }
 
 // PortBinding is one published host address for a container port.

@@ -7,6 +7,7 @@ import (
 	"net/netip"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
@@ -144,6 +145,9 @@ func toMobyConfig(cfg dockerclient.ContainerConfig) (*container.Config, *contain
 	hostCfg := &container.HostConfig{
 		AutoRemove:  cfg.HostConfig.AutoRemove,
 		NetworkMode: container.NetworkMode(cfg.HostConfig.NetworkMode),
+	}
+	for _, v := range cfg.HostConfig.Volumes {
+		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{Type: mount.TypeVolume, Source: v.Name, Target: v.Path, ReadOnly: v.ReadOnly})
 	}
 	if len(cfg.HostConfig.PortBindings) > 0 {
 		pm := make(network.PortMap, len(cfg.HostConfig.PortBindings))
