@@ -4,10 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -90,6 +92,41 @@ func TestWithLoggerReceivesRequestRecords(t *testing.T) {
 	assert.Equal(t, "docker request", last.msg, "request records must use a fixed message so log filters can match it")
 	assert.Equal(t, http.MethodGet, last.kv["method"], "the record must carry the HTTP method")
 	assert.Contains(t, fmt.Sprint(last.kv["path"]), "/images/", "the record must carry the request path")
+}
+
+// An slog logger at Debug, the usual way to see requests, gets a record for
+// each one.
+func TestAnSlogLoggerAtDebugReceivesRequestRecords(t *testing.T) {
+	fd, _ := newTestDaemon(t)
+	var out strings.Builder
+	debug := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	c, err := New(WithHost(fd.Host()), WithLogger(debug))
+	require.NoError(t, err, "client construction with a logger")
+
+	_, err = c.ImageInspect(context.Background(), "mongo:8")
+	require.ErrorIs(t, err, dockerclient.ErrNotFound, "the fake daemon starts empty, so this image is not found")
+	inspected := false
+	for line := range strings.Lines(out.String()) {
+		var record struct{ Path string }
+		require.NoError(t, json.Unmarshal([]byte(line), &record), "each record is one JSON object")
+		inspected = inspected || strings.HasSuffix(record.Path, "/images/mongo:8/json")
+	}
+	assert.True(t, inspected, "the inspect has its record")
+}
+
+// A logger that drops Debug records, such as the default or an slog logger
+// at Info, must not cost every request the allocations of building one.
+func TestADroppedRequestRecordIsNotBuilt(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://docker/v1.44/_ping", nil)
+	require.NoError(t, err, "building a canned request")
+	resp := &http.Response{StatusCode: http.StatusOK, Request: req}
+	for name, l := range map[string]dockerclient.Logger{
+		"the default logger":     dockerclient.NopLogger(),
+		"an slog logger at Info": slog.New(slog.NewTextHandler(io.Discard, nil)),
+	} {
+		hook := loggingHook(l)
+		assert.Zero(t, testing.AllocsPerRun(100, func() { hook(resp) }), name)
+	}
 }
 
 func TestWithLoggerDefaultsToNopLogger(t *testing.T) {

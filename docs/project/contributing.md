@@ -32,10 +32,15 @@ go test -race ./...                     # root module
 Integration tests need a Docker daemon, and pull the images they use. Without
 a daemon they fail rather than skip.
 
-Benchmarks and fuzzing:
+### Benchmarks and fuzzing
+
+The Docker client benchmarks run against an in-process fake Docker daemon,
+so no Docker is needed. `BenchmarkStart` in `mongod` starts real
+containers, so it needs a Docker daemon and takes minutes:
 
 ```sh
-go test ./... -run='^$' -bench=. -benchmem
+go test ./dockerapi/... ./dockermock/... ./dockerclient/... -run='^$' -bench=. -benchmem
+go test ./mongod/ -run='^$' -bench=BenchmarkStart -benchtime=1x
 go test ./dockerclient/ -run='^$' -fuzz=FuzzCheckID -fuzztime=30s
 ```
 

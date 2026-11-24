@@ -3,6 +3,7 @@ package mobyclient
 import (
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -206,12 +207,23 @@ func FromEnv() (*Client, error) { return New() }
 // loggingHook builds a client.ResponseHook that logs one Debug record per
 // request, in the same shape dockerapi's WithLogger produces, so a caller
 // switching clients sees familiar log lines.
+//
+// Building a record allocates on every request, so an *slog.Logger is asked
+// first whether it keeps Debug records, and is given the request's context.
+// A logger of any other type cannot be asked, so it is always called.
 func loggingHook(logger dockerclient.Logger) client.ResponseHook {
+	sl, isSlog := logger.(*slog.Logger)
 	return func(resp *http.Response) {
 		if resp == nil || resp.Request == nil {
 			return
 		}
-		logger.Debug("docker request", "method", resp.Request.Method, "path", resp.Request.URL.Path, "status", resp.StatusCode)
+		ctx := resp.Request.Context()
+		switch {
+		case !isSlog:
+			logger.Debug("docker request", "method", resp.Request.Method, "path", resp.Request.URL.Path, "status", resp.StatusCode)
+		case sl.Enabled(ctx, slog.LevelDebug):
+			sl.DebugContext(ctx, "docker request", "method", resp.Request.Method, "path", resp.Request.URL.Path, "status", resp.StatusCode)
+		}
 	}
 }
 
