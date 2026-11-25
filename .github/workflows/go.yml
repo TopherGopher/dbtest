@@ -23,7 +23,7 @@ jobs:
 
     # After the checkout: it reads the Go version from go.mod.
     - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         # Go is the release named by the toolchain line in the root go.mod.
         # It changes only when a reviewed change edits that line, never by
@@ -124,7 +124,7 @@ jobs:
         # No later step pushes, so the token need not stay in the git config.
         persist-credentials: false
     - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
     # dind runs a privileged docker:dind container. sibling, host-network
@@ -153,7 +153,7 @@ jobs:
         # No later step pushes, so the token need not stay in the git config.
         persist-credentials: false
     - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         # When go-version is set, it overrides go-version-file. Otherwise Go
         # is the release named by the toolchain line in the root go.mod,
